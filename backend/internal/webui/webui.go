@@ -68,7 +68,7 @@ func (s *spa) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	st, _ := f.Stat()
 	if rs, ok := f.(interface {
 		Read([]byte) (int, error)

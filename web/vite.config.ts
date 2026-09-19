@@ -21,9 +21,11 @@ export default defineConfig({
 		})
 	],
 	server: {
+		// changeOrigin must stay false: the API rejects unsafe requests whose Origin doesn't match the Host
+		// it was addressed with, and rewriting Host to the backend would break that check.
 		proxy: {
-			'/api': 'http://localhost:8080',
-			'/ws': { target: 'ws://localhost:8080', ws: true }
+			'/api': { target: 'http://localhost:8080', changeOrigin: false },
+			'/ws': { target: 'ws://localhost:8080', ws: true, changeOrigin: false }
 		}
 	}
 });

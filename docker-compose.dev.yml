@@ -1,7 +1,7 @@
 # Local dev: just Postgres. Run backend and web natively (make dev-backend / make dev-web).
 services:
   db:
-    image: postgres:16
+    image: postgres:17
     environment:
       POSTGRES_USER: servicelater
       POSTGRES_PASSWORD: servicelater

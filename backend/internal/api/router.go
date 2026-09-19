@@ -6,16 +6,55 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/servicelater/servicelater/backend/internal/auth"
 )
 
-func NewRouter() http.Handler {
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.RealIP, middleware.Recoverer)
+type Deps struct {
+	Pool   *pgxpool.Pool
+	Auth   *auth.Service
+	Tokens *auth.Tokens
+}
 
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
+type handlers struct {
+	pool *pgxpool.Pool
+	auth *auth.Service
+}
+
+func NewRouter(d Deps) http.Handler {
+	h := &handlers{pool: d.Pool, auth: d.Auth}
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID, middleware.Recoverer)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		// TODO: JWT -> RBAC -> rate limit middleware, then tickets, cmdb, workflows, catalog routes (§7.3)
+		r.Use(sameOrigin)
+
+		r.Route("/auth", func(r chi.Router) {
+			r.Post("/login", h.login)
+			r.Post("/refresh", h.refresh)
+			r.Post("/logout", h.logout)
+			r.With(d.Tokens.Authenticate).Get("/me", h.me)
+		})
+
+		r.Group(func(r chi.Router) {
+			r.Use(d.Tokens.Authenticate)
+
+			r.With(auth.RequireRole("admin", "agent")).Get("/users/staff", h.listStaff)
+
+			r.Route("/tickets", func(r chi.Router) {
+				r.Get("/", h.listTickets)
+				r.Post("/", h.createTicket)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", h.getTicket)
+					r.Get("/comments", h.listComments)
+					r.Post("/comments", h.createComment)
+					r.With(auth.RequireRole("admin", "agent")).Patch("/", h.updateTicket)
+					r.With(auth.RequireRole("admin", "agent")).Post("/transitions", h.transitionTicket)
+				})
+			})
+			// TODO: cmdb, workflows, catalog routes (§7.3)
+		})
 	})
 	return r
 }

@@ -15,22 +15,49 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/servicelater/servicelater/backend/internal/api"
+	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/config"
+	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/webui"
 )
 
 func Run(ctx context.Context, cfg config.Config) error {
+	var deps api.Deps
 	if cfg.NeedsDB() {
-		// TODO: connect pgxpool and run embedded goose migrations (under an advisory lock).
-	}
-	if cfg.Has(config.RoleAPI) {
-		// TODO: start the LISTEN/NOTIFY goroutine and WebSocket hub.
-	}
-	if cfg.Has(config.RoleWorker) {
-		// TODO: start job workers and the workflow engine.
+		pool, err := db.Connect(ctx, cfg.DatabaseURL)
+		if err != nil {
+			return err
+		}
+		defer pool.Close()
+		if err := db.Migrate(ctx, pool); err != nil {
+			return err
+		}
+		slog.Info("database ready")
+		deps.Pool = pool
+
+		if cfg.Has(config.RoleAPI) {
+			tokens, err := auth.NewTokens(cfg.JWTSecret, cfg.AccessTTL)
+			if err != nil {
+				return err
+			}
+			deps.Tokens = tokens
+			deps.Auth = auth.NewService(pool, tokens, cfg.RefreshTTL)
+			if cfg.BootstrapEmail != "" {
+				created, err := deps.Auth.Bootstrap(ctx, cfg.BootstrapEmail, cfg.BootstrapName, cfg.BootstrapPassword)
+				if err != nil {
+					return err
+				}
+				if created {
+					slog.Info("created bootstrap admin", "email", cfg.BootstrapEmail)
+				}
+			}
+			go cleanupLoop(ctx, deps.Auth)
+			// TODO: start the LISTEN/NOTIFY goroutine and WebSocket hub.
+		}
+		// TODO: when cfg.Has(config.RoleWorker), start job workers and the workflow engine.
 	}
 
-	h, err := handler(cfg)
+	h, err := handler(cfg, deps)
 	if err != nil {
 		return err
 	}
@@ -71,14 +98,14 @@ func Run(ctx context.Context, cfg config.Config) error {
 }
 
 // handler routes /api, /ws and /healthz to the API (local or upstream) and everything else to the SPA.
-func handler(cfg config.Config) (http.Handler, error) {
+func handler(cfg config.Config, deps api.Deps) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) })
 
 	var apiH http.Handler
 	switch {
 	case cfg.Has(config.RoleAPI):
-		apiH = api.NewRouter()
+		apiH = api.NewRouter(deps)
 	case cfg.Has(config.RoleWeb) && cfg.APIURL != "":
 		u, err := url.Parse(cfg.APIURL)
 		if err != nil {
@@ -104,4 +131,20 @@ func roleList(cfg config.Config) string {
 		}
 	}
 	return strings.Join(r, ",")
+}
+
+// cleanupLoop expires sessions and rate-limit rows (§5.2).
+func cleanupLoop(ctx context.Context, a *auth.Service) {
+	t := time.NewTicker(5 * time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := a.Cleanup(ctx); err != nil {
+				slog.Error("session cleanup", "err", err)
+			}
+		}
+	}
 }

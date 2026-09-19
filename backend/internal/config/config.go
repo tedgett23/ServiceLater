@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 // Roles a single binary can run. SL_ROLES is a comma-separated set; "all" (the default) is web,api,worker.
@@ -25,6 +26,13 @@ type Config struct {
 	TLSCert   string // files
 	TLSKey    string // files
 	CertCache string // auto
+
+	JWTSecret  string        // api role: HMAC key for access tokens, >= 32 bytes, identical on every api replica
+	AccessTTL  time.Duration // short-lived access token
+	RefreshTTL time.Duration // refresh session lifetime
+
+	// Optional: create the first admin on startup when no users exist.
+	BootstrapEmail, BootstrapName, BootstrapPassword string
 }
 
 func Load() (Config, error) {
@@ -42,6 +50,19 @@ func Load() (Config, error) {
 		TLSCert:     os.Getenv("SL_TLS_CERT"),
 		TLSKey:      os.Getenv("SL_TLS_KEY"),
 		CertCache:   getenv("SL_TLS_CACHE_DIR", "/data/certs"),
+
+		JWTSecret:         os.Getenv("SL_JWT_SECRET"),
+		AccessTTL:         15 * time.Minute,
+		RefreshTTL:        30 * 24 * time.Hour,
+		BootstrapEmail:    os.Getenv("SL_BOOTSTRAP_ADMIN_EMAIL"),
+		BootstrapName:     getenv("SL_BOOTSTRAP_ADMIN_NAME", "Administrator"),
+		BootstrapPassword: os.Getenv("SL_BOOTSTRAP_ADMIN_PASSWORD"),
+	}
+	if c.Roles[RoleAPI] && len(c.JWTSecret) < 32 {
+		return c, fmt.Errorf("SL_JWT_SECRET must be set to at least 32 characters (generate one with: openssl rand -base64 48)")
+	}
+	if (c.BootstrapEmail == "") != (c.BootstrapPassword == "") {
+		return c, fmt.Errorf("SL_BOOTSTRAP_ADMIN_EMAIL and SL_BOOTSTRAP_ADMIN_PASSWORD must be set together")
 	}
 	switch c.TLS {
 	case "off":
