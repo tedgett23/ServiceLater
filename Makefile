@@ -1,4 +1,4 @@
-.PHONY: lint check dev-db dev-backend dev-web build test sqlc pack-apps
+.PHONY: e2e lint check dev-db dev-backend dev-web build test sqlc pack-apps
 
 dev-db:
 	docker compose -f docker-compose.dev.yml up -d db
@@ -18,6 +18,11 @@ build:
 test:
 	cd backend && SL_TEST_DATABASE_URL=$${SL_TEST_DATABASE_URL:-postgres://servicelater:servicelater@localhost:5432/servicelater_test?sslmode=disable} go test -p 1 ./...
 	cd web && npm run check
+
+# Browser tests against the real binary and a scratch database (see web/e2e). Needs Playwright's Chromium:
+#   cd web && npx playwright install chromium
+e2e: build
+	cd web && npm run test:e2e
 
 lint:
 	cd backend && PATH="$$PATH:$$(go env GOPATH)/bin" golangci-lint run

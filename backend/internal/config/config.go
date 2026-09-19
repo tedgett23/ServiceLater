@@ -43,7 +43,7 @@ func Load() (Config, error) {
 	c := Config{
 		Roles:       roles,
 		Addr:        getenv("SL_ADDR", ":8080"),
-		DatabaseURL: getenv("SL_DATABASE_URL", "postgres://servicelater:servicelater@localhost:5432/servicelater?sslmode=disable"),
+		DatabaseURL: DatabaseURL(),
 		APIURL:      os.Getenv("SL_API_URL"),
 		TLS:         getenv("SL_TLS", "off"),
 		Domain:      os.Getenv("SL_DOMAIN"),
@@ -78,6 +78,11 @@ func Load() (Config, error) {
 		return c, fmt.Errorf("SL_TLS must be off, auto or files, got %q", c.TLS)
 	}
 	return c, nil
+}
+
+// DatabaseURL is the connection string from SL_DATABASE_URL, or the local dev default.
+func DatabaseURL() string {
+	return getenv("SL_DATABASE_URL", "postgres://servicelater:servicelater@localhost:5432/servicelater?sslmode=disable")
 }
 
 func (c Config) Has(role string) bool { return c.Roles[role] }

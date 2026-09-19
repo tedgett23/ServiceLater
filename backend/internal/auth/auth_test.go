@@ -71,6 +71,32 @@ func newService(t *testing.T) *auth.Service {
 	return svc
 }
 
+func TestCreateUser(t *testing.T) {
+	ctx := context.Background()
+	svc := newService(t)
+
+	u, err := svc.CreateUser(ctx, " Agent@Example.com ", "Ada Agent", "agent", "correct horse")
+	if err != nil || u.Email != "agent@example.com" || u.Role != "agent" {
+		t.Fatalf("create: %+v %v", u, err)
+	}
+	if _, err := svc.Login(ctx, "agent@example.com", "correct horse", "ip"); err != nil {
+		t.Errorf("new user cannot log in: %v", err)
+	}
+	if _, err := svc.CreateUser(ctx, "AGENT@example.com", "Dup", "agent", "correct horse"); !errors.Is(err, auth.ErrEmailTaken) {
+		t.Errorf("duplicate email: %v", err)
+	}
+	for name, args := range map[string][4]string{
+		"bad role":      {"x@example.com", "X", "superuser", "correct horse"},
+		"no @":          {"nope", "X", "agent", "correct horse"},
+		"no name":       {"y@example.com", " ", "agent", "correct horse"},
+		"weak password": {"z@example.com", "Z", "agent", "short"},
+	} {
+		if _, err := svc.CreateUser(ctx, args[0], args[1], args[2], args[3]); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}
+
 func TestBootstrapOnce(t *testing.T) {
 	svc := newService(t)
 	created, err := svc.Bootstrap(context.Background(), "second@example.com", "Second", "hunter2hunter2")

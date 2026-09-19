@@ -66,3 +66,19 @@ A SvelteKit SPA: sign-in page, then a master-detail ticket queue (list on the le
 - A socket closes when its access token expires (code 4401); the client refreshes the session and reconnects. It also reconnects with backoff after an outage and refetches what it shows, since NOTIFY is fire-and-forget.
 - Limits: 10 connections per user; a client that falls behind is dropped and resyncs.
 - Runs in the `api` role. Every api replica listens independently, so replicas need no coordination, but a load balancer in front must allow long-lived WebSocket connections.
+
+## End-to-end tests
+
+`web/e2e` holds Playwright tests that drive the real production binary (UI embedded) in a real browser against a scratch database: sign-in and session refresh, working a ticket as an agent, what a requester can and cannot see or do, live updates between two browsers (including a dropped connection), and responsive and dark-mode regressions.
+
+    createdb servicelater_e2e            # once; owner must be the servicelater role
+    cd web && npx playwright install chromium   # once
+    make e2e                             # builds, then runs the suite
+
+The scratch database is `servicelater_e2e` (override with `SL_E2E_DATABASE_URL`). It is wiped on every run, and the test users are created with `servicelater user create`. Run a single file with `cd web && npx playwright test e2e/live.spec.ts`, or watch it in a browser with `--headed` / `--ui`. Failures keep a screenshot and a trace (`npx playwright show-trace <trace.zip>`).
+
+## CLI
+
+    SL_USER_PASSWORD=... servicelater user create -email a@b.co -name "Ada" -role agent
+
+Roles: `admin`, `agent`, `end_user`. The password comes from the environment or `-password-stdin`, never a flag.

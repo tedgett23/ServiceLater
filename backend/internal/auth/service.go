@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -25,6 +26,8 @@ const (
 	// A refresh token presented again shortly after rotation is a parallel request (two tabs), not theft.
 	reuseGrace = 10 * time.Second
 )
+
+var ErrEmailTaken = errors.New("a user with that email already exists")
 
 var (
 	ErrInvalidCredentials = errors.New("invalid email or password")
@@ -196,6 +199,37 @@ func (s *Service) Bootstrap(ctx context.Context, email, name, password string) (
 		return q.UpsertCredentials(ctx, dbgen.UpsertCredentialsParams{UserID: u.ID, PasswordHash: hash})
 	})
 	return created, err
+}
+
+// CreateUser adds a user with a password. It is what the `servicelater user create` command uses.
+func (s *Service) CreateUser(ctx context.Context, email, name, role, password string) (User, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	name = strings.TrimSpace(name)
+	if !strings.Contains(email, "@") || name == "" {
+		return User{}, errors.New("email and name are required")
+	}
+	if role != "admin" && role != "agent" && role != "end_user" {
+		return User{}, errors.New("role must be admin, agent or end_user")
+	}
+	hash, err := HashPassword(password)
+	if err != nil {
+		return User{}, err
+	}
+	var out User
+	err = db.WithSystem(ctx, s.pool, func(tx pgx.Tx) error {
+		q := dbgen.New(tx)
+		u, err := q.CreateUser(ctx, dbgen.CreateUserParams{Email: email, Name: name, Role: role})
+		if err != nil {
+			var pe *pgconn.PgError
+			if errors.As(err, &pe) && pe.Code == "23505" { // unique_violation
+				return ErrEmailTaken
+			}
+			return err
+		}
+		out = User{ID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role}
+		return q.UpsertCredentials(ctx, dbgen.UpsertCredentialsParams{UserID: u.ID, PasswordHash: hash})
+	})
+	return out, err
 }
 
 // Cleanup removes expired sessions and stale rate-limit rows.

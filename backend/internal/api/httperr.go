@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -49,6 +50,9 @@ func writeDBError(w http.ResponseWriter, err error) {
 	var ae *apiError
 	var pe *pgconn.PgError
 	switch {
+	case errors.Is(err, context.Canceled):
+		// The client went away (closed the tab, navigated on). Nobody is left to answer, and it is not a fault.
+		return
 	case errors.As(err, &ae):
 		writeError(w, ae.code, ae.msg)
 	case errors.Is(err, pgx.ErrNoRows):
