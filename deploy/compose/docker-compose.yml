@@ -1,0 +1,38 @@
+# AIO deployment (§10.1): one binary serving UI + API + workers, plus Postgres.
+# Run from repo root: docker compose -f deploy/compose/docker-compose.yml --env-file .env up -d
+#
+# HTTPS: for automatic Let's Encrypt set SL_TLS=auto, SL_DOMAIN=<host>, and publish 80/443 (see below).
+# Or terminate TLS in front (load balancer / your own proxy) and leave SL_TLS=off.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: servicelater
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: servicelater
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U servicelater"]
+      interval: 5s
+      retries: 10
+
+  app:
+    build: { context: ../.., dockerfile: Dockerfile }
+    environment:
+      SL_ROLES: all
+      SL_DATABASE_URL: postgres://servicelater:${POSTGRES_PASSWORD}@db:5432/servicelater?sslmode=disable
+      SL_TLS: ${SL_TLS:-off}
+      SL_DOMAIN: ${SL_DOMAIN:-}
+    # Plain HTTP on 8080 by default. For SL_TLS=auto use: SL_ADDR=:443 and ports "443:443" (+ "80:80" for redirects).
+    ports: ["8080:8080"]
+    volumes:
+      - attachments:/data/attachments
+      - certs:/data/certs
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  attachments:
+  certs:

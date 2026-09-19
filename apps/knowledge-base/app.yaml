@@ -1,0 +1,7 @@
+name: knowledge-base
+version: 0.1.0
+author: ServiceLater
+description: Searchable article repository with version history and ticket linking. (P1)
+ServiceLater_min_version: 0.1.0
+dependencies:
+  - core-itsm: ">=0.1.0"

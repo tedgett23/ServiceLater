@@ -1,0 +1,6 @@
+name: core-itsm
+version: 0.1.0
+author: ServiceLater
+description: Shared foundations: base roles, teams, notification templates and common form fields.
+ServiceLater_min_version: 0.1.0
+dependencies: []

@@ -1,0 +1,4 @@
+**/node_modules
+web/.svelte-kit
+backend/internal/webui/dist
+.git

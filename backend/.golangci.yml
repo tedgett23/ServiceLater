@@ -1,0 +1,25 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: none
+  enable:
+    - errcheck        # unchecked errors, e.g. a missed tx.Rollback()
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - bodyclose
+    - rowserrcheck    # pgx rows.Err() after iteration
+    - sqlclosecheck   # rows/statements left open
+    - noctx           # HTTP requests without context
+    - errorlint
+    - gosec
+    - misspell
+  exclusions:
+    paths:
+      - internal/db/dbgen   # sqlc-generated
+formatters:
+  enable:
+    - gofmt
+    - goimports

@@ -1,0 +1,12 @@
+# Local dev: just Postgres. Run backend and web natively (make dev-backend / make dev-web).
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: servicelater
+      POSTGRES_PASSWORD: servicelater
+      POSTGRES_DB: servicelater
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+volumes:
+  pgdata:

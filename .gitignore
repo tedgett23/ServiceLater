@@ -1,0 +1,8 @@
+.env
+*.swapp
+.DS_Store
+CLAUDE.md
+ServiceLater-MVP.md
+backend/bin/
+backend/internal/webui/dist/*
+!backend/internal/webui/dist/.gitkeep
