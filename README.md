@@ -57,3 +57,12 @@ Ticket and comment responses include display names (`requester_name`, `assignee_
 ## UI
 
 A SvelteKit SPA: sign-in page, then a master-detail ticket queue (list on the left, ticket on the right; one pane at a time on narrow screens). Keyboard: `j`/`k` move through the queue, `c` creates a ticket, `/` searches. Edits (status, priority, assignee, comments) apply instantly and roll back if the server refuses them. Fonts are bundled (Public Sans, Big Shoulders Display), so nothing loads from a third party and it works air-gapped. Colors adapt to the OS light or dark setting.
+
+## Realtime
+
+`WS /ws/v1/subscribe` (cookie-authenticated, same-origin only) streams change hints from Postgres `LISTEN/NOTIFY` to every open browser tab, so the queue and open tickets update without reloading. Events carry ids only (`ticket.changed`, `comment.added`, `resync`); the UI refetches through the normal API, so RLS still decides what anyone can read.
+
+- Staff hear about every ticket; everyone else only about their own. Internal notes never signal to non-staff.
+- A socket closes when its access token expires (code 4401); the client refreshes the session and reconnects. It also reconnects with backoff after an outage and refetches what it shows, since NOTIFY is fire-and-forget.
+- Limits: 10 connections per user; a client that falls behind is dropped and resyncs.
+- Runs in the `api` role. Every api replica listens independently, so replicas need no coordination, but a load balancer in front must allow long-lived WebSocket connections.

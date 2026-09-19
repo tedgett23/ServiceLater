@@ -94,6 +94,34 @@ class Queue {
 		}
 	}
 
+	private refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+	/** Refresh soon, once, however many change events arrive in a burst. */
+	scheduleRefresh() {
+		clearTimeout(this.refreshTimer);
+		this.refreshTimer = setTimeout(() => void this.refresh(), 250);
+	}
+
+	/**
+	 * Re-fetch the top of the list without the loading state or resetting scroll. Covers as many rows as are
+	 * already loaded (up to 100), so live changes appear in place.
+	 */
+	async refresh() {
+		if (!this.started) return;
+		const gen = this.generation;
+		const want = Math.min(100, Math.max(30, this.items.length));
+		try {
+			const p = new URLSearchParams(this.query(0).split('?')[1]);
+			p.set('limit', String(want));
+			const page = await api<TicketPage>(`/api/v1/tickets?${p}`);
+			if (gen !== this.generation) return; // the filter changed meanwhile
+			this.items = page.items;
+			this.hasMore = page.has_more;
+		} catch {
+			/* a failed background refresh is not worth interrupting anyone for */
+		}
+	}
+
 	/** Replace a ticket in place if listed. */
 	upsert(t: Ticket) {
 		const i = this.items.findIndex((x) => x.id === t.id);

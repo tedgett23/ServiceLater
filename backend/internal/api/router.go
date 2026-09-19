@@ -9,12 +9,14 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/realtime"
 )
 
 type Deps struct {
 	Pool   *pgxpool.Pool
 	Auth   *auth.Service
 	Tokens *auth.Tokens
+	Hub    *realtime.Hub // optional: without it there is no /ws endpoint
 }
 
 type handlers struct {
@@ -56,5 +58,12 @@ func NewRouter(d Deps) http.Handler {
 			// TODO: cmdb, workflows, catalog routes (§7.3)
 		})
 	})
+
+	if d.Hub != nil {
+		r.With(d.Tokens.Authenticate).Get("/ws/v1/subscribe", func(w http.ResponseWriter, req *http.Request) {
+			p, _ := auth.PrincipalFrom(req.Context())
+			d.Hub.Serve(w, req, p)
+		})
+	}
 	return r
 }

@@ -1,15 +1,32 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
+	import { queue } from '$lib/queue.svelte';
+	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
 	import { ui } from '$lib/ui.svelte';
 	import NewTicket from '$lib/components/NewTicket.svelte';
 
 	let { children } = $props();
+
+	onMount(() => {
+		realtime.start();
+		const off = realtime.on((e) => {
+			if (e.type === 'ticket.changed' || e.type === 'resync') queue.scheduleRefresh();
+		});
+		return () => {
+			off();
+			realtime.stop();
+		};
+	});
 </script>
 
 <div class="shell">
 	<header>
 		<a class="mark" href="/tickets" aria-label="ServiceLater, ticket queue">ServiceLater</a>
 		<div class="right">
+			{#if realtime.down}
+				<span class="offline" role="status">Reconnecting…</span>
+			{/if}
 			<button class="btn primary" onclick={() => (ui.newTicketOpen = true)}>
 				New ticket <kbd aria-hidden="true">c</kbd>
 			</button>
@@ -55,6 +72,15 @@
 		align-items: center;
 		gap: 0.75rem;
 		min-width: 0;
+	}
+	.offline {
+		padding: 0.1rem 0.5rem;
+		border-radius: 2px;
+		background: var(--marker);
+		color: var(--on-marker);
+		font-size: 0.8125rem;
+		font-weight: 600;
+		white-space: nowrap;
 	}
 	.who {
 		font-size: 0.9rem;

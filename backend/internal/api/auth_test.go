@@ -14,16 +14,23 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/api"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/dbtest"
+	"github.com/servicelater/servicelater/backend/internal/realtime"
 )
 
 func setup(t *testing.T) (http.Handler, *pgxpool.Pool) {
+	h, pool, _ := setupWith(t, time.Minute, nil)
+	return h, pool
+}
+
+// setupWith also lets a test choose the access token lifetime and attach a realtime hub.
+func setupWith(t *testing.T, accessTTL time.Duration, hub *realtime.Hub) (http.Handler, *pgxpool.Pool, *auth.Tokens) {
 	pool := dbtest.Pool(t)
-	tk, _ := auth.NewTokens("0123456789abcdef0123456789abcdef", time.Minute)
+	tk, _ := auth.NewTokens("0123456789abcdef0123456789abcdef", accessTTL)
 	svc := auth.NewService(pool, tk, time.Hour)
 	if _, err := svc.Bootstrap(context.Background(), "admin@example.com", "Admin", "hunter2hunter2"); err != nil {
 		t.Fatal(err)
 	}
-	return api.NewRouter(api.Deps{Pool: pool, Auth: svc, Tokens: tk}), pool
+	return api.NewRouter(api.Deps{Pool: pool, Auth: svc, Tokens: tk, Hub: hub}), pool, tk
 }
 
 func do(h http.Handler, method, path, body string, cookies []*http.Cookie, hdr ...string) *httptest.ResponseRecorder {

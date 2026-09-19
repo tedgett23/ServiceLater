@@ -44,16 +44,17 @@ func (t *Tokens) Issue(userID uuid.UUID, role string) (string, time.Time, error)
 	return s, exp, err
 }
 
-func (t *Tokens) Parse(s string) (uuid.UUID, string, error) {
+// Parse verifies a token and returns who it identifies and when it stops being valid.
+func (t *Tokens) Parse(s string) (Principal, error) {
 	var c Claims
 	_, err := jwt.ParseWithClaims(s, &c, func(*jwt.Token) (any, error) { return t.secret, nil },
 		jwt.WithValidMethods([]string{"HS256"}), jwt.WithExpirationRequired())
 	if err != nil {
-		return uuid.Nil, "", err
+		return Principal{}, err
 	}
 	id, err := uuid.Parse(c.Subject)
 	if err != nil {
-		return uuid.Nil, "", errors.New("auth: bad subject")
+		return Principal{}, errors.New("auth: bad subject")
 	}
-	return id, c.Role, nil
+	return Principal{UserID: id, Role: c.Role, Expires: c.ExpiresAt.Time}, nil
 }

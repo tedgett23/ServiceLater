@@ -18,6 +18,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/config"
 	"github.com/servicelater/servicelater/backend/internal/db"
+	"github.com/servicelater/servicelater/backend/internal/realtime"
 	"github.com/servicelater/servicelater/backend/internal/webui"
 )
 
@@ -52,7 +53,8 @@ func Run(ctx context.Context, cfg config.Config) error {
 				}
 			}
 			go cleanupLoop(ctx, deps.Auth)
-			// TODO: start the LISTEN/NOTIFY goroutine and WebSocket hub.
+			deps.Hub = realtime.NewHub()
+			go deps.Hub.Run(ctx, cfg.DatabaseURL)
 		}
 		// TODO: when cfg.Has(config.RoleWorker), start job workers and the workflow engine.
 	}

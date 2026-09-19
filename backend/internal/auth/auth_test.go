@@ -36,24 +36,24 @@ func TestTokens(t *testing.T) {
 	tk, _ := auth.NewTokens(secret, time.Minute)
 	id := uuid.New()
 	s, _, _ := tk.Issue(id, "agent")
-	got, role, err := tk.Parse(s)
-	if err != nil || got != id || role != "agent" {
-		t.Fatalf("parse: %v %v %v", got, role, err)
+	got, err := tk.Parse(s)
+	if err != nil || got.UserID != id || got.Role != "agent" || time.Until(got.Expires) <= 0 {
+		t.Fatalf("parse: %+v %v", got, err)
 	}
 	other, _ := auth.NewTokens(strings.ToUpper(secret), time.Minute)
-	if _, _, err := other.Parse(s); err == nil {
+	if _, err := other.Parse(s); err == nil {
 		t.Error("token signed with another key accepted")
 	}
 	expired, _ := auth.NewTokens(secret, -time.Minute)
 	e, _, _ := expired.Issue(id, "agent")
-	if _, _, err := tk.Parse(e); err == nil {
+	if _, err := tk.Parse(e); err == nil {
 		t.Error("expired token accepted")
 	}
 	// alg=none must be rejected.
 	none, _ := jwt.NewWithClaims(jwt.SigningMethodNone, auth.Claims{Role: "admin",
 		RegisteredClaims: jwt.RegisteredClaims{Subject: id.String(), ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour))}}).
 		SignedString(jwt.UnsafeAllowNoneSignatureType)
-	if _, _, err := tk.Parse(none); err == nil {
+	if _, err := tk.Parse(none); err == nil {
 		t.Error("alg=none accepted")
 	}
 	if _, err := auth.NewTokens("short", time.Minute); err == nil {

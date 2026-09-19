@@ -5,6 +5,7 @@
 	import Status from '$lib/components/Status.svelte';
 	import { nextStatuses, priorityLabel, statusLabel, transitionVerb, when } from '$lib/format';
 	import { queue } from '$lib/queue.svelte';
+	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
 	import { staff } from '$lib/staff.svelte';
 	import type { Comment, Status as StatusT, Ticket } from '$lib/types';
@@ -17,6 +18,7 @@
 	let ticket = $state(untrack(() => props.ticket));
 	let comments = $state(untrack(() => props.comments));
 	let error = $state('');
+	let inflight = 0; // local edits awaiting the server; live refetches wait so they can't undo them
 
 	const canEdit = $derived(isStaff(session.user));
 	const path = $derived(`/api/v1/tickets/${ticket.id}`);
@@ -33,6 +35,7 @@
 	async function change(optimistic: Partial<Ticket>, request: () => Promise<Ticket>, done: string) {
 		const before = ticket;
 		error = '';
+		inflight++;
 		ticket = { ...ticket, ...optimistic };
 		queue.patch(ticket.id, optimistic);
 		try {
@@ -43,8 +46,48 @@
 			ticket = before;
 			queue.upsert(before);
 			error = e instanceof Error ? e.message : 'That change didn’t save';
+		} finally {
+			inflight--;
 		}
 	}
+
+	// Live updates: another person changed this ticket or commented. Refetch through the API.
+	async function reloadTicket() {
+		if (inflight > 0) return;
+		try {
+			const fresh = await api<Ticket>(path);
+			if (inflight > 0) return;
+			if (fresh.updated_at !== ticket.updated_at) ui.announce = 'This ticket was updated';
+			ticket = fresh;
+			queue.upsert(fresh);
+		} catch {
+			/* keep showing what we have */
+		}
+	}
+
+	async function reloadComments() {
+		try {
+			const fresh = (await api<{ items: Comment[] }>(`${path}/comments`)).items;
+			const known = new Set(fresh.map((c) => c.id));
+			// Keep comments still being sent; drop any the server already has, so nothing shows twice.
+			comments = [...fresh, ...comments.filter((c) => c.pending && !known.has(c.id))];
+		} catch {
+			/* keep showing what we have */
+		}
+	}
+
+	$effect(() =>
+		realtime.on((e) => {
+			if (e.type === 'resync') {
+				void reloadTicket();
+				void reloadComments();
+			} else if (e.type === 'ticket.changed' && e.id === ticket.id) {
+				void reloadTicket();
+			} else if (e.type === 'comment.added' && e.ticket_id === ticket.id) {
+				void reloadComments();
+			}
+		})
+	);
 
 	const moveTo = (to: StatusT) =>
 		change({ status: to }, () => api<Ticket>(`${path}/transitions`, { method: 'POST', body: { to } }), `Ticket moved to ${statusLabel[to]}`);
@@ -87,7 +130,8 @@
 		draft = '';
 		try {
 			const c = await api<Comment>(`${path}/comments`, { method: 'POST', body: { body, internal: saved.internal } });
-			comments = comments.map((x) => (x.id === temp.id ? c : x));
+			// A live refetch may already have delivered this comment; never show it twice.
+			comments = [...comments.filter((x) => x.id !== temp.id && x.id !== c.id), c].sort((a, b) => a.created_at.localeCompare(b.created_at));
 		} catch (err) {
 			comments = comments.filter((x) => x.id !== temp.id);
 			draft = saved.draft; // give the text back

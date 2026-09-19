@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -18,8 +19,9 @@ type ctxKey struct{}
 
 // Principal is the authenticated caller, taken from a verified access token.
 type Principal struct {
-	UserID uuid.UUID
-	Role   string
+	UserID  uuid.UUID
+	Role    string
+	Expires time.Time // when the access token stops being valid
 }
 
 func PrincipalFrom(ctx context.Context) (Principal, bool) {
@@ -35,12 +37,12 @@ func (t *Tokens) Authenticate(next http.Handler) http.Handler {
 			deny(w, http.StatusUnauthorized, "not authenticated")
 			return
 		}
-		id, role, err := t.Parse(c.Value)
+		p, err := t.Parse(c.Value)
 		if err != nil {
 			deny(w, http.StatusUnauthorized, "not authenticated")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, Principal{UserID: id, Role: role})))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 	})
 }
 
