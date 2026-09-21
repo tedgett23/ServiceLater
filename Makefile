@@ -1,11 +1,11 @@
-.PHONY: e2e lint check dev-db dev-backend dev-web build test sqlc pack-apps
+.PHONY: e2e lint check apps-validate sync-apps dev-db dev-backend dev-web build test sqlc pack-apps
 
 dev-db:
 	docker compose -f docker-compose.dev.yml up -d db
 
 # Dev-only secret and admin; never reuse these outside a laptop.
 dev-backend:
-	cd backend && SL_JWT_SECRET=dev-only-secret-dev-only-secret-dev-only SL_BOOTSTRAP_ADMIN_EMAIL=admin@localhost SL_BOOTSTRAP_ADMIN_PASSWORD=admin-password go run ./cmd/servicelater
+	cd backend && SL_APPS_LOCAL_DIR=$(CURDIR)/apps-local SL_JWT_SECRET=dev-only-secret-dev-only-secret-dev-only SL_BOOTSTRAP_ADMIN_EMAIL=admin@localhost SL_BOOTSTRAP_ADMIN_PASSWORD=admin-password go run ./cmd/servicelater
 
 dev-web:
 	cd web && npm run dev
@@ -23,6 +23,16 @@ test:
 #   cd web && npx playwright install chromium
 e2e: build
 	cd web && npm run test:e2e
+
+# First-party apps live in apps/ and are embedded in the binary; the server installs them at startup.
+FIRST_PARTY_APPS := core-itsm incident-management
+
+apps-validate:
+	cd backend && go run ./cmd/servicelater app validate $(addprefix ../apps/,$(FIRST_PARTY_APPS))
+
+# Apply the bundled apps and any files in apps-local/ to the dev database now, without restarting the backend.
+sync-apps:
+	cd backend && SL_APPS_LOCAL_DIR=$(CURDIR)/apps-local go run ./cmd/servicelater app sync
 
 lint:
 	cd backend && PATH="$$PATH:$$(go env GOPATH)/bin" golangci-lint run

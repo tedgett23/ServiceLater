@@ -4,7 +4,7 @@
 	let { data } = $props();
 </script>
 
-<svelte:head><title>#{data.ticket.number} {data.ticket.title} – ServiceLater</title></svelte:head>
+<svelte:head><title>{data.ticket.reference} {data.ticket.title} – ServiceLater</title></svelte:head>
 
 <!-- Keyed so moving to another ticket starts from that ticket's data, not the previous one's edits. -->
 {#key data.ticket.id}

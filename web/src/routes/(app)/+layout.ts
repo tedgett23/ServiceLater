@@ -1,4 +1,5 @@
 import { redirect } from '@sveltejs/kit';
+import { lifecycle } from '$lib/lifecycle.svelte';
 import { session } from '$lib/session.svelte';
 
 export const load = async ({ url }) => {
@@ -7,5 +8,6 @@ export const load = async ({ url }) => {
 		const next = url.pathname + url.search;
 		redirect(307, next === '/' ? '/login' : `/login?next=${encodeURIComponent(next)}`);
 	}
+	await lifecycle.ensure(); // labels and buttons come from the installed lifecycle
 	return { user };
 };

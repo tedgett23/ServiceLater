@@ -1,7 +1,7 @@
 import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { PASSWORD, stateFile, USERS, type Who } from './users';
 
-export type Ticket = { id: string; number: number; title: string; status: string };
+export type Ticket = { id: string; type: string; number: number; reference: string; title: string; status: string };
 
 /** Short unique text so tests can find their own data among everyone else's. */
 export const uid = () => Math.random().toString(36).slice(2, 8);
@@ -45,6 +45,9 @@ export async function openTicket(page: Page, number: number) {
 	await page.goto(`/tickets/${number}`);
 	await expect(page.locator('.stub')).toContainText(String(number));
 }
+
+/** The comment box. Staff also have a resolution notes box on an incident, so `getByRole('textbox')` is ambiguous. */
+export const composer = (page: Page) => page.locator('.composer').getByRole('textbox');
 
 /** The ticket details panel (status, priority, assignee). Scoping to it avoids matching the new-ticket dialog. */
 export const details = (page: Page) => page.getByRole('complementary', { name: 'Ticket details' });

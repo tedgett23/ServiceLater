@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/servicelater/servicelater/backend/internal/api"
+	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/dbtest"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
@@ -22,15 +23,31 @@ func setup(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	return h, pool
 }
 
+// setupApps is setup, but also returns the app registry the router serves from.
+func setupApps(t *testing.T) (http.Handler, *pgxpool.Pool, *apps.Registry) {
+	h, pool, _, reg := build(t, time.Minute, nil)
+	return h, pool, reg
+}
+
 // setupWith also lets a test choose the access token lifetime and attach a realtime hub.
 func setupWith(t *testing.T, accessTTL time.Duration, hub *realtime.Hub) (http.Handler, *pgxpool.Pool, *auth.Tokens) {
+	h, pool, tk, _ := build(t, accessTTL, hub)
+	return h, pool, tk
+}
+
+func build(t *testing.T, accessTTL time.Duration, hub *realtime.Hub) (http.Handler, *pgxpool.Pool, *auth.Tokens, *apps.Registry) {
 	pool := dbtest.Pool(t)
+	dbtest.InstallFirstParty(t, pool)
+	reg := apps.NewRegistry(pool)
+	if err := reg.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	tk, _ := auth.NewTokens("0123456789abcdef0123456789abcdef", accessTTL)
 	svc := auth.NewService(pool, tk, time.Hour)
 	if _, err := svc.Bootstrap(context.Background(), "admin@example.com", "Admin", "hunter2hunter2"); err != nil {
 		t.Fatal(err)
 	}
-	return api.NewRouter(api.Deps{Pool: pool, Auth: svc, Tokens: tk, Hub: hub}), pool, tk
+	return api.NewRouter(api.Deps{Pool: pool, Auth: svc, Tokens: tk, Hub: hub, Apps: reg}), pool, tk, reg
 }
 
 func do(h http.Handler, method, path, body string, cookies []*http.Cookie, hdr ...string) *httptest.ResponseRecorder {

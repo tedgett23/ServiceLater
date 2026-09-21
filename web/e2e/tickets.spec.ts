@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api, as, createTicket, details, openTicket, row, uid } from './helpers';
+import { api, as, composer, createTicket, details, openTicket, row, uid } from './helpers';
 import { USERS } from './users';
 
 test.describe('an agent working the queue', () => {
@@ -57,7 +57,7 @@ test.describe('an agent working the queue', () => {
 		const t = await createTicket(context, { title: `Thread ${uid()}` });
 		await openTicket(page, t.number);
 
-		const box = page.getByRole('textbox');
+		const box = composer(page);
 		await box.fill('Reproduced on staging.');
 		await box.press('Control+Enter'); // submit from the keyboard
 		await expect(page.locator('li', { hasText: 'Reproduced on staging.' })).toHaveCount(1);
@@ -71,8 +71,8 @@ test.describe('an agent working the queue', () => {
 		await expect(page.locator('li.internal', { hasText: 'old firmware' })).toBeVisible();
 
 		await page.reload();
-		await expect(page.locator('li')).toHaveCount(2);
-		await expect(page.locator('li.internal')).toHaveCount(1);
+		await expect(page.locator('.activity li')).toHaveCount(2);
+		await expect(page.locator('.activity li.internal')).toHaveCount(1);
 	});
 
 	test('changing priority and assignee sticks, and can be undone', async ({ browser }) => {
@@ -141,6 +141,39 @@ test.describe('an agent working the queue', () => {
 
 		await page.keyboard.press('/');
 		await expect(page.getByLabel('Search ticket titles')).toBeFocused();
+	});
+
+	test('a ticket is named by its type and number, however you reach it', async ({ browser }) => {
+		const { context, page } = await as(browser, 'agent');
+		const t = await createTicket(context, { title: `Named ${uid()}` });
+		expect(t.reference).toBe(`INC${t.number}`);
+
+		await page.goto(`/tickets/${t.reference}`); // by reference
+		await expect(page.getByRole('heading', { level: 1 })).toHaveText(t.title);
+		await expect(page).toHaveTitle(new RegExp(`^${t.reference} `));
+		await page.goto(`/tickets/${t.number}`); // a bare number still means an incident
+		await expect(page.getByRole('heading', { level: 1 })).toHaveText(t.title);
+		await page.goto(`/tickets/CHG${t.number}`); // the same number under another type is a different ticket
+		await expect(page.getByText('doesn’t exist, or you don’t have access')).toBeVisible();
+	});
+
+	test('resolution notes are kept with the incident, and the requester reads them', async ({ browser }) => {
+		const agent = await as(browser, 'agent');
+		const lena = await as(browser, 'lena');
+		const t = await createTicket(lena.context, { title: `Resolved ${uid()}` });
+		await openTicket(agent.page, t.number);
+
+		const notes = agent.page.getByLabel('Resolution notes');
+		await notes.fill('Replaced the gateway certificate and restarted the tunnel.');
+		await notes.blur(); // saved when you leave the box
+		await agent.page.reload();
+		await expect(agent.page.getByLabel('Resolution notes')).toHaveValue('Replaced the gateway certificate and restarted the tunnel.');
+
+		// The requester sees them as text, with nothing to edit.
+		await openTicket(lena.page, t.number);
+		await expect(lena.page.getByRole('heading', { name: 'Resolution' })).toBeVisible();
+		await expect(lena.page.getByText('Replaced the gateway certificate and restarted the tunnel.')).toBeVisible();
+		await expect(lena.page.getByLabel('Resolution notes')).toHaveCount(0);
 	});
 
 	test('a missing ticket explains itself', async ({ browser }) => {

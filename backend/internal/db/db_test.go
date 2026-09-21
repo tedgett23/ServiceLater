@@ -37,12 +37,15 @@ func TestTicketRLS(t *testing.T) {
 	bob := mkUser(t, pool, "bob@x", "end_user")
 	agent := mkUser(t, pool, "agent@x", "agent")
 
-	create := func(who uuid.UUID, title string) (dbgen.Ticket, error) {
-		var tk dbgen.Ticket
+	create := func(who uuid.UUID, title string) (dbgen.Task, error) {
+		var tk dbgen.Task
 		err := db.WithUser(ctx, pool, who, func(tx pgx.Tx) error {
 			var err error
-			tk, err = dbgen.New(tx).CreateTicket(ctx, dbgen.CreateTicketParams{Title: title, Priority: 3, RequesterID: who})
-			return err
+			q := dbgen.New(tx)
+			if tk, err = q.CreateTask(ctx, dbgen.CreateTaskParams{Type: "incident", Title: title, Priority: 3, RequesterID: who, Status: "new", StateCategory: "open"}); err != nil {
+				return err
+			}
+			return q.CreateIncident(ctx, tk.ID)
 		})
 		return tk, err
 	}
@@ -67,7 +70,7 @@ func TestTicketRLS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := list(alice); len(got) != 1 || got[0].Ticket.ID != aliceT.ID {
+	if got := list(alice); len(got) != 1 || got[0].Task.ID != aliceT.ID {
 		t.Errorf("alice should see only her ticket, got %d", len(got))
 	}
 	if got := list(agent); len(got) != 2 {
@@ -76,7 +79,7 @@ func TestTicketRLS(t *testing.T) {
 
 	// An end user cannot file a ticket on someone else's behalf.
 	err = db.WithUser(ctx, pool, alice, func(tx pgx.Tx) error {
-		_, err := dbgen.New(tx).CreateTicket(ctx, dbgen.CreateTicketParams{Title: "spoof", Priority: 3, RequesterID: bob})
+		_, err := dbgen.New(tx).CreateTask(ctx, dbgen.CreateTaskParams{Type: "incident", Title: "spoof", Priority: 3, RequesterID: bob, Status: "new", StateCategory: "open"})
 		return err
 	})
 	if err == nil {
@@ -85,7 +88,7 @@ func TestTicketRLS(t *testing.T) {
 
 	// An end user cannot update tickets (zero rows visible to UPDATE).
 	err = db.WithUser(ctx, pool, alice, func(tx pgx.Tx) error {
-		_, err := dbgen.New(tx).UpdateTicketStatus(ctx, dbgen.UpdateTicketStatusParams{ID: aliceT.ID, Status: "closed"})
+		_, err := dbgen.New(tx).UpdateTaskStatus(ctx, dbgen.UpdateTaskStatusParams{ID: aliceT.ID, Status: "closed", StateCategory: "closed"})
 		return err
 	})
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -93,7 +96,7 @@ func TestTicketRLS(t *testing.T) {
 	}
 	// An agent can.
 	err = db.WithUser(ctx, pool, agent, func(tx pgx.Tx) error {
-		_, err := dbgen.New(tx).UpdateTicketStatus(ctx, dbgen.UpdateTicketStatusParams{ID: aliceT.ID, Status: "in_progress"})
+		_, err := dbgen.New(tx).UpdateTaskStatus(ctx, dbgen.UpdateTaskStatusParams{ID: aliceT.ID, Status: "in_progress", StateCategory: "open"})
 		return err
 	})
 	if err != nil {
@@ -116,7 +119,7 @@ func TestNoUserSeesNothing(t *testing.T) {
 	pool := testPool(t)
 	alice := mkUser(t, pool, "alice@x", "end_user")
 	if err := db.WithUser(ctx, pool, alice, func(tx pgx.Tx) error {
-		_, err := dbgen.New(tx).CreateTicket(ctx, dbgen.CreateTicketParams{Title: "t", Priority: 3, RequesterID: alice})
+		_, err := dbgen.New(tx).CreateTask(ctx, dbgen.CreateTaskParams{Type: "incident", Title: "t", Priority: 3, RequesterID: alice, Status: "new", StateCategory: "open"})
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -127,7 +130,7 @@ func TestNoUserSeesNothing(t *testing.T) {
 			return err
 		}
 		var n int
-		if err := tx.QueryRow(ctx, "SELECT count(*) FROM tickets").Scan(&n); err != nil {
+		if err := tx.QueryRow(ctx, "SELECT count(*) FROM tasks").Scan(&n); err != nil {
 			return err
 		}
 		if n != 0 {
@@ -143,5 +146,96 @@ func TestNoUserSeesNothing(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// An incident's own row is only ever as visible, and as editable, as its task.
+func TestExtensionRowsFollowTheirTask(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	alice := mkUser(t, pool, "alice@x", "end_user")
+	bob := mkUser(t, pool, "bob@x", "end_user")
+	agent := mkUser(t, pool, "agent@x", "agent")
+
+	var aliceTask dbgen.Task
+	if err := db.WithUser(ctx, pool, alice, func(tx pgx.Tx) error {
+		q := dbgen.New(tx)
+		var err error
+		if aliceTask, err = q.CreateTask(ctx, dbgen.CreateTaskParams{Type: "incident", Title: "a", Priority: 3, RequesterID: alice, Status: "new", StateCategory: "open"}); err != nil {
+			return err
+		}
+		return q.CreateIncident(ctx, aliceTask.ID)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	count := func(who uuid.UUID, query string, args ...any) (n int) {
+		t.Helper()
+		if err := db.WithUser(ctx, pool, who, func(tx pgx.Tx) error { return tx.QueryRow(ctx, query, args...).Scan(&n) }); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count(alice, "SELECT count(*) FROM incidents"); n != 1 {
+		t.Errorf("the requester sees %d incident rows of their own, want 1", n)
+	}
+	if n := count(bob, "SELECT count(*) FROM incidents"); n != 0 {
+		t.Errorf("another user sees %d of alice's incident rows, want 0", n)
+	}
+	if n := count(agent, "SELECT count(*) FROM incidents"); n != 1 {
+		t.Errorf("staff see %d incident rows, want 1", n)
+	}
+
+	// Only staff change it. For an end user the row is simply not updatable, so zero rows change.
+	update := func(who uuid.UUID) int64 {
+		t.Helper()
+		var n int64
+		if err := db.WithUser(ctx, pool, who, func(tx pgx.Tx) error {
+			tag, err := tx.Exec(ctx, "UPDATE incidents SET resolution = 'fixed' WHERE task_id = $1", aliceTask.ID)
+			n = tag.RowsAffected()
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := update(alice); n != 0 {
+		t.Error("a requester must not be able to write resolution notes")
+	}
+	if n := update(agent); n != 1 {
+		t.Error("staff must be able to write resolution notes")
+	}
+
+	// Nobody can attach an incident row to a task they cannot see.
+	err := db.WithUser(ctx, pool, bob, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, "INSERT INTO incidents (task_id) VALUES ($1)", aliceTask.ID)
+		return err
+	})
+	if err == nil {
+		t.Error("bob attached an incident row to alice's task")
+	}
+}
+
+// The registry of types is readable by everyone signed in, and writable by nobody but the owner.
+func TestTaskTypeRegistryIsReadOnlyForUsers(t *testing.T) {
+	ctx := context.Background()
+	pool := testPool(t)
+	alice := mkUser(t, pool, "alice@x", "end_user")
+	agent := mkUser(t, pool, "agent@x", "agent")
+
+	for _, who := range []uuid.UUID{alice, agent} {
+		var n int
+		if err := db.WithUser(ctx, pool, who, func(tx pgx.Tx) error {
+			return tx.QueryRow(ctx, "SELECT count(*) FROM task_types").Scan(&n)
+		}); err != nil || n < 4 {
+			t.Errorf("registry not readable: %d rows, %v", n, err)
+		}
+		err := db.WithUser(ctx, pool, who, func(tx pgx.Tx) error {
+			_, err := tx.Exec(ctx, "INSERT INTO task_types (type, prefix, label) VALUES ('sneaky', 'SNK', 'x')")
+			return err
+		})
+		if err == nil {
+			t.Error("a user registered a task type")
+		}
 	}
 }

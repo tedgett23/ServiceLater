@@ -1,5 +1,5 @@
 import { expect, test, type WebSocketRoute } from '@playwright/test';
-import { api, as, createTicket, details, openTicket, row, uid } from './helpers';
+import { api, as, composer, createTicket, details, openTicket, row, uid } from './helpers';
 
 test.describe('live updates', () => {
 	test('a requester sees an agent’s status change and replies without reloading', async ({ browser }) => {
@@ -13,7 +13,7 @@ test.describe('live updates', () => {
 		await agent.page.getByRole('button', { name: 'Start work' }).click();
 		await expect(details(lena.page).getByText('In progress')).toBeVisible();
 
-		await agent.page.getByRole('textbox').fill('Rolling out a fix now.');
+		await composer(agent.page).fill('Rolling out a fix now.');
 		await agent.page.getByRole('button', { name: 'Add comment' }).click();
 		await expect(lena.page.locator('li', { hasText: 'Rolling out a fix now.' })).toHaveCount(1);
 		// The author never sees their own comment twice, even though the live event echoes back.
@@ -28,7 +28,7 @@ test.describe('live updates', () => {
 		await openTicket(lena.page, t.number);
 
 		await agent.page.getByLabel('Internal note').check();
-		await agent.page.getByRole('textbox').fill('Vendor confirmed the bug.');
+		await composer(agent.page).fill('Vendor confirmed the bug.');
 		await agent.page.getByRole('button', { name: 'Add internal note' }).click();
 		await expect(agent.page.locator('li.internal')).toHaveCount(1);
 

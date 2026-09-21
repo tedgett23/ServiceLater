@@ -24,8 +24,8 @@ type commentDTO struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func toComment(c dbgen.TicketComment, authorName string) commentDTO {
-	return commentDTO{ID: c.ID, TicketID: c.TicketID, AuthorID: c.AuthorID, Author: authorName, Body: c.Body,
+func toComment(c dbgen.TaskComment, authorName string) commentDTO {
+	return commentDTO{ID: c.ID, TicketID: c.TaskID, AuthorID: c.AuthorID, Author: authorName, Body: c.Body,
 		Internal: c.Internal, CreatedAt: c.CreatedAt.Time}
 }
 
@@ -40,7 +40,7 @@ func (h *handlers) listComments(w http.ResponseWriter, r *http.Request) {
 		rows, err := q.ListComments(r.Context(), t.ID)
 		out = make([]commentDTO, len(rows))
 		for i, c := range rows {
-			out[i] = toComment(c.TicketComment, c.AuthorName)
+			out[i] = toComment(c.TaskComment, c.AuthorName)
 		}
 		return err
 	}) {
@@ -71,12 +71,12 @@ func (h *handlers) createComment(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		c, err := q.CreateComment(r.Context(), dbgen.CreateCommentParams{
-			TicketID: t.ID, AuthorID: p.UserID, Body: strings.TrimSpace(req.Body), Internal: req.Internal})
+			TaskID: t.ID, AuthorID: p.UserID, Body: strings.TrimSpace(req.Body), Internal: req.Internal})
 		if err != nil {
 			return err
 		}
 		v, err := q.GetCommentView(r.Context(), c.ID)
-		out = toComment(v.TicketComment, v.AuthorName)
+		out = toComment(v.TaskComment, v.AuthorName)
 		return err
 	}) {
 		return

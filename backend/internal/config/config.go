@@ -31,6 +31,11 @@ type Config struct {
 	AccessTTL  time.Duration // short-lived access token
 	RefreshTTL time.Duration // refresh session lifetime
 
+	// Apps: which first-party apps installed in the binary are installed and upgraded at startup (default: the
+	// core ones; "all", "none" or a comma-separated list), and where this instance keeps its local overrides.
+	BundledApps  string
+	AppsLocalDir string
+
 	// Optional: create the first admin on startup when no users exist.
 	BootstrapEmail, BootstrapName, BootstrapPassword string
 }
@@ -54,6 +59,8 @@ func Load() (Config, error) {
 		JWTSecret:         os.Getenv("SL_JWT_SECRET"),
 		AccessTTL:         15 * time.Minute,
 		RefreshTTL:        30 * 24 * time.Hour,
+		BundledApps:       os.Getenv("SL_BUNDLED_APPS"),
+		AppsLocalDir:      os.Getenv("SL_APPS_LOCAL_DIR"),
 		BootstrapEmail:    os.Getenv("SL_BOOTSTRAP_ADMIN_EMAIL"),
 		BootstrapName:     getenv("SL_BOOTSTRAP_ADMIN_NAME", "Administrator"),
 		BootstrapPassword: os.Getenv("SL_BOOTSTRAP_ADMIN_PASSWORD"),

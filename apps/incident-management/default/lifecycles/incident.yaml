@@ -1,0 +1,22 @@
+# The incident status flow. Core code only understands the category of each state
+# (open, waiting, done, closed), so states can be renamed or added without touching it.
+kind: lifecycle
+record_type: incident
+initial: new
+states:
+  new:         { label: New,         category: open }
+  in_progress: { label: In progress, category: open }
+  on_hold:     { label: On hold,     category: waiting }
+  resolved:    { label: Resolved,    category: done }
+  closed:      { label: Closed,      category: closed }
+transitions:
+  - { from: new,         to: in_progress, verb: Start work,  primary: true }
+  - { from: new,         to: on_hold,     verb: Put on hold }
+  - { from: new,         to: resolved,    verb: Resolve }
+  - { from: new,         to: closed,      verb: Close }
+  - { from: in_progress, to: resolved,    verb: Resolve,     primary: true }
+  - { from: in_progress, to: on_hold,     verb: Put on hold }
+  - { from: on_hold,     to: in_progress, verb: Resume,      primary: true }
+  - { from: on_hold,     to: resolved,    verb: Resolve }
+  - { from: resolved,    to: closed,      verb: Close,       primary: true }
+  - { from: resolved,    to: in_progress, verb: Reopen }

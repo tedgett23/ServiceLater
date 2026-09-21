@@ -1,7 +1,12 @@
+apiVersion: 1
 name: incident-management
 version: 0.1.0
 author: ServiceLater
-description: Incident/ticket management: forms, status transitions, SLA workflows. (P0)
+description: "Incident lifecycle, forms and SLA workflows."
 ServiceLater_min_version: 0.1.0
 dependencies:
   - core-itsm: ">=0.1.0"
+permissions:
+  - incidents:read
+  - incidents:update
+  - comments:create

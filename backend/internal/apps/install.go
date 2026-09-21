@@ -1,0 +1,458 @@
+package apps
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/servicelater/servicelater/backend/internal/db"
+	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
+)
+
+// NotifyChannel carries "the installed apps changed" to every instance, which then reloads (docs, D7).
+const NotifyChannel = "app_changes"
+
+var errDryRun = errors.New("dry run")
+
+type DefRef struct{ Kind, Name string }
+
+func (d DefRef) String() string { return d.Kind + " " + d.Name }
+
+// Rename records tasks that move from an old status to a renamed one (renamed_from in a lifecycle).
+type Rename struct {
+	RecordType, From, To string // RecordType is the task type whose records move
+	Records              int64
+
+	lifecycle *Lifecycle // the lifecycle that defines To, for its category
+}
+
+// Plan is what an install will do (or did). Building it writes nothing.
+type Plan struct {
+	App         string
+	FromVersion string // empty for a first install
+	ToVersion   string
+	Added       []DefRef
+	Changed     []DefRef
+	Unchanged   []DefRef
+	Removed     []DefRef
+	Sources     map[DefRef]string // which layers each definition came from
+	Renames     []Rename
+	affected    map[DefRef][]string // the task types each new or changed lifecycle governs
+	Notes       []string
+}
+
+// NoChange reports that installing would leave everything as it is.
+func (p *Plan) NoChange() bool {
+	return p.FromVersion == p.ToVersion && len(p.Added)+len(p.Changed)+len(p.Removed) == 0
+}
+
+// layers describes a definition's origin when it is anything other than the shipped layer alone.
+func (p *Plan) layers(r DefRef) string {
+	if s := p.Sources[r]; s != "" && s != "default" {
+		return " (" + strings.ReplaceAll(s, "+", " + ") + ")"
+	}
+	return ""
+}
+
+func (p *Plan) String() string {
+	var b strings.Builder
+	switch {
+	case p.FromVersion == "":
+		fmt.Fprintf(&b, "%s %s (new)\n", p.App, p.ToVersion)
+	case p.NoChange():
+		fmt.Fprintf(&b, "%s %s (no changes)\n", p.App, p.ToVersion)
+	default:
+		fmt.Fprintf(&b, "%s %s -> %s\n", p.App, p.FromVersion, p.ToVersion)
+	}
+	list := func(label string, refs []DefRef) {
+		for _, r := range refs {
+			fmt.Fprintf(&b, "  %-10s %s%s\n", label, r, p.layers(r))
+		}
+	}
+	list("add", p.Added)
+	list("change", p.Changed)
+	list("remove", p.Removed)
+	for _, r := range p.Renames {
+		fmt.Fprintf(&b, "  %-10s %s status %q -> %q (%d records)\n", "rename", r.RecordType, r.From, r.To, r.Records)
+	}
+	for _, n := range p.Notes {
+		fmt.Fprintf(&b, "  note: %s\n", n)
+	}
+	return b.String()
+}
+
+type InstallOptions struct {
+	DryRun      bool
+	InstalledBy string
+}
+
+// Install validates against the database, then applies a compiled app in one transaction. Any failure rolls back
+// the whole install, so an app is either fully installed or not at all. A dry run returns the plan and writes nothing.
+func Install(ctx context.Context, pool *pgxpool.Pool, c *Compiled, opts InstallOptions) (*Plan, error) {
+	plans, err := InstallAll(ctx, pool, []*Compiled{c}, opts)
+	if err != nil {
+		return nil, err
+	}
+	return plans[0], nil
+}
+
+// InstallAll installs several apps, already in dependency order, in a single transaction: either all of them are
+// installed or none is. Each app sees the ones before it, so a dry run of a whole batch is planned correctly even
+// though nothing is written.
+func InstallAll(ctx context.Context, pool *pgxpool.Pool, apps []*Compiled, opts InstallOptions) ([]*Plan, error) {
+	var plans []*Plan
+	err := db.WithSystem(ctx, pool, func(tx pgx.Tx) error {
+		plans = plans[:0]
+		// One install at a time, across every instance.
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext('servicelater.apps'))"); err != nil {
+			return err
+		}
+		q := dbgen.New(tx)
+		for _, c := range apps {
+			plan, err := buildPlan(ctx, q, c)
+			if err != nil {
+				return fmt.Errorf("installing %s: %w", c.Manifest.Name, err)
+			}
+			plans = append(plans, plan)
+			if !plan.NoChange() {
+				if err := apply(ctx, tx, q, c, plan, opts.InstalledBy); err != nil {
+					return err
+				}
+			}
+		}
+		if opts.DryRun {
+			return errDryRun // roll everything back
+		}
+		return nil
+	})
+	if errors.Is(err, errDryRun) {
+		err = nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return plans, nil
+}
+
+func buildPlan(ctx context.Context, q *dbgen.Queries, c *Compiled) (*Plan, error) {
+	m := c.Manifest
+	plan := &Plan{App: m.Name, ToVersion: m.Version, Sources: map[DefRef]string{}}
+	var problems []string
+
+	if m.MinVersion != "" {
+		need, _ := ParseVersion(m.MinVersion)
+		have, _ := ParseVersion(PlatformVersion)
+		if need.Compare(have) > 0 {
+			problems = append(problems, fmt.Sprintf("%s needs ServiceLater %s or later, but this is %s", m.Name, need, have))
+		}
+	}
+	for _, d := range m.Deps {
+		dep, err := q.GetApp(ctx, d.Name)
+		if errors.Is(err, pgx.ErrNoRows) {
+			problems = append(problems, fmt.Sprintf("%s needs %s (%s), which is not installed: install it first", m.Name, d.Name, d.Constraint))
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		con, _ := ParseConstraint(d.Constraint)
+		have, err := ParseVersion(dep.Version)
+		if err != nil || !con.Satisfied(have) {
+			problems = append(problems, fmt.Sprintf("%s needs %s (%s), but %s is installed", m.Name, d.Name, d.Constraint, dep.Version))
+		}
+	}
+
+	if cur, err := q.GetApp(ctx, m.Name); err == nil {
+		plan.FromVersion = cur.Version
+		from, e1 := ParseVersion(cur.Version)
+		to, e2 := ParseVersion(m.Version)
+		if e1 == nil && e2 == nil && to.Compare(from) < 0 {
+			plan.Notes = append(plan.Notes, fmt.Sprintf("this is a downgrade from %s", cur.Version))
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	existing, err := q.ListAppCurrentDefinitions(ctx, m.Name)
+	if err != nil {
+		return nil, err
+	}
+	have := map[DefRef]string{}
+	haveSource := map[DefRef]string{}
+	for _, d := range existing {
+		have[DefRef{d.Kind, d.Name}] = d.Checksum
+		haveSource[DefRef{d.Kind, d.Name}] = d.Source
+	}
+
+	statuses, err := q.ListTaskStatusCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Which record types will have a lifecycle of their own once this app is installed. A type without one uses the
+	// `task` lifecycle when there is one, so installing or changing that affects every such type.
+	own := map[string]bool{}
+	installed, err := q.ListCurrentDefinitions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, d := range installed {
+		if d.Kind == "lifecycle" && d.AppName != m.Name {
+			own[d.Name] = true
+		}
+	}
+	for _, d := range c.Definitions {
+		if d.Kind == "lifecycle" {
+			own[d.Name] = true
+		}
+	}
+	plan.affected = map[DefRef][]string{}
+
+	seen := map[DefRef]bool{}
+	for _, d := range c.Definitions {
+		ref := DefRef{d.Kind, d.Name}
+		seen[ref] = true
+		plan.Sources[ref] = d.Source()
+		if other, err := q.FindDefinitionProvider(ctx, dbgen.FindDefinitionProviderParams{Kind: d.Kind, Name: d.Name, AppName: m.Name}); err == nil {
+			problems = append(problems, fmt.Sprintf("the %s is already provided by %s: uninstall it first, or remove it from one of the apps", ref, other))
+			continue
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		isNew := false
+		switch sum, ok := have[ref]; {
+		case !ok:
+			plan.Added = append(plan.Added, ref)
+			isNew = true
+		case sum != d.Checksum:
+			plan.Changed = append(plan.Changed, ref)
+			isNew = true
+		default:
+			plan.Unchanged = append(plan.Unchanged, ref)
+		}
+		// A new or changed lifecycle must not leave any record it governs in a status it does not have.
+		if d.Lifecycle != nil && isNew {
+			for _, typ := range affectedTypes(d.Lifecycle.RecordType, statuses, own) {
+				plan.affected[ref] = append(plan.affected[ref], typ)
+				renames, bad := checkStatuses(d.Lifecycle, typ, statuses)
+				plan.Renames = append(plan.Renames, renames...)
+				problems = append(problems, bad...)
+			}
+		}
+	}
+	for ref := range have {
+		if !seen[ref] {
+			plan.Removed = append(plan.Removed, ref)
+		}
+	}
+	for _, refs := range [][]DefRef{plan.Added, plan.Changed, plan.Unchanged, plan.Removed} {
+		sort.Slice(refs, func(i, j int) bool { return refs[i].String() < refs[j].String() })
+	}
+	// A change to the shipped layer should come with a new version. A change that only comes from adding or removing
+	// local layers is expected to leave the version alone.
+	if plan.FromVersion == plan.ToVersion {
+		for _, ref := range plan.Changed {
+			if haveSource[ref] == plan.Sources[ref] {
+				plan.Notes = append(plan.Notes, "definitions changed without a version bump")
+				break
+			}
+		}
+	}
+	if len(problems) > 0 {
+		return nil, errors.New(strings.Join(problems, "\n"))
+	}
+	return plan, nil
+}
+
+// affectedTypes are the task types a lifecycle governs: its own type, or for the `task` default every type present
+// that has no lifecycle of its own.
+func affectedTypes(recordType string, inUse []dbgen.ListTaskStatusCountsRow, own map[string]bool) []string {
+	if recordType != "task" {
+		return []string{recordType}
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range inUse {
+		if !own[s.Type] && !seen[s.Type] {
+			seen[s.Type] = true
+			out = append(out, s.Type)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// checkStatuses makes sure no record of a type is left in a status the lifecycle does not have: each status in use
+// must exist, or be mapped from an old name with renamed_from.
+func checkStatuses(lc *Lifecycle, typ string, inUse []dbgen.ListTaskStatusCountsRow) (renames []Rename, problems []string) {
+	for _, s := range inUse {
+		if s.Type != typ || s.N == 0 || lc.HasState(s.Status) {
+			continue
+		}
+		mapped := false
+		for _, st := range lc.States {
+			if st.RenamedFrom == s.Status {
+				renames = append(renames, Rename{RecordType: typ, From: s.Status, To: st.ID, Records: s.N, lifecycle: lc})
+				mapped = true
+			}
+		}
+		if !mapped {
+			problems = append(problems, fmt.Sprintf(
+				"%d %s records are in status %q, which this lifecycle does not have: keep the state, or move its records with renamed_from on the state that replaces it",
+				s.N, typ, s.Status))
+		}
+	}
+	return renames, problems
+}
+
+func apply(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, c *Compiled, plan *Plan, by string) error {
+	manifest, err := json.Marshal(c.Manifest)
+	if err != nil {
+		return err
+	}
+	if err := q.UpsertApp(ctx, dbgen.UpsertAppParams{Name: c.Manifest.Name, Version: c.Manifest.Version, Manifest: manifest, InstalledBy: by}); err != nil {
+		return err
+	}
+
+	byRef := map[DefRef]Definition{}
+	for _, d := range c.Definitions {
+		byRef[DefRef{d.Kind, d.Name}] = d
+	}
+	for _, ref := range append(append([]DefRef{}, plan.Added...), plan.Changed...) {
+		d := byRef[ref]
+		next, err := q.MaxDefinitionVersion(ctx, dbgen.MaxDefinitionVersionParams{AppName: c.Manifest.Name, Kind: d.Kind, Name: d.Name})
+		if err != nil {
+			return err
+		}
+		if err := q.ClearCurrentDefinition(ctx, dbgen.ClearCurrentDefinitionParams{AppName: c.Manifest.Name, Kind: d.Kind, Name: d.Name}); err != nil {
+			return err
+		}
+		if err := q.InsertDefinition(ctx, dbgen.InsertDefinitionParams{
+			AppName: c.Manifest.Name, Kind: d.Kind, Name: d.Name, Version: next + 1, Checksum: d.Checksum, Body: d.Body, Source: d.Source(),
+		}); err != nil {
+			return err
+		}
+	}
+	for _, ref := range plan.Removed {
+		if err := q.DeleteDefinitions(ctx, dbgen.DeleteDefinitionsParams{AppName: c.Manifest.Name, Kind: ref.Kind, Name: ref.Name}); err != nil {
+			return err
+		}
+	}
+
+	// Move records out of renamed statuses, then make every stored category match the lifecycle.
+	for i, r := range plan.Renames {
+		cat, _ := r.lifecycle.Category(r.To)
+		n, err := q.RenameTaskStatus(ctx, dbgen.RenameTaskStatusParams{Type: r.RecordType, Status: r.From, Status_2: r.To, StateCategory: string(cat)})
+		if err != nil {
+			return err
+		}
+		plan.Renames[i].Records = n
+	}
+	for _, ref := range append(append([]DefRef{}, plan.Added...), plan.Changed...) {
+		if lc := byRef[ref].Lifecycle; lc != nil {
+			for _, st := range lc.States {
+				if _, err := q.SyncTaskCategory(ctx, dbgen.SyncTaskCategoryParams{Column1: plan.affected[ref], Status: st.ID, StateCategory: string(st.Category)}); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	// Delivered on commit, so no instance reloads before the new definitions are visible.
+	_, err = tx.Exec(ctx, "SELECT pg_notify($1, $2)", NotifyChannel, c.Manifest.Name)
+	return err
+}
+
+// Uninstall removes an app and everything it owns. User data (tickets, comments) is never touched: records simply
+// fall back to the built-in lifecycle and remain readable and closable.
+func Uninstall(ctx context.Context, pool *pgxpool.Pool, name string) (removed []DefRef, err error) {
+	err = db.WithSystem(ctx, pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext('servicelater.apps'))"); err != nil {
+			return err
+		}
+		q := dbgen.New(tx)
+		if _, err := q.GetApp(ctx, name); errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%s is not installed", name)
+		} else if err != nil {
+			return err
+		}
+		all, err := q.ListApps(ctx)
+		if err != nil {
+			return err
+		}
+		var dependents []string
+		for _, a := range all {
+			if a.Name == name {
+				continue
+			}
+			var m Manifest
+			if json.Unmarshal(a.Manifest, &m) != nil {
+				continue
+			}
+			for _, d := range m.Deps {
+				if d.Name == name {
+					dependents = append(dependents, a.Name)
+				}
+			}
+		}
+		if len(dependents) > 0 {
+			return fmt.Errorf("cannot uninstall %s: %s depend%s on it", name, strings.Join(dependents, ", "), map[bool]string{true: "s", false: ""}[len(dependents) == 1])
+		}
+		defs, err := q.ListAppCurrentDefinitions(ctx, name)
+		if err != nil {
+			return err
+		}
+		for _, d := range defs {
+			removed = append(removed, DefRef{d.Kind, d.Name})
+		}
+		if err := q.DeleteApp(ctx, name); err != nil { // cascades to its definitions
+			return err
+		}
+		_, err = tx.Exec(ctx, "SELECT pg_notify($1, $2)", NotifyChannel, name)
+		return err
+	})
+	return removed, err
+}
+
+// Installed describes an installed app.
+type Installed struct {
+	Name        string
+	Version     string
+	Description string
+	Definitions int
+	Local       int // definitions that include local changes
+}
+
+func List(ctx context.Context, pool *pgxpool.Pool) ([]Installed, error) {
+	var out []Installed
+	err := db.WithSystem(ctx, pool, func(tx pgx.Tx) error {
+		q := dbgen.New(tx)
+		apps, err := q.ListApps(ctx)
+		if err != nil {
+			return err
+		}
+		defs, err := q.ListCurrentDefinitions(ctx)
+		if err != nil {
+			return err
+		}
+		counts, local := map[string]int{}, map[string]int{}
+		for _, d := range defs {
+			counts[d.AppName]++
+			if d.Source != "default" {
+				local[d.AppName]++
+			}
+		}
+		for _, a := range apps {
+			var m Manifest
+			_ = json.Unmarshal(a.Manifest, &m)
+			out = append(out, Installed{Name: a.Name, Version: a.Version, Description: m.Description, Definitions: counts[a.Name], Local: local[a.Name]})
+		}
+		return nil
+	})
+	return out, err
+}

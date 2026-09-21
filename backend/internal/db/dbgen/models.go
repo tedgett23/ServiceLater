@@ -9,6 +9,34 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type App struct {
+	Name        string             `json:"name"`
+	Version     string             `json:"version"`
+	Manifest    []byte             `json:"manifest"`
+	InstalledBy string             `json:"installed_by"`
+	InstalledAt pgtype.Timestamptz `json:"installed_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AppDefinition struct {
+	ID        uuid.UUID          `json:"id"`
+	AppName   string             `json:"app_name"`
+	Kind      string             `json:"kind"`
+	Name      string             `json:"name"`
+	Version   int32              `json:"version"`
+	Checksum  string             `json:"checksum"`
+	Body      []byte             `json:"body"`
+	Current   bool               `json:"current"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	Source    string             `json:"source"`
+}
+
+type Incident struct {
+	TaskID     uuid.UUID `json:"task_id"`
+	Type       string    `json:"type"`
+	Resolution string    `json:"resolution"`
+}
+
 type RateLimit struct {
 	Key         string             `json:"key"`
 	Count       int32              `json:"count"`
@@ -25,26 +53,34 @@ type Session struct {
 	RotatedAt pgtype.Timestamptz `json:"rotated_at"`
 }
 
-type Ticket struct {
-	ID          uuid.UUID          `json:"id"`
-	Number      pgtype.Int8        `json:"number"`
-	Title       string             `json:"title"`
-	Description string             `json:"description"`
-	Status      string             `json:"status"`
-	Priority    int16              `json:"priority"`
-	RequesterID uuid.UUID          `json:"requester_id"`
-	AssigneeID  uuid.NullUUID      `json:"assignee_id"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+type Task struct {
+	ID            uuid.UUID          `json:"id"`
+	Number        int64              `json:"number"`
+	Title         string             `json:"title"`
+	Description   string             `json:"description"`
+	Status        string             `json:"status"`
+	Priority      int16              `json:"priority"`
+	RequesterID   uuid.UUID          `json:"requester_id"`
+	AssigneeID    uuid.NullUUID      `json:"assignee_id"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	StateCategory string             `json:"state_category"`
+	Type          string             `json:"type"`
 }
 
-type TicketComment struct {
+type TaskComment struct {
 	ID        uuid.UUID          `json:"id"`
-	TicketID  uuid.UUID          `json:"ticket_id"`
+	TaskID    uuid.UUID          `json:"task_id"`
 	AuthorID  uuid.UUID          `json:"author_id"`
 	Body      string             `json:"body"`
 	Internal  bool               `json:"internal"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type TaskType struct {
+	Type   string `json:"type"`
+	Prefix string `json:"prefix"`
+	Label  string `json:"label"`
 }
 
 type User struct {

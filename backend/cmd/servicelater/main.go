@@ -14,9 +14,11 @@ import (
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "app" {
-		// TODO: app install|update|uninstall|pack|dev (§11.3)
-		fmt.Fprintln(os.Stderr, "app subcommands not implemented yet")
-		os.Exit(1)
+		if err := runApp(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "user" {
 		if err := runUser(os.Args[2:], os.Stdin, os.Stdout); err != nil {

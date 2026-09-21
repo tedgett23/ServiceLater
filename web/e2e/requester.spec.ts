@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { api, as, createTicket, details, openTicket, row, uid } from './helpers';
+import { api, as, composer, createTicket, details, openTicket, row, uid } from './helpers';
 
 test.describe('a requester', () => {
 	test('sees their ticket read-only, with staff replies but no internal notes', async ({ browser }) => {
@@ -22,7 +22,7 @@ test.describe('a requester', () => {
 		await expect(lena.page.getByLabel('Internal note')).toHaveCount(0);
 
 		// But they can still reply.
-		await lena.page.getByRole('textbox').fill('Still happening today.');
+		await composer(lena.page).fill('Still happening today.');
 		await lena.page.getByRole('button', { name: 'Add comment' }).click();
 		await expect(lena.page.locator('li', { hasText: 'Still happening today.' })).toHaveCount(1);
 	});

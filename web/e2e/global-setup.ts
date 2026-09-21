@@ -7,8 +7,8 @@ import { DATABASE_URL } from '../playwright.config';
 import { PASSWORD, stateFile, USERS, type Who } from './users';
 
 /**
- * Runs after the server is up (so the schema is migrated). Resets the scratch database, creates the test users
- * with the real `servicelater user create` command, and saves a signed-in session per user.
+ * Runs after the server is up (so the schema is migrated, and it has installed its bundled apps). Resets the scratch
+ * database, creates the test users with the real `servicelater` commands, and saves a signed-in session per user.
  *
  * Sessions are saved once and reused, so the suite doesn't trip the login rate limit. Tests that sign out or
  * refresh tokens must use their own login (see helpers.freshLogin), because doing so would invalidate a
@@ -18,7 +18,9 @@ export default async function globalSetup(config: FullConfig) {
 	const client = new pg.Client({ connectionString: DATABASE_URL });
 	await client.connect();
 	try {
-		await client.query('TRUNCATE tickets, sessions, rate_limits, user_credentials, users CASCADE');
+		await client.query('TRUNCATE tasks, sessions, rate_limits, user_credentials, users CASCADE');
+		// Restart each type's numbering, so ticket numbers start at 1 on every run.
+		await client.query(`DO $$ DECLARE t text; BEGIN FOR t IN SELECT type FROM task_types LOOP EXECUTE format('ALTER SEQUENCE %I RESTART', 'task_number_' || t); END LOOP; END $$`);
 	} finally {
 		await client.end();
 	}
@@ -40,4 +42,14 @@ export default async function globalSetup(config: FullConfig) {
 		await ctx.storageState({ path: stateFile(who) });
 		await ctx.dispose();
 	}
+
+	// The server installed its bundled apps while starting (see start-server.sh); wait until it serves the lifecycle.
+	const agent = await request.newContext({ baseURL, storageState: stateFile('agent') });
+	for (let i = 0; i < 50; i++) {
+		const res = await agent.get('/api/v1/lifecycles/incident');
+		if (res.ok() && (await res.json()).app === 'incident-management') break;
+		if (i === 49) throw new Error('the server never picked up the installed apps');
+		await new Promise((r) => setTimeout(r, 100));
+	}
+	await agent.dispose();
 }

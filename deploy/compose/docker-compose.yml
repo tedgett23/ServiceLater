@@ -21,6 +21,9 @@ services:
     build: { context: ../.., dockerfile: Dockerfile }
     environment:
       SL_ROLES: all
+      # First-party apps are inside the binary. Your own changes to them go in this volume, as YAML files laid out
+      # like an app's local/ folder, e.g. apps-local/incident-management/lifecycles/incident.yaml. Upgrades never touch it.
+      SL_APPS_LOCAL_DIR: /data/apps-local
       SL_JWT_SECRET: ${SL_JWT_SECRET:?set in .env (openssl rand -base64 48)}
       SL_BOOTSTRAP_ADMIN_EMAIL: ${SL_BOOTSTRAP_ADMIN_EMAIL:-}
       SL_BOOTSTRAP_ADMIN_PASSWORD: ${SL_BOOTSTRAP_ADMIN_PASSWORD:-}
@@ -31,6 +34,7 @@ services:
     ports: ["8080:8080"]
     volumes:
       - attachments:/data/attachments
+      - apps-local:/data/apps-local
       - certs:/data/certs
     depends_on:
       db: { condition: service_healthy }
@@ -38,4 +42,5 @@ services:
 volumes:
   pgdata:
   attachments:
+  apps-local:
   certs:

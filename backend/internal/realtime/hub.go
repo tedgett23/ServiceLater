@@ -9,10 +9,10 @@ import (
 	"encoding/json"
 	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+
+	"github.com/servicelater/servicelater/backend/internal/db"
 )
 
 const (
@@ -70,56 +70,27 @@ func (h *Hub) Ready() <-chan struct{} { return h.ready }
 // because NOTIFY is fire-and-forget and anything sent while we were away is gone.
 func (h *Hub) Run(ctx context.Context, dsn string) {
 	defer h.closeAll()
-	backoff := time.Second
-	first := true
-	for ctx.Err() == nil {
-		err := h.listen(ctx, dsn, func() {
-			backoff = time.Second
-			if !first {
+	db.Listen(ctx, dsn, []string{channelTickets, channelComments},
+		func(reconnected bool) {
+			if reconnected {
 				h.broadcast(mustJSON(resyncEvent{Type: "resync"}), func(*client) bool { return true })
 			}
-			first = false
 			h.once.Do(func() { close(h.ready) })
+		},
+		func(channel, payload string) {
+			switch channel {
+			case channelTickets:
+				h.onTicket(payload)
+			case channelComments:
+				h.onComment(payload)
+			}
 		})
-		if ctx.Err() != nil {
-			return
-		}
-		slog.Warn("realtime listener lost, reconnecting", "err", err, "in", backoff)
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(backoff):
-		}
-		backoff = min(backoff*2, 30*time.Second)
-	}
 }
 
-func (h *Hub) listen(ctx context.Context, dsn string, onListening func()) error {
-	conn, err := pgx.Connect(ctx, dsn)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = conn.Close(context.Background()) }()
-
-	for _, ch := range []string{channelTickets, channelComments} {
-		if _, err := conn.Exec(ctx, "LISTEN "+ch); err != nil {
-			return err
-		}
-	}
-	onListening()
-
-	for {
-		n, err := conn.WaitForNotification(ctx)
-		if err != nil {
-			return err
-		}
-		switch n.Channel {
-		case channelTickets:
-			h.onTicket(n.Payload)
-		case channelComments:
-			h.onComment(n.Payload)
-		}
-	}
+// DefinitionsChanged tells every connected client that installed apps changed, so screens that show
+// app-defined labels and flows can refetch them.
+func (h *Hub) DefinitionsChanged() {
+	h.broadcast(mustJSON(resyncEvent{Type: "definitions.changed"}), func(*client) bool { return true })
 }
 
 // Routing mirrors the tickets_select policy: staff see every ticket, everyone else only their own.

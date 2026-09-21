@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { queue } from '$lib/queue.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
@@ -12,6 +13,9 @@
 		realtime.start();
 		const off = realtime.on((e) => {
 			if (e.type === 'ticket.changed' || e.type === 'resync') queue.scheduleRefresh();
+			// An app was installed or removed somewhere: pick up new labels and flows without a reload.
+			if (e.type === 'definitions.changed' || e.type === 'resync') void lifecycle.reload();
+			if (e.type === 'definitions.changed') queue.scheduleRefresh();
 		});
 		return () => {
 			off();

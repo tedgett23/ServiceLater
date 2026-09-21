@@ -4,7 +4,8 @@ import { api, ApiError } from './api';
 export type RealtimeEvent =
 	| { type: 'ticket.changed'; id: string; number: number }
 	| { type: 'comment.added'; ticket_id: string }
-	| { type: 'resync' };
+	| { type: 'resync' }
+	| { type: 'definitions.changed' }; // an app was installed, updated or removed
 
 type Handler = (e: RealtimeEvent) => void;
 

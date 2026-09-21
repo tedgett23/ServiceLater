@@ -15,6 +15,7 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 
 	"github.com/servicelater/servicelater/backend/internal/api"
+	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/config"
 	"github.com/servicelater/servicelater/backend/internal/db"
@@ -36,6 +37,14 @@ func Run(ctx context.Context, cfg config.Config) error {
 		slog.Info("database ready")
 		deps.Pool = pool
 
+		// Install or upgrade the first-party apps that ship in this binary, applying this instance's local layer.
+		// A problem with an app is logged and leaves it as it was: the instance keeps running.
+		bundled, err := apps.BundledSelection(cfg.BundledApps)
+		if err != nil {
+			return err
+		}
+		apps.LogSync(apps.SyncBundled(ctx, pool, bundled, cfg.AppsLocalDir))
+
 		if cfg.Has(config.RoleAPI) {
 			tokens, err := auth.NewTokens(cfg.JWTSecret, cfg.AccessTTL)
 			if err != nil {
@@ -53,7 +62,13 @@ func Run(ctx context.Context, cfg config.Config) error {
 				}
 			}
 			go cleanupLoop(ctx, deps.Auth)
+			deps.Apps = apps.NewRegistry(pool)
+			if err := deps.Apps.Load(ctx); err != nil {
+				return err
+			}
+			go deps.Apps.Run(ctx, cfg.DatabaseURL)
 			deps.Hub = realtime.NewHub()
+			deps.Apps.OnChange(deps.Hub.DefinitionsChanged)
 			go deps.Hub.Run(ctx, cfg.DatabaseURL)
 		}
 		// TODO: when cfg.Has(config.RoleWorker), start job workers and the workflow engine.

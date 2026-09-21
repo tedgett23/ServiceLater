@@ -1,5 +1,9 @@
 export type Role = 'admin' | 'agent' | 'end_user';
-export type Status = 'new' | 'in_progress' | 'on_hold' | 'resolved' | 'closed';
+/** A status id. Which ones exist, and what they are called, comes from the installed lifecycle. */
+export type Status = string;
+
+/** What core code understands about a status; the app decides the name and label. */
+export type Category = 'open' | 'waiting' | 'done' | 'closed';
 
 export interface User {
 	id: string;
@@ -10,10 +14,19 @@ export interface User {
 
 export interface Ticket {
 	id: string;
+	/** The kind of ticket (incident, change ...). Numbers count within a type. */
+	type: string;
 	number: number;
+	/** How people name it: the type's prefix and its number, such as INC42. */
+	reference: string;
 	title: string;
 	description: string;
+	/** How an incident was fixed. Lives in the incident's own table; empty for other types. */
+	resolution: string;
 	status: Status;
+	state_category: Category;
+	/** Only on single-ticket responses, and only for staff. */
+	moves?: Move[];
 	priority: 1 | 2 | 3 | 4;
 	requester_id: string;
 	requester_name: string;
@@ -42,3 +55,25 @@ export interface Comment {
 }
 
 export const isStaff = (u: User | null | undefined) => u?.role === 'admin' || u?.role === 'agent';
+
+export interface LifecycleState {
+	id: string;
+	label: string;
+	category: Category;
+}
+
+/** One thing a person can do to a ticket right now. The server decides what is offered, and why one is blocked. */
+export interface Move {
+	to: string;
+	verb: string;
+	primary: boolean;
+	blocked?: string;
+}
+
+export interface LifecycleData {
+	record_type: string;
+	initial: string;
+	states: LifecycleState[];
+	app: string;
+	version: string;
+}

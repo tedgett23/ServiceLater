@@ -117,11 +117,11 @@
 							<span class="title">{t.title}</span>
 							<time class="age" datetime={t.updated_at}>{age(t.updated_at)}</time>
 							<span class="sub">
-								<Status status={t.status} />
+								<Status status={t.status} category={t.state_category} />
 								<span class="who"><span class="sr-only">Requested by </span>{t.requester_name}</span>
 								{#if t.assignee_name}
 									<span class="assignee"><span class="sr-only">Assigned to </span>{t.assignee_name}</span>
-								{:else if t.status !== 'closed' && t.status !== 'resolved'}
+								{:else if t.state_category === 'open' || t.state_category === 'waiting'}
 									<span class="assignee unassigned">Unassigned</span>
 								{/if}
 							</span>

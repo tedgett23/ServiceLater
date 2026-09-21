@@ -6,3 +6,6 @@ ServiceLater-MVP.md
 backend/bin/
 backend/internal/webui/dist/*
 !backend/internal/webui/dist/.gitkeep
+
+# This instance's own overrides for bundled apps (never committed)
+/apps-local/

@@ -3,7 +3,8 @@
 	import { api } from '$lib/api';
 	import Signal from '$lib/components/Signal.svelte';
 	import Status from '$lib/components/Status.svelte';
-	import { nextStatuses, priorityLabel, statusLabel, transitionVerb, when } from '$lib/format';
+	import { priorityLabel, when } from '$lib/format';
+	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { queue } from '$lib/queue.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
@@ -18,14 +19,27 @@
 	let ticket = $state(untrack(() => props.ticket));
 	let comments = $state(untrack(() => props.comments));
 	let error = $state('');
-	let inflight = 0; // local edits awaiting the server; live refetches wait so they can't undo them
+	let resolutionDraft = $state(untrack(() => props.ticket.resolution));
+	let editingResolution = false; // while typing, live updates must not overwrite the draft
+	let inflight = $state(0); // local edits awaiting the server; live refetches wait so they can't undo them, and actions pause
 
 	const canEdit = $derived(isStaff(session.user));
 	const path = $derived(`/api/v1/tickets/${ticket.id}`);
-	const forward: Partial<Record<StatusT, StatusT>> = { new: 'in_progress', in_progress: 'resolved', on_hold: 'in_progress', resolved: 'closed' };
-	const primary = $derived(forward[ticket.status]);
-	// The natural next step leads; the alternatives follow.
-	const moves = $derived([...nextStatuses[ticket.status]].sort((a, b) => Number(b === primary) - Number(a === primary)));
+	// The server says which moves to offer (the natural next step first) and which are blocked right now, and why.
+	const moves = $derived(ticket.moves ?? []);
+
+	// Keep the notes box in step with the ticket (another agent may edit it), except while it is being typed in.
+	$effect(() => {
+		const saved = ticket.resolution;
+		if (!editingResolution) resolutionDraft = saved;
+	});
+
+	async function saveResolution() {
+		editingResolution = false;
+		const text = resolutionDraft;
+		if (text === ticket.resolution) return;
+		await change({ resolution: text }, () => api<Ticket>(path, { method: 'PATCH', body: { resolution: text } }), 'Resolution notes saved');
+	}
 
 	$effect(() => {
 		if (canEdit) void staff.ensure();
@@ -81,6 +95,8 @@
 			if (e.type === 'resync') {
 				void reloadTicket();
 				void reloadComments();
+			} else if (e.type === 'definitions.changed') {
+				void reloadTicket(); // the flow may have changed: labels, buttons and guards
 			} else if (e.type === 'ticket.changed' && e.id === ticket.id) {
 				void reloadTicket();
 			} else if (e.type === 'comment.added' && e.ticket_id === ticket.id) {
@@ -90,7 +106,11 @@
 	);
 
 	const moveTo = (to: StatusT) =>
-		change({ status: to }, () => api<Ticket>(`${path}/transitions`, { method: 'POST', body: { to } }), `Ticket moved to ${statusLabel[to]}`);
+		change(
+			{ status: to, state_category: lifecycle.categoryOf(to) ?? ticket.state_category },
+			() => api<Ticket>(`${path}/transitions`, { method: 'POST', body: { to } }),
+			`Ticket moved to ${lifecycle.label(to)}`
+		);
 
 	function assign(id: string | null) {
 		const name = id ? (staff.list.find((s) => s.id === id)?.name ?? null) : null;
@@ -163,11 +183,34 @@
 	</header>
 
 	<div class="body">
-		{#if ticket.description}
-			<p class="desc">{ticket.description}</p>
-		{:else}
-			<p class="desc none">No details were added.</p>
-		{/if}
+		<div class="lead">
+			{#if ticket.description}
+				<p class="desc">{ticket.description}</p>
+			{:else}
+				<p class="desc none">No details were added.</p>
+			{/if}
+
+			<!-- Resolution notes are an incident's own field: staff write them, everyone who can see the ticket reads them. -->
+			{#if ticket.type === 'incident'}
+				{#if canEdit}
+					<label class="field resolution">
+						<span>Resolution notes</span>
+						<textarea
+							bind:value={resolutionDraft}
+							onfocus={() => (editingResolution = true)}
+							onblur={saveResolution}
+							maxlength="10000"
+							placeholder="How was this fixed?"
+						></textarea>
+					</label>
+				{:else if ticket.resolution}
+					<section class="resolved" aria-labelledby="resolution-h">
+						<h2 id="resolution-h">Resolution</h2>
+						<p>{ticket.resolution}</p>
+					</section>
+				{/if}
+			{/if}
+		</div>
 
 		<section class="activity" aria-labelledby="activity-h">
 				<h2 id="activity-h">Activity</h2>
@@ -214,13 +257,21 @@
 			<dl>
 				<div>
 					<dt>Status</dt>
-					<dd><Status status={ticket.status} /></dd>
+					<dd><Status status={ticket.status} category={ticket.state_category} /></dd>
 				</div>
 
 				{#if canEdit && moves.length}
 					<div class="actions">
-						{#each moves as to (to)}
-							<button class="btn" class:primary={to === primary} onclick={() => moveTo(to)}>{transitionVerb(ticket.status, to)}</button>
+						{#each moves as move (move.to)}
+							<button
+								class="btn"
+								class:primary={move.primary}
+								class:blocked={!!move.blocked}
+								disabled={!!move.blocked || inflight > 0}
+								aria-describedby={move.blocked ? `why-${move.to}` : undefined}
+								onclick={() => moveTo(move.to)}>{move.verb}</button
+							>
+							{#if move.blocked}<p class="why" id="why-{move.to}">{move.blocked}</p>{/if}
 						{/each}
 					</div>
 				{/if}
@@ -342,8 +393,11 @@
 		column-gap: 2.5rem;
 		align-items: start;
 	}
-	.desc {
+	.lead {
 		grid-area: desc;
+		display: grid;
+		gap: 1.25rem;
+		max-width: 68ch;
 	}
 	.activity {
 		grid-area: activity;
@@ -374,7 +428,21 @@
 
 	.desc {
 		white-space: pre-wrap;
-		max-width: 68ch;
+		overflow-wrap: anywhere;
+	}
+	.resolution textarea {
+		min-height: 5rem;
+	}
+	.resolved {
+		padding-left: 0.9rem;
+		border-left: 3px solid var(--ink-2);
+	}
+	.resolved h2 {
+		margin-bottom: 0.4rem;
+		font-size: 1.15rem;
+	}
+	.resolved p {
+		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 	}
 	.none {
@@ -491,6 +559,14 @@
 	.actions {
 		display: grid;
 		gap: 0.4rem;
+	}
+	/* Why a move is unavailable, right under it, so nobody has to guess or try and fail. */
+	.why {
+		margin: -0.15rem 0 0.35rem;
+		padding-left: 0.6rem;
+		border-left: 3px solid var(--marker);
+		font-size: 0.8125rem;
+		color: var(--ink-2);
 	}
 	.quiet-btn {
 		min-height: 2rem;
