@@ -383,11 +383,16 @@ transaction, so it happens only if the save commits (the transactional outbox pa
 5. Commit. Jobs for matching **async** rules are enqueued in the same transaction, so a rolled-back save never
    triggers anything.
 
-**Async path**: a worker claims the job (`SKIP LOCKED`), re-checks the rule's expression against current data,
-and runs its actions with retries.
+**Async path**: a worker claims the job (`SKIP LOCKED`), reads the ticket as it is now, as the person who made the
+change, and runs the rule's actions with retries. The rule's own `when` is decided at the save, where the old and new
+record are both known (`record.priority != old.priority` cannot be asked later), and is not asked again. Each action's
+own `when` is judged by the worker on the current data, with `old` equal to `record`.
 
-Every rule run is recorded in `action_runs` (app, rule, timing, outcome, duration, error). Sync runs are sampled if
-volume requires it, but every abort, failure and budget overrun is recorded.
+Every async run is recorded in `action_runs` (app, rule, timing, outcome, duration, detail, job, attempt), and so is
+every before or after rule that stopped a save or could not be evaluated. Sync rules that ran without incident are
+not recorded, so the table grows with what an administrator needs to look at, not with traffic. The lines are written
+from a connection of their own: an aborted save rolls its transaction back, and the record of why must survive it.
+`servicelater jobs runs` lists them; they are purged after 30 days.
 
 ### 6.2 Built-in actions
 
@@ -395,7 +400,9 @@ volume requires it, but every abort, failure and budget overrun is recorded.
 |---|---|---|---|
 | `abort` (message) | yes | yes | no |
 | `set` (field, value) on the record | yes | no | no |
-| `record.create` / `record.update` / `comment.add` | no | yes, in the transaction | yes |
+| `comment.add` | no | yes, in the transaction | yes (built) |
+| `record.update` (field, value) on the triggering record | no | no | yes (built) |
+| `record.create` | no | yes, in the transaction | yes |
 | `record.delete` | no | yes, in the transaction | yes |
 | `workflow.start` | no | yes (queued) | yes |
 | `notify.email` / `notify.sms` / `notify.slack` | no | yes (queued) | yes |
@@ -418,6 +425,50 @@ cost of a rule is an expression evaluation plus a few database writes, which is 
 
 Recursion is bounded: a rule that writes another record triggers that record's rules, and chains are capped at a
 fixed depth. A rule also cannot re-trigger on a change made by its own app (the causation chain, §11).
+
+### 6.4 What is built
+
+Before and after rules run on create, update and status transitions (`delete` and `async` are rejected at install for
+now). The engine is `internal/rules`; it does no database work, so the API applies its result inside the save.
+
+- **Actions today:** `abort`, `set` (title, description, priority, assignee_id, resolution) and `comment.add`. Anything
+  else is rejected at install with the list of what exists. `set` values are checked at install (a literal's type and
+  range, an expression's result type) and again at save time, with the checks a request goes through.
+- **Order:** the `task` rules first, then the type's own; within each by `order`, then app, then rule name. `set`
+  changes are visible to later rules and actions. A rule sees the ticket as it *would be*; on a status transition that
+  is the ticket after the move, as a guard sees it.
+- **Failure:** an abort returns the rule's message as a 422 and nothing is saved. A rule that cannot be evaluated (a
+  division by zero, the cost limit) blocks the save with a fixed message and logs the details, unless it says
+  `on_error: skip`. The 250 ms budget is checked between steps and inside expressions and is never skippable.
+- **Actor:** rules act as the person who saved, under RLS. A rule that does something that person may not (a requester's
+  create being auto-assigned, an internal note on their own ticket) fails the save. Service principals (roles slice)
+  lift this; until then such rules belong on staff-only paths.
+- **Async rules:** `timing: async` rules may only `comment.add` for now (`abort` and `set` are rejected at install:
+  the save has already happened). A save queues them in its own transaction, after its after rules, so a save that
+  rolls back queues nothing. The job carries ids only (app, rule, record, event, actor). Filters that cannot be
+  evaluated at the save queue nothing and are recorded as failed; the save is never blocked. `on_error: skip` is
+  rejected for async rules, because a failing run is retried with backoff and then dead-lettered. A ticket that is
+  gone or hidden, a rule that was uninstalled, or an action the actor may not take are recorded and finished without
+  retrying. The worker keeps its own registry, reloaded by `NOTIFY`, so a worker started alone knows every rule.
+- **One save path.** Creating, editing and moving a ticket is `internal/records` (`Service.Create`, `Update`,
+  `Transition`), called by the api for a person's request and by the worker for an async rule's update. Validation,
+  before and after rules, the audit and the queuing of async rules therefore happen the same way whoever asks, and
+  nothing else writes to `tasks`. The api handlers only decode, call it and map its `*records.Error` to a status.
+- **`record.update`** (async only; `set` is its before-rule counterpart) takes the same fields as `set`. The run's
+  actions change the record in memory, each seeing the earlier ones, and the difference is then saved as **one edit**
+  through `Service.Update`, as the person whose change set the rule off: they must be staff, the row is locked before
+  the rule reads it, and every before and after rule judges the change. A refusal (a before rule aborts, a value is
+  not allowed) is recorded as failed and not retried, and undoes the run's comments too. It updates the triggering
+  record only; other records arrive with `record.create` and friends.
+- **Loop protection.** An update raises `update` events, which fire async rules, whose updates raise events. Two
+  things cut that. Every queued run carries its **cause**: the chain of `app/rule` runs behind it and its depth. What a
+  run saves is judged against it (`ruleruns.Cause.Blocks`): a rule may not be set off by a change made by **its own
+  app** (an app's rules do not trigger each other, so two rules of one app cannot ping-pong), and a chain is cut at
+  **depth 5** however many apps it crosses. Rules of different apps may set each other off. A blocked rule is not
+  queued and is recorded as `skipped` with the reason, so a cut loop leaves a trace. A person's own save has no cause.
+  Before and after rules cannot loop (they write nothing that raises events).
+- **Layers:** a rule is a definition like any other, so `local/` can change one field of a shipped rule (`order`,
+  `on_error`, an action) without copying it.
 
 ## 7. Workflows
 
@@ -608,8 +659,8 @@ In expressions a record is flat: `record.priority` and `record.resolution` both 
   install checks stranded records only for the types a lifecycle governs: a `task` lifecycle governs the types
   without their own, so it is neither blocked by, nor rewrites, incidents that have theirs.
 - Comments reference `tasks.id` with a real foreign key. The queue lists tasks of every type without joining any
-  extension table, and `GET /tickets?type=change` narrows it. Rules do not exist yet, so rule inheritance from
-  `task` arrives with them in slice 5.
+  extension table, and `GET /tickets?type=change` narrows it. Rules on `task` run for every type, before the
+  type's own (§6.4).
 
 **Adding a record type** (a core change, by design):
 
@@ -765,7 +816,7 @@ Each slice is shippable and leaves the product working.
 | **2. Expressions and a benchmark** (done) | CEL in transition guards, with install-time type checking and fail-closed evaluation; benchmark of the save path. Rule filters use the same engine when rules arrive in slice 5. | Slice 1 |
 | **3. Record types** (done) | The `tasks` base and the `incidents` extension table (D14); the `task_types` registry with per-type numbering and references (INC42); comments referencing `tasks.id`; lifecycle inheritance from `task`; incident resolution notes. Extension tables for change, request and problem come with their apps, and rule inheritance with rules in slice 5. | Slice 1 |
 | **4. Forms** | Field definitions, `fields jsonb`, form rendering. | Slices 2 and 3 |
-| **5. Rules** | Before, after and async rules with the built-in actions; job queue and worker role; transactional outbox; `action_runs` audit; loop protection. | Slices 2 and 3 |
+| **5. Rules** (done: job queue and worker, before/after/async rules, `action_runs` audit, one shared save path, `record.update` and loop protection) | Before, after and async rules with the built-in actions; job queue and worker role; transactional outbox; `action_runs` audit; loop protection. | Slices 2 and 3 |
 | **6. Workflow engine** | Durable execution, the v1 step library, workflows as YAML, run history API and a read-only run viewer. | Slice 5 |
 | **6b. SLAs** | First-class SLA definitions with pause and resume, business calendars and breach actions. | Slice 6 |
 | **7. Roles and permissions** | Custom RBAC and app service principals (open question 3). | Slice 5 |

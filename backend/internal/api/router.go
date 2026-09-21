@@ -11,6 +11,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
+	"github.com/servicelater/servicelater/backend/internal/records"
 )
 
 type Deps struct {
@@ -25,6 +26,7 @@ type handlers struct {
 	pool *pgxpool.Pool
 	auth *auth.Service
 	apps *apps.Registry
+	svc  *records.Service
 }
 
 // lifecycleFor is the status flow for a ticket type: the type's own, else the `task` default, else the built-in one.
@@ -47,7 +49,7 @@ func NewRouter(d Deps) http.Handler {
 	if d.Apps == nil {
 		d.Apps = apps.NewRegistry(nil)
 	}
-	h := &handlers{pool: d.Pool, auth: d.Auth, apps: d.Apps}
+	h := &handlers{pool: d.Pool, auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool}}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 

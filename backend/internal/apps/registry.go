@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -16,6 +17,7 @@ import (
 
 type snapshot struct {
 	lifecycles map[string]*Lifecycle
+	rules      map[string][]*Rule // by record type, in run order
 	apps       []Installed
 }
 
@@ -34,7 +36,7 @@ type Registry struct {
 // ever does (useful in tests and before any app is installed).
 func NewRegistry(pool *pgxpool.Pool) *Registry {
 	r := &Registry{pool: pool}
-	r.snap.Store(&snapshot{lifecycles: map[string]*Lifecycle{}})
+	r.snap.Store(&snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}})
 	return r
 }
 
@@ -43,7 +45,7 @@ func (r *Registry) Load(ctx context.Context) error {
 	if r.pool == nil {
 		return nil
 	}
-	next := &snapshot{lifecycles: map[string]*Lifecycle{}}
+	next := &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}}
 	err := db.WithSystem(ctx, r.pool, func(tx pgx.Tx) error {
 		q := dbgen.New(tx)
 		apps, err := q.ListApps(ctx)
@@ -66,6 +68,24 @@ func (r *Registry) Load(ctx context.Context) error {
 			next.apps = append(next.apps, Installed{Name: a.Name, Version: a.Version, Description: m.Description, Definitions: counts[a.Name]})
 		}
 		for _, d := range defs {
+			if d.Kind == "rule" {
+				var rule Rule
+				if err := json.Unmarshal(d.Body, &rule); err != nil {
+					slog.Error("skipping unreadable rule", "app", d.AppName, "rule", d.Name, "err", err)
+					continue
+				}
+				var p Problems
+				if rule.validateStructure(d.AppName, &p); len(p) > 0 {
+					slog.Error("skipping invalid rule", "app", d.AppName, "rule", d.Name, "problems", p.Error())
+					continue
+				}
+				// A rule whose expressions no longer compile stays, and is blocked or skipped when it runs (per its
+				// on_error), so a broken rule can never be silently ignored.
+				rule.compile()
+				rule.App, rule.Version = d.AppName, versions[d.AppName]
+				next.rules[rule.RecordType] = append(next.rules[rule.RecordType], &rule)
+				continue
+			}
 			if d.Kind != "lifecycle" {
 				continue
 			}
@@ -95,7 +115,50 @@ func (r *Registry) Load(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	for _, list := range next.rules {
+		sort.SliceStable(list, func(i, j int) bool {
+			a, b := list[i], list[j]
+			if a.Order != b.Order {
+				return a.Order < b.Order
+			}
+			if a.App != b.App {
+				return a.App < b.App
+			}
+			return a.Name < b.Name
+		})
+	}
 	r.snap.Store(next)
+	return nil
+}
+
+// Rules returns the rules to run for a record type at a point in a save: the `task` rules first, then the type's
+// own, each in order (then app, then name).
+func (r *Registry) Rules(recordType, timing, event string) []*Rule {
+	s := r.snap.Load()
+	var out []*Rule
+	for _, rt := range []string{"task", recordType} {
+		if rt == recordType && recordType == "task" && len(out) > 0 {
+			break // asking for `task` itself must not list its rules twice
+		}
+		for _, rule := range s.rules[rt] {
+			if rule.Applies(timing, event) {
+				out = append(out, rule)
+			}
+		}
+	}
+	return out
+}
+
+// Rule finds one rule by the app that defines it and its name, for a job that was queued for it. It is nil when the
+// rule is gone (uninstalled since the save that queued the job).
+func (r *Registry) Rule(app, name string) *Rule {
+	for _, list := range r.snap.Load().rules {
+		for _, rule := range list {
+			if rule.App == app && rule.Name == name {
+				return rule
+			}
+		}
+	}
 	return nil
 }
 

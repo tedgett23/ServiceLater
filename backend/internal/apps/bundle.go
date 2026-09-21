@@ -49,6 +49,7 @@ type Definition struct {
 	Body      json.RawMessage
 	Checksum  string
 	Lifecycle *Lifecycle
+	Rule      *Rule
 }
 
 // Source is the layers joined for storage and display, for example "default+local".
@@ -63,7 +64,7 @@ type Compiled struct {
 // definition folders: what each holds, and whether this version can install it.
 var definitionDirs = map[string]struct{ kind, unsupported string }{
 	"lifecycles":    {kind: "lifecycle"},
-	"rules":         {unsupported: "rules are not supported yet"},
+	"rules":         {kind: "rule"},
 	"workflows":     {unsupported: "workflows are not supported yet"},
 	"forms":         {unsupported: "forms are not supported yet"},
 	"catalog":       {unsupported: "catalog items are not supported yet"},
@@ -357,6 +358,14 @@ func compileDefinition(kind, file string, data []byte, p *Problems) *Definition 
 		body, _ := json.Marshal(lc) // fields marshal in a fixed order, so the checksum is stable
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: lc.RecordType, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Lifecycle: lc}
+	case "rule":
+		r := parseRule(file, data, p)
+		if r == nil {
+			return nil
+		}
+		body, _ := json.Marshal(r)
+		sum := sha256.Sum256(body)
+		return &Definition{Kind: kind, Name: r.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Rule: r}
 	}
 	return nil
 }

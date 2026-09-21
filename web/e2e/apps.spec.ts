@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { api, as, createTicket, details, openTicket, uid } from './helpers';
+import { USERS } from './users';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { bumpVersion, installFirstParty, modifiedIncidentApp, servicelater, writeLocalOverride } from './apps';
 
 // These tests change the installed apps, so they put the first-party versions back afterwards.
@@ -201,5 +205,130 @@ test('a guard can require resolution notes, and writing them unlocks the move', 
 		await expect(details(page).getByText('Resolved', { exact: true })).toBeVisible();
 	} finally {
 		app.cleanup();
+	}
+});
+
+test('a rule that says no shows its own message, and the edit is put back', async ({ browser }) => {
+	const { context, page } = await as(browser, 'agent');
+	const tag = uid();
+	const t = await createTicket(context, { title: `Rule ${tag}` });
+	await openTicket(page, t.number);
+
+	// The rule only matches this test's ticket: the server is shared, so it must not touch anyone else's.
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-rules-'));
+	fs.mkdirSync(path.join(dir, 'default/rules'), { recursive: true });
+	fs.writeFileSync(
+		path.join(dir, 'app.yaml'),
+		'apiVersion: 1\nname: e2e-house-rules\nversion: 1.0.0\nauthor: e2e\ndescription: "Rules for a test."\n'
+	);
+	fs.writeFileSync(
+		path.join(dir, 'default/rules/critical.yaml'),
+		`kind: rule
+name: critical-needs-assignee
+record_type: incident
+timing: before
+on: [update]
+when: 'record.title.contains("${tag}") && record.priority == 1 && !has(record.assignee_id)'
+run:
+  - action: abort
+    message: Critical incidents need an assignee.
+`
+	);
+	try {
+		servicelater('install', dir);
+		const before = await details(page).getByLabel('Priority').inputValue();
+		await details(page).getByLabel('Priority').selectOption('Critical');
+		await expect(page.getByText('Critical incidents need an assignee.')).toBeVisible();
+		await expect(details(page).getByLabel('Priority')).toHaveValue(before);
+
+		// With an assignee the same edit is fine.
+		await details(page).getByLabel('Assignee').selectOption({ label: USERS.agent.name });
+		await details(page).getByLabel('Priority').selectOption('Critical');
+		await page.reload();
+		await expect(details(page).getByLabel('Priority')).toHaveValue('1');
+	} finally {
+		servicelater('uninstall', 'e2e-house-rules');
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test('an async rule adds its note after the save, and the open page shows it live', async ({ browser }) => {
+	const { context, page } = await as(browser, 'agent');
+	const tag = uid();
+	const t = await createTicket(context, { title: `Async ${tag}` });
+	await openTicket(page, t.number);
+
+	// Scoped to this test's ticket: the server is shared.
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-async-'));
+	fs.mkdirSync(path.join(dir, 'default/rules'), { recursive: true });
+	fs.writeFileSync(
+		path.join(dir, 'app.yaml'),
+		'apiVersion: 1\nname: e2e-async-rules\nversion: 1.0.0\nauthor: e2e\ndescription: "Rules for a test."\n'
+	);
+	fs.writeFileSync(
+		path.join(dir, 'default/rules/escalated.yaml'),
+		`kind: rule
+name: escalation-note
+record_type: incident
+timing: async
+on: [update]
+when: 'record.title.contains("${tag}") && record.priority == 1 && old.priority != 1'
+run:
+  - action: comment.add
+    body: '=record.reference + " was escalated to critical by " + user.name'
+`
+	);
+	try {
+		servicelater('install', dir);
+		await details(page).getByLabel('Priority').selectOption('Critical');
+		// Nothing reloads the page: the worker writes the note after the save, and the live connection delivers it.
+		await expect(page.locator('.activity li', { hasText: 'was escalated to critical by' })).toBeVisible();
+		await page.reload();
+		await expect(page.locator('.activity li', { hasText: `INC${t.number} was escalated` })).toHaveCount(1);
+	} finally {
+		servicelater('uninstall', 'e2e-async-rules');
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test('an async rule can change the ticket, and the open page shows the new assignee live', async ({ browser }) => {
+	const { context, page } = await as(browser, 'agent');
+	const tag = uid();
+	const t = await createTicket(context, { title: `Auto assign ${tag}` });
+	await openTicket(page, t.number);
+	await expect(details(page).getByLabel('Assignee').locator('option:checked')).toHaveText('Unassigned');
+
+	// Scoped to this test's ticket: the server is shared.
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-update-'));
+	fs.mkdirSync(path.join(dir, 'default/rules'), { recursive: true });
+	fs.writeFileSync(
+		path.join(dir, 'app.yaml'),
+		'apiVersion: 1\nname: e2e-update-rules\nversion: 1.0.0\nauthor: e2e\ndescription: "Rules for a test."\n'
+	);
+	fs.writeFileSync(
+		path.join(dir, 'default/rules/claim.yaml'),
+		`kind: rule
+name: critical-claims-the-ticket
+record_type: incident
+timing: async
+on: [update]
+when: 'record.title.contains("${tag}") && record.priority == 1 && old.priority != 1'
+run:
+  - action: record.update
+    field: assignee_id
+    value: =user.id
+`
+	);
+	try {
+		servicelater('install', dir);
+		await details(page).getByLabel('Priority').selectOption('Critical');
+		// The worker saves the assignee after the priority change committed; nothing reloads the page.
+		await expect(details(page).getByLabel('Assignee').locator('option:checked')).toHaveText(USERS.agent.name);
+		await page.reload();
+		await expect(details(page).getByLabel('Priority')).toHaveValue('1');
+		await expect(details(page).getByLabel('Assignee').locator('option:checked')).toHaveText(USERS.agent.name);
+	} finally {
+		servicelater('uninstall', 'e2e-update-rules');
+		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });

@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"cel.dev/cel-go/cel"
 )
 
 func env(t testing.TB) *Env {
@@ -216,5 +218,77 @@ func BenchmarkCompile(b *testing.B) {
 		if _, err := e.Compile(fmt.Sprintf("record.priority <= 3 && has(record.assignee_id) && record.number > %d", i)); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func rulesEnv(t testing.TB) *Env {
+	t.Helper()
+	e, err := Rule()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
+func TestRulesSeeTheEventAndGuardsDoNot(t *testing.T) {
+	p, err := rulesEnv(t).Compile(`event == "create" || record.priority != old.priority`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := sample()
+	in.Event = "create"
+	if got, err := p.Eval(context.Background(), in); err != nil || !got {
+		t.Errorf("create: %v %v", got, err)
+	}
+	in.Event = "update"
+	in.Old = &Record{Priority: 2}
+	if got, _ := p.Eval(context.Background(), in); got {
+		t.Error("an update that changes nothing")
+	}
+	if _, err := env(t).Compile(`event == "create"`); err == nil {
+		t.Error("guards have no event: this should not compile there")
+	}
+}
+
+func TestTypedExpressionsProduceTheRightThing(t *testing.T) {
+	e := rulesEnv(t)
+	in := sample()
+	in.Event = "update"
+
+	num, err := e.CompileAs(`record.priority > 2 ? 1 : 3`, Int)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, err := num.EvalValue(context.Background(), in); err != nil || v != int64(3) {
+		t.Errorf("number: %v %v", v, err)
+	}
+	txt, err := e.CompileAs(`"[" + record.reference + "] " + record.title`, String)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Record.Reference = "INC42"
+	if v, _ := txt.EvalValue(context.Background(), in); v != "[INC42] VPN down" {
+		t.Errorf("text: %v", v)
+	}
+	for _, c := range []struct {
+		source string
+		want   *cel.Type
+		msg    string
+	}{
+		{`record.title`, Int, "a whole number, not string"},
+		{`record.priority`, String, "text, not int"},
+		{`record.priority`, Bool, "true or false, not int"},
+		{`record.priority + 0.5`, Int, "no matching overload"},
+	} {
+		if _, err := e.CompileAs(c.source, c.want); err == nil || !strings.Contains(err.Error(), c.msg) {
+			t.Errorf("%q as %v: want %q, got %v", c.source, c.want, c.msg, err)
+		}
+	}
+	// The same source compiled for two types is two programs: the cache must not confuse them.
+	if _, err := e.Compile(`record.priority > 0`); err != nil {
+		t.Error(err)
+	}
+	if _, err := e.CompileAs(`record.priority > 0`, Int); err == nil {
+		t.Error("a boolean expression was accepted where a number is required")
 	}
 }

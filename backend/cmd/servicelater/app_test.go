@@ -6,8 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/dbtest"
@@ -21,6 +24,11 @@ func cli(t *testing.T, args ...string) (string, error) {
 }
 
 func firstParty(name string) string { return filepath.Join(dbtest.AppsDir(), name) }
+
+// dbPool is a connection to the scratch database, for tests that set up or inspect rows directly.
+func dbPool(t *testing.T) *pgxpool.Pool { return dbtest.Pool(t) }
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 
 func scratch(t *testing.T) {
 	t.Helper()

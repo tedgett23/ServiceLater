@@ -1,0 +1,490 @@
+package records
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/servicelater/servicelater/backend/internal/apps"
+	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
+	"github.com/servicelater/servicelater/backend/internal/expr"
+	"github.com/servicelater/servicelater/backend/internal/ruleruns"
+	"github.com/servicelater/servicelater/backend/internal/rules"
+)
+
+// CannotCheck is what a person sees when a lifecycle guard could not be evaluated.
+const CannotCheck = "This move is blocked because its rule could not be checked. Ask an administrator to review the app that defines it."
+
+const ruleBroken = "A rule could not be checked, so this change was not saved. Ask an administrator to review the app that defines it."
+
+// Service saves tickets. Apps supplies lifecycles and rules; Pool is used only for the audit, which is written on a
+// connection of its own so that it survives the rollback of the save it describes.
+type Service struct {
+	Apps *apps.Registry
+	Pool *pgxpool.Pool
+}
+
+// Actor is who is saving. Rules and permissions are judged as them, and the database applies RLS as them.
+type Actor struct {
+	ID   uuid.UUID
+	Role string
+}
+
+// CreateInput is a new incident as asked for.
+type CreateInput struct {
+	Title, Description string
+	Priority           *int16
+	RequesterID        *uuid.UUID // staff may file on behalf of someone else
+}
+
+// Patch is a change to a ticket. A nil field is left alone; SetAssignee with a nil AssigneeID unassigns.
+type Patch struct {
+	Title, Description *string
+	Priority           *int16
+	SetAssignee        bool
+	AssigneeID         *uuid.UUID
+	Resolution         *string
+}
+
+// Empty reports whether the patch changes nothing.
+func (p Patch) Empty() bool {
+	return p.Title == nil && p.Description == nil && p.Priority == nil && !p.SetAssignee && p.Resolution == nil
+}
+
+// q must be built on the transaction of the save (db.WithUser), so the ticket, its comments, the jobs it queues and
+// what the rules did all commit or roll back together.
+
+// Create files an incident.
+func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, in CreateInput) (Ticket, error) {
+	if err := validTitle(in.Title); err != nil {
+		return Ticket{}, err
+	}
+	if len(in.Description) > MaxDescription {
+		return Ticket{}, Invalid("description too long")
+	}
+	prio := int16(3)
+	if in.Priority != nil {
+		prio = *in.Priority
+	}
+	if err := validPriority(prio); err != nil {
+		return Ticket{}, err
+	}
+	requester := a.ID
+	if in.RequesterID != nil && *in.RequesterID != a.ID {
+		if !IsStaff(a.Role) {
+			return Ticket{}, Forbidden("only staff can file on behalf of others")
+		}
+		requester = *in.RequesterID
+	}
+	lc := s.Apps.Lifecycle("incident")
+	category, _ := lc.Category(lc.Initial)
+	next := Ticket{Type: "incident", Title: strings.TrimSpace(in.Title), Description: in.Description, Priority: prio,
+		RequesterID: requester, Status: lc.Initial, StateCategory: string(category)}
+	// Before rules see the ticket as it is about to be written and may change it or stop the save.
+	next, err := s.runBefore(ctx, q, a, apps.EventCreate, nil, next)
+	if err != nil {
+		return Ticket{}, err
+	}
+	// A ticket is a task plus its type's own row. Both are written in this transaction, or neither is.
+	t, err := q.CreateTask(ctx, dbgen.CreateTaskParams{
+		Type: next.Type, Title: strings.TrimSpace(next.Title), Description: next.Description, Priority: next.Priority, RequesterID: requester,
+		Status: lc.Initial, StateCategory: string(category)})
+	if err != nil {
+		return Ticket{}, err
+	}
+	if err := q.CreateIncident(ctx, t.ID); err != nil {
+		return Ticket{}, err
+	}
+	// What the rules changed beyond the columns the insert takes is written now.
+	created, err := Load(ctx, q, t.ID)
+	if err != nil {
+		return Ticket{}, err
+	}
+	if err := writeChanges(ctx, q, created, withRuleFields(created, next)); err != nil {
+		return Ticket{}, err
+	}
+	out, err := Load(ctx, q, t.ID)
+	if err != nil {
+		return Ticket{}, err
+	}
+	return out, s.runAfter(ctx, q, a, cause, apps.EventCreate, nil, out)
+}
+
+// Update edits a ticket. It locks the row first, so rules see the ticket as it is and two edits cannot both act on
+// the same state.
+func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, id uuid.UUID, p Patch) (Ticket, error) {
+	if !IsStaff(a.Role) {
+		return Ticket{}, Forbidden("only staff can edit tickets")
+	}
+	if p.Title != nil {
+		if err := validTitle(*p.Title); err != nil {
+			return Ticket{}, err
+		}
+	}
+	if p.Description != nil && len(*p.Description) > MaxDescription {
+		return Ticket{}, Invalid("description too long")
+	}
+	if p.Priority != nil {
+		if err := validPriority(*p.Priority); err != nil {
+			return Ticket{}, err
+		}
+	}
+	if p.Resolution != nil && len(*p.Resolution) > MaxResolution {
+		return Ticket{}, Invalid("resolution notes are too long")
+	}
+	if _, err := q.GetTaskForUpdate(ctx, id); err != nil {
+		return Ticket{}, err
+	}
+	cur, err := Load(ctx, q, id)
+	if err != nil {
+		return Ticket{}, err
+	}
+	next := cur
+	if p.Title != nil {
+		next.Title = strings.TrimSpace(*p.Title)
+	}
+	if p.Description != nil {
+		next.Description = *p.Description
+	}
+	if p.Priority != nil {
+		next.Priority = *p.Priority
+	}
+	if p.SetAssignee {
+		next.AssigneeID = nil
+		if p.AssigneeID != nil {
+			u, err := q.GetUser(ctx, *p.AssigneeID)
+			if err != nil {
+				return Ticket{}, Invalid("assignee does not exist")
+			}
+			if !IsStaff(u.Role) {
+				return Ticket{}, Invalid("assignee must be an agent or admin")
+			}
+			next.AssigneeID = p.AssigneeID
+		}
+	}
+	if p.Resolution != nil {
+		// The resolution belongs to the incident's own row, so only tickets of that type have one.
+		if cur.Type != "incident" {
+			return Ticket{}, Invalid("this kind of ticket has no resolution notes")
+		}
+		next.Resolution = *p.Resolution
+	}
+	final, err := s.runBefore(ctx, q, a, apps.EventUpdate, &cur, next)
+	if err != nil {
+		return Ticket{}, err
+	}
+	if err := writeChanges(ctx, q, cur, final); err != nil {
+		return Ticket{}, err
+	}
+	out, err := Load(ctx, q, id)
+	if err != nil {
+		return Ticket{}, err
+	}
+	return out, s.runAfter(ctx, q, a, cause, apps.EventUpdate, &cur, out)
+}
+
+// Transition moves a ticket to another status, if its lifecycle allows the move and its guard agrees.
+func (s *Service) Transition(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, id uuid.UUID, to string) (Ticket, error) {
+	if !IsStaff(a.Role) {
+		return Ticket{}, Forbidden("only staff can move tickets")
+	}
+	// Lock the row so two concurrent transitions can't both pass the check against the same state.
+	t, err := q.GetTaskForUpdate(ctx, id)
+	if err != nil {
+		return Ticket{}, err
+	}
+	// Which lifecycle applies depends on the ticket's type, so it is known only once the ticket is loaded.
+	lc := s.Apps.Lifecycle(t.Type)
+	if !lc.HasState(to) {
+		return Ticket{}, Invalid("unknown status")
+	}
+	if !lc.CanTransition(t.Status, to) {
+		return Ticket{}, Conflict("cannot move a " + lc.Label(t.Status) + " ticket to " + lc.Label(to))
+	}
+	cur, err := Load(ctx, q, id)
+	if err != nil {
+		return Ticket{}, err
+	}
+	// The lifecycle's guard for this move, evaluated against the ticket as it would be after it. Anything other
+	// than a definite yes blocks the move.
+	if lc.Guarded(t.Status, to) {
+		user, err := q.GetUser(ctx, a.ID)
+		if err != nil {
+			return Ticket{}, err
+		}
+		ok, message, err := lc.Check(ctx, t.Status, to, GuardInput(cur, to, lc, user))
+		if err != nil {
+			slog.Error("move guard", "ticket", cur.Number, "from", t.Status, "to", to, "err", err)
+			return Ticket{}, Invalid(CannotCheck)
+		}
+		if !ok {
+			return Ticket{}, Invalid(message)
+		}
+	}
+	// Rules see the ticket as it would be after the move, exactly as a guard does.
+	category, _ := lc.Category(to)
+	next := cur
+	next.Status, next.StateCategory = to, string(category)
+	final, err := s.runBefore(ctx, q, a, apps.EventUpdate, &cur, next)
+	if err != nil {
+		return Ticket{}, err
+	}
+	if _, err = q.UpdateTaskStatus(ctx, dbgen.UpdateTaskStatusParams{ID: id, Status: to, StateCategory: string(category)}); err != nil {
+		return Ticket{}, err
+	}
+	if err := writeChanges(ctx, q, cur, final); err != nil {
+		return Ticket{}, err
+	}
+	out, err := Load(ctx, q, id)
+	if err != nil {
+		return Ticket{}, err
+	}
+	return out, s.runAfter(ctx, q, a, cause, apps.EventUpdate, &cur, out)
+}
+
+// GuardInput is what a transition guard sees: the ticket as it would be after the move, as it is now, and who is acting.
+func GuardInput(cur Ticket, to string, lc *apps.Lifecycle, u dbgen.User) expr.Input {
+	next := cur
+	next.Status = to
+	if c, ok := lc.Category(to); ok {
+		next.StateCategory = string(c)
+	}
+	return expr.Input{
+		Record: next.ExprRecord(), Old: cur.ExprRecord(), Now: time.Now(),
+		User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role},
+	}
+}
+
+// ---- rules around a save ----
+
+// ruleInput is what rules see: the ticket as it would be (record), as it is (old; empty on create), and who is acting.
+func (s *Service) ruleInput(ctx context.Context, q *dbgen.Queries, a Actor, event string, old *Ticket, next Ticket) (expr.Input, error) {
+	u, err := q.GetUser(ctx, a.ID)
+	if err != nil {
+		return expr.Input{}, err
+	}
+	in := expr.Input{
+		Record: next.ExprRecord(), Event: event, Now: time.Now(),
+		User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role},
+	}
+	if old != nil {
+		in.Old = old.ExprRecord()
+	}
+	return in, nil
+}
+
+// ruleError turns what the engine reports into what the person sees, and records it for the administrator. A rule
+// saying no is an expected failure and carries the rule's own message; a rule that could not run is logged and
+// reported plainly. The audit line is written from another connection, because this save is about to roll back.
+func (s *Service) ruleError(ctx context.Context, err error, timing, event string, id *uuid.UUID, ref string) error {
+	var ab *rules.Abort
+	var br *rules.Broken
+	switch {
+	case errors.As(err, &ab):
+		ruleruns.Record(ctx, s.Pool, ruleruns.Run{App: ab.App, Rule: ab.Rule, Timing: timing, Event: event, RecordID: id, Outcome: ruleruns.Aborted, Detail: ab.Message})
+		return Invalid(ab.Message)
+	case errors.As(err, &br):
+		slog.Error("rule could not run", "rule", br.Rule, "ticket", ref, "err", br.Err)
+		ruleruns.Record(ctx, s.Pool, ruleruns.Run{App: br.App, Rule: br.Rule, Timing: timing, Event: event, RecordID: id, Outcome: ruleruns.Failed, Detail: br.Err.Error()})
+		return Invalid(ruleBroken)
+	}
+	return err
+}
+
+func idOf(t *Ticket) *uuid.UUID {
+	if t == nil {
+		return nil
+	}
+	return &t.ID
+}
+
+// runBefore runs the before rules for a save. cur is nil on create. next is the ticket as the request would leave
+// it; the result is what to write instead, with the rules' changes checked as strictly as a request's would be.
+func (s *Service) runBefore(ctx context.Context, q *dbgen.Queries, a Actor, event string, cur *Ticket, next Ticket) (Ticket, error) {
+	list := s.Apps.Rules(next.Type, apps.TimingBefore, event)
+	if len(list) == 0 {
+		return next, nil
+	}
+	in, err := s.ruleInput(ctx, q, a, event, cur, next)
+	if err != nil {
+		return next, err
+	}
+	res, err := rules.Before(ctx, list, in)
+	if err != nil {
+		return next, s.ruleError(ctx, err, apps.TimingBefore, event, idOf(cur), next.Reference)
+	}
+	out, err := FromRecord(next, res)
+	if err != nil {
+		return next, err
+	}
+	if err := validateRuleChanges(ctx, q, next, out); err != nil {
+		return next, err
+	}
+	return out, nil
+}
+
+// FromRecord is the ticket with the fields rules may set taken from the record the rules left. Values a rule set are
+// range-checked here; whether they are allowed for this ticket is validateRuleChanges.
+func FromRecord(base Ticket, res *expr.Record) (Ticket, error) {
+	out := base
+	out.Title, out.Description, out.Resolution = res.Title, res.Description, res.Resolution
+	out.AssigneeID = nil
+	if res.AssigneeID != nil {
+		id, err := uuid.Parse(*res.AssigneeID)
+		if err != nil {
+			return base, Invalid("a rule set an assignee that is not a user")
+		}
+		out.AssigneeID = &id
+	}
+	if res.Priority < 1 || res.Priority > 4 {
+		return base, Invalid("a rule set the priority out of range: it must be 1 (critical) to 4 (low)")
+	}
+	out.Priority = int16(res.Priority)
+	return out, nil
+}
+
+// validateRuleChanges applies the checks a request goes through to whatever the rules changed.
+func validateRuleChanges(ctx context.Context, q *dbgen.Queries, before, after Ticket) error {
+	wrap := func(err error) error {
+		var e *Error
+		if errors.As(err, &e) {
+			return Invalid("a rule made a change that is not allowed: " + e.Msg)
+		}
+		return err
+	}
+	if after.Title != before.Title {
+		if err := validTitle(after.Title); err != nil {
+			return wrap(err)
+		}
+	}
+	if after.Description != before.Description && len(after.Description) > MaxDescription {
+		return Invalid("a rule made the description too long")
+	}
+	if after.Resolution != before.Resolution {
+		if after.Type != "incident" {
+			return Invalid("a rule set resolution notes on a ticket that has none")
+		}
+		if len(after.Resolution) > MaxResolution {
+			return Invalid("a rule made the resolution notes too long")
+		}
+	}
+	if after.AssigneeID != nil && (before.AssigneeID == nil || *before.AssigneeID != *after.AssigneeID) {
+		u, err := q.GetUser(ctx, *after.AssigneeID)
+		if err != nil {
+			return Invalid("a rule set an assignee who does not exist")
+		}
+		if !IsStaff(u.Role) {
+			return Invalid("a rule set an assignee who is not an agent or admin")
+		}
+	}
+	return nil
+}
+
+// changes is what must be written to turn cur into final: nothing set means nothing to write.
+func changes(cur, final Ticket) (args dbgen.UpdateTaskParams, any bool) {
+	if final.Title != cur.Title {
+		args.Title, any = pgtype.Text{String: strings.TrimSpace(final.Title), Valid: true}, true
+	}
+	if final.Description != cur.Description {
+		args.Description, any = pgtype.Text{String: final.Description, Valid: true}, true
+	}
+	if final.Priority != cur.Priority {
+		args.Priority, any = pgtype.Int2{Int16: final.Priority, Valid: true}, true
+	}
+	if !sameUUID(cur.AssigneeID, final.AssigneeID) {
+		args.SetAssignee, any = true, true
+		if final.AssigneeID != nil {
+			args.AssigneeID.UUID, args.AssigneeID.Valid = *final.AssigneeID, true
+		}
+	}
+	args.ID = cur.ID
+	return args, any
+}
+
+func sameUUID(a, b *uuid.UUID) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+// writeChanges saves final over cur, including an incident's resolution.
+func writeChanges(ctx context.Context, q *dbgen.Queries, cur, final Ticket) error {
+	if args, any := changes(cur, final); any {
+		if _, err := q.UpdateTask(ctx, args); err != nil {
+			return err
+		}
+	}
+	if final.Resolution != cur.Resolution {
+		return q.UpdateIncident(ctx, dbgen.UpdateIncidentParams{TaskID: cur.ID, Resolution: final.Resolution})
+	}
+	return nil
+}
+
+// withRuleFields is base with the fields rules may set taken from the other ticket.
+func withRuleFields(base, from Ticket) Ticket {
+	base.Title, base.Description, base.Priority = strings.TrimSpace(from.Title), from.Description, from.Priority
+	base.AssigneeID, base.Resolution = from.AssigneeID, from.Resolution
+	return base
+}
+
+// runAfter runs the after rules against the saved ticket, then queues the async ones. An abort undoes the whole
+// save (the transaction rolls back); the comments the rules ask for are written as the person acting.
+func (s *Service) runAfter(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, event string, cur *Ticket, saved Ticket) error {
+	if list := s.Apps.Rules(saved.Type, apps.TimingAfter, event); len(list) > 0 {
+		if err := s.runAfterRules(ctx, q, a, event, cur, saved, list); err != nil {
+			return err
+		}
+	}
+	// Last, so that what is queued is only what the whole save, including every after rule, agreed to.
+	return s.queueAsync(ctx, q, a, cause, event, cur, saved)
+}
+
+func (s *Service) runAfterRules(ctx context.Context, q *dbgen.Queries, a Actor, event string, cur *Ticket, saved Ticket, list []*apps.Rule) error {
+	in, err := s.ruleInput(ctx, q, a, event, cur, saved)
+	if err != nil {
+		return err
+	}
+	comments, err := rules.After(ctx, list, in)
+	if err != nil {
+		return s.ruleError(ctx, err, apps.TimingAfter, event, &saved.ID, saved.Reference)
+	}
+	for _, c := range comments {
+		body := strings.TrimSpace(c.Body)
+		if body == "" || len(body) > MaxComment {
+			return Invalid(fmt.Sprintf("the rule %s wrote a comment that is empty or too long", c.Rule))
+		}
+		if _, err := q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: saved.ID, AuthorID: a.ID, Body: body, Internal: c.Internal}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// queueAsync fires the async rules the change sets off. They are queued in this transaction, so a save that rolls
+// back queues nothing, and they run later in a worker, after the save has committed. What an async rule's own save
+// sets off is limited by its cause (see ruleruns.Cause).
+func (s *Service) queueAsync(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, event string, cur *Ticket, saved Ticket) error {
+	list := s.Apps.Rules(saved.Type, apps.TimingAsync, event)
+	if len(list) == 0 {
+		return nil
+	}
+	in, err := s.ruleInput(ctx, q, a, event, cur, saved)
+	if err != nil {
+		return err
+	}
+	fired, failed := rules.Fire(ctx, list, in)
+	for _, br := range failed {
+		// An async rule never blocks a save, but its failure must not be silent.
+		slog.Error("async rule could not be evaluated", "rule", br.Rule, "ticket", saved.Reference, "err", br.Err)
+		ruleruns.Record(ctx, s.Pool, ruleruns.Run{App: br.App, Rule: br.Rule, Timing: apps.TimingAsync, Event: event, RecordID: &saved.ID, Outcome: ruleruns.Failed, Detail: br.Err.Error()})
+	}
+	return ruleruns.Enqueue(ctx, q, s.Pool, fired, event, saved.ID, a.ID, cause)
+}

@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -36,6 +37,9 @@ type Config struct {
 	BundledApps  string
 	AppsLocalDir string
 
+	// WorkerConcurrency is how many background jobs the worker role runs at once (SL_WORKER_CONCURRENCY, default 4).
+	WorkerConcurrency int
+
 	// Optional: create the first admin on startup when no users exist.
 	BootstrapEmail, BootstrapName, BootstrapPassword string
 }
@@ -59,11 +63,19 @@ func Load() (Config, error) {
 		JWTSecret:         os.Getenv("SL_JWT_SECRET"),
 		AccessTTL:         15 * time.Minute,
 		RefreshTTL:        30 * 24 * time.Hour,
+		WorkerConcurrency: 4,
 		BundledApps:       os.Getenv("SL_BUNDLED_APPS"),
 		AppsLocalDir:      os.Getenv("SL_APPS_LOCAL_DIR"),
 		BootstrapEmail:    os.Getenv("SL_BOOTSTRAP_ADMIN_EMAIL"),
 		BootstrapName:     getenv("SL_BOOTSTRAP_ADMIN_NAME", "Administrator"),
 		BootstrapPassword: os.Getenv("SL_BOOTSTRAP_ADMIN_PASSWORD"),
+	}
+	if v := os.Getenv("SL_WORKER_CONCURRENCY"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 64 {
+			return c, fmt.Errorf("SL_WORKER_CONCURRENCY must be a number from 1 to 64, got %q", v)
+		}
+		c.WorkerConcurrency = n
 	}
 	if c.Roles[RoleAPI] && len(c.JWTSecret) < 32 {
 		return c, fmt.Errorf("SL_JWT_SECRET must be set to at least 32 characters (generate one with: openssl rand -base64 48)")

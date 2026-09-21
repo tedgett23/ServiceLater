@@ -1,0 +1,412 @@
+package apps
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+
+	"cel.dev/cel-go/cel"
+	"gopkg.in/yaml.v3"
+
+	"github.com/servicelater/servicelater/backend/internal/expr"
+)
+
+// Rule timings and events. Delete events arrive later.
+const (
+	TimingBefore = "before" // inside the save, before the write: can abort or set fields
+	TimingAfter  = "after"  // inside the same transaction, after the write: can abort or add a comment
+	TimingAsync  = "async"  // after the save commits, in a worker: can add a comment, and cannot stop anything
+
+	EventCreate = "create"
+	EventUpdate = "update"
+
+	OnErrorBlock = "block" // a rule that cannot be evaluated stops the save (the default: fail closed)
+	OnErrorSkip  = "skip"  // ...or is skipped, for rules that are nice to have
+
+	maxRuleActions      = 20  // before and after rules run inside a save, so they stay small
+	maxAsyncRuleActions = 100 // an async rule waits for nobody
+	defaultOrder        = 100
+	maxOrder            = 1000
+)
+
+var ruleNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
+
+// SettableFields are the fields a before rule may set, and the type each takes.
+var SettableFields = map[string]string{
+	"title": "text", "description": "text", "priority": "number", "assignee_id": "text", "resolution": "text",
+}
+
+// Value is written in YAML as a literal (`5`, `"text"`, `true`) or, with a leading `=`, as an expression
+// (`=record.priority + 1`). Exactly one of Expr and Literal is set.
+type Value struct {
+	Expr    string `json:"expr,omitempty"`
+	Literal any    `json:"literal,omitempty"`
+
+	program *expr.Program
+	err     error
+}
+
+func (v *Value) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.ScalarNode {
+		return fmt.Errorf("line %d: a value is text, a whole number, true or false, or an =expression", n.Line)
+	}
+	switch n.Tag {
+	case "!!int":
+		i, err := strconv.ParseInt(n.Value, 0, 64)
+		if err != nil {
+			return fmt.Errorf("line %d: %q is not a whole number", n.Line, n.Value)
+		}
+		v.Literal = i
+	case "!!bool":
+		v.Literal = n.Value == "true"
+	case "!!str":
+		if rest, ok := strings.CutPrefix(n.Value, "="); ok {
+			v.Expr = strings.TrimSpace(rest)
+		} else {
+			v.Literal = n.Value
+		}
+	default:
+		return fmt.Errorf("line %d: a value is text, a whole number, true or false, or an =expression", n.Line)
+	}
+	return nil
+}
+
+// UnmarshalJSON reads a value back from the stored definition. Plain decoding would turn the literal 1 into the
+// float 1.0, which is not a whole number as far as validation and the engine are concerned.
+func (v *Value) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Expr    string `json:"expr"`
+		Literal any    `json:"literal"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode(&raw); err != nil {
+		return err
+	}
+	v.Expr, v.Literal = raw.Expr, raw.Literal
+	if n, ok := raw.Literal.(json.Number); ok {
+		i, err := n.Int64()
+		if err != nil {
+			return fmt.Errorf("%s is not a whole number", n)
+		}
+		v.Literal = i
+	}
+	return nil
+}
+
+// Action is one step of a rule.
+type Action struct {
+	Action   string `json:"action"`
+	When     string `json:"when,omitempty"`    // this action runs only if this is true
+	Field    string `json:"field,omitempty"`   // set: which field
+	Value    *Value `json:"value,omitempty"`   // set: the new value
+	Message  *Value `json:"message,omitempty"` // abort: what the person sees
+	Body     *Value `json:"body,omitempty"`    // comment.add: the text
+	Internal bool   `json:"internal,omitempty"`
+
+	when    *expr.Program
+	whenErr error
+}
+
+// Rule is "on this event, if this is true, do these things", at a point in the save.
+type Rule struct {
+	Name       string   `json:"name"`
+	RecordType string   `json:"record_type"`
+	Timing     string   `json:"timing"`
+	On         []string `json:"on"`
+	Order      int      `json:"order"`
+	When       string   `json:"when,omitempty"`
+	OnError    string   `json:"on_error"`
+	Run        []Action `json:"run"`
+
+	// App and Version say where the rule came from. They are set at runtime and are not part of the definition.
+	App     string `json:"-"`
+	Version string `json:"-"`
+
+	when    *expr.Program
+	whenErr error
+}
+
+// ---- YAML ----
+
+type ruleFile struct {
+	Kind       string       `yaml:"kind"`
+	Name       string       `yaml:"name"`
+	RecordType string       `yaml:"record_type"`
+	Timing     string       `yaml:"timing"`
+	On         []string     `yaml:"on"`
+	Order      *int         `yaml:"order"`
+	When       string       `yaml:"when"`
+	OnError    string       `yaml:"on_error"`
+	Run        []actionFile `yaml:"run"`
+}
+
+type actionFile struct {
+	Action   string `yaml:"action"`
+	When     string `yaml:"when"`
+	Field    string `yaml:"field"`
+	Value    *Value `yaml:"value"`
+	Message  *Value `yaml:"message"`
+	Body     *Value `yaml:"body"`
+	Internal bool   `yaml:"internal"`
+}
+
+func parseRule(file string, data []byte, p *Problems) *Rule {
+	var f ruleFile
+	if err := decodeStrict(data, &f); err != nil {
+		p.add(file, "%v", err)
+		return nil
+	}
+	if f.Kind != "rule" {
+		p.add(file, "kind must be rule in this folder, got %q", f.Kind)
+		return nil
+	}
+	r := &Rule{Name: f.Name, RecordType: f.RecordType, Timing: f.Timing, On: f.On, Order: defaultOrder, When: f.When, OnError: f.OnError}
+	if f.Order != nil {
+		r.Order = *f.Order
+	}
+	if r.OnError == "" {
+		r.OnError = OnErrorBlock
+	}
+	for _, a := range f.Run {
+		r.Run = append(r.Run, Action{Action: a.Action, When: a.When, Field: a.Field, Value: a.Value, Message: a.Message, Body: a.Body, Internal: a.Internal})
+	}
+	before := len(*p)
+	r.validate(file, p)
+	if len(*p) > before {
+		return nil
+	}
+	return r
+}
+
+// ---- validation ----
+
+// validate checks the rule's structure and compiles every expression in it, reporting anything wrong. It is what an
+// install runs.
+func (r *Rule) validate(file string, p *Problems) {
+	r.validateStructure(file, p)
+	r.compile()
+	if r.whenErr != nil {
+		p.add(file, "when: %v", r.whenErr)
+	}
+	for i := range r.Run {
+		a := &r.Run[i]
+		if a.whenErr != nil {
+			p.add(file, "run[%d]: when: %v", i, a.whenErr)
+		}
+		for _, v := range []struct {
+			name string
+			v    *Value
+		}{{"value", a.Value}, {"message", a.Message}, {"body", a.Body}} {
+			if v.v != nil && v.v.err != nil {
+				p.add(file, "run[%d]: %s: %v", i, v.name, v.v.err)
+			}
+		}
+	}
+}
+
+func (r *Rule) validateStructure(file string, p *Problems) {
+	if !ruleNameRE.MatchString(r.Name) {
+		p.add(file, "name %q must be 2-63 characters: lowercase letters, digits and hyphens, starting with a letter", r.Name)
+	}
+	if !slices.Contains(KnownRecordTypes, r.RecordType) {
+		p.add(file, "record_type %q is not a record type this version provides (available: %v)", r.RecordType, KnownRecordTypes)
+	}
+	switch r.Timing {
+	case TimingBefore, TimingAfter, TimingAsync:
+	default:
+		p.add(file, "timing must be before, after or async, got %q", r.Timing)
+	}
+	if len(r.On) == 0 {
+		p.add(file, "on is required: list the events this rule runs for (create, update)")
+	}
+	seen := map[string]bool{}
+	for _, e := range r.On {
+		switch {
+		case e == "delete":
+			p.add(file, "on: delete is not supported yet")
+		case e != EventCreate && e != EventUpdate:
+			p.add(file, "on: %q is not an event (create or update)", e)
+		case seen[e]:
+			p.add(file, "on: %q is listed twice", e)
+		}
+		seen[e] = true
+	}
+	if r.Order < 0 || r.Order > maxOrder {
+		p.add(file, "order must be from 0 to %d", maxOrder)
+	}
+	if r.OnError != OnErrorBlock && r.OnError != OnErrorSkip {
+		p.add(file, "on_error must be block or skip, got %q", r.OnError)
+	}
+	if r.Timing == TimingAsync && r.OnError == OnErrorSkip {
+		p.add(file, "on_error: skip does not apply to an async rule: nothing waits for it, so a failing run is retried and then dead-lettered")
+	}
+	limit := maxRuleActions
+	if r.Timing == TimingAsync {
+		limit = maxAsyncRuleActions
+	}
+	switch n := len(r.Run); {
+	case n == 0:
+		p.add(file, "a rule needs at least one action in run")
+	case n > limit:
+		p.add(file, "a %s rule may have at most %d actions, this has %d", r.Timing, limit, n)
+	}
+	for i := range r.Run {
+		for _, msg := range r.Run[i].structureProblems(r, i) {
+			p.add(file, "run[%d]: %s", i, msg)
+		}
+	}
+}
+
+// structureProblems lists what is wrong with an action's shape: its fields, and whether it is allowed at the rule's
+// timing.
+func (a *Action) structureProblems(r *Rule, _ int) (out []string) {
+	add := func(format string, args ...any) { out = append(out, fmt.Sprintf(format, args...)) }
+	extra := func(name string, present bool) {
+		if present {
+			add("%s does not take %s", a.Action, name)
+		}
+	}
+	switch a.Action {
+	case "abort":
+		if r.Timing == TimingAsync {
+			add("abort is not allowed in an async rule: the save has already happened, so there is nothing to stop")
+		}
+		if a.Message == nil {
+			add("abort needs a message: what the person sees")
+		}
+		extra("field", a.Field != "")
+		extra("value", a.Value != nil)
+		extra("body", a.Body != nil)
+	case "set", "record.update":
+		switch {
+		case a.Action == "set" && r.Timing != TimingBefore:
+			add("set changes the record being saved, so it is only allowed in a before rule (an async rule uses record.update)")
+		case a.Action == "record.update" && r.Timing != TimingAsync:
+			add("record.update saves a change of its own, so it is only allowed in an async rule (a before rule uses set)")
+		}
+		extra("message", a.Message != nil)
+		extra("body", a.Body != nil)
+		kind, ok := SettableFields[a.Field]
+		switch {
+		case a.Field == "":
+			add("%s needs a field", a.Action)
+		case !ok:
+			add("%s cannot change %q (it can change: %s)", a.Action, a.Field, settableList())
+		case a.Field == "resolution" && r.RecordType != "incident":
+			add("resolution notes belong to incidents, so a rule that sets them must be for record_type incident")
+		}
+		if a.Value == nil {
+			add("%s needs a value", a.Action)
+		} else if ok && a.Value.Expr == "" {
+			out = append(out, literalProblems(a.Field, kind, a.Value.Literal)...)
+		}
+	case "comment.add":
+		if r.Timing == TimingBefore {
+			add("comment.add is only allowed in an after or async rule, because the ticket must exist first")
+		}
+		if a.Body == nil {
+			add("comment.add needs a body")
+		}
+		extra("field", a.Field != "")
+		extra("value", a.Value != nil)
+		extra("message", a.Message != nil)
+	case "":
+		add("an action needs a name: abort, set, comment.add or record.update")
+	default:
+		add("unknown action %q (available: abort, set, comment.add, record.update)", a.Action)
+	}
+	return out
+}
+
+func settableList() string {
+	names := make([]string, 0, len(SettableFields))
+	for n := range SettableFields {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	return strings.Join(names, ", ")
+}
+
+func literalProblems(field, kind string, lit any) (out []string) {
+	switch kind {
+	case "number":
+		n, ok := lit.(int64)
+		switch {
+		case !ok:
+			out = append(out, fmt.Sprintf("%s takes a whole number", field))
+		case field == "priority" && (n < 1 || n > 4):
+			out = append(out, "priority must be 1 (critical) to 4 (low)")
+		}
+	default:
+		s, ok := lit.(string)
+		switch {
+		case !ok:
+			out = append(out, fmt.Sprintf("%s takes text", field))
+		case field == "title" && (strings.TrimSpace(s) == "" || len(s) > 200):
+			out = append(out, "title must be 1 to 200 characters")
+		case len(s) > 10000:
+			out = append(out, fmt.Sprintf("%s is too long", field))
+		}
+	}
+	return out
+}
+
+// compile compiles every expression in the rule. Anything that fails is remembered, so at run time the rule is
+// treated as broken (blocked or skipped, per on_error) instead of being silently ignored.
+func (r *Rule) compile() {
+	env, err := expr.Rule()
+	r.when, r.whenErr = nil, err
+	if err == nil && r.When != "" {
+		r.when, r.whenErr = env.Compile(r.When)
+	}
+	for i := range r.Run {
+		a := &r.Run[i]
+		a.when, a.whenErr = nil, err
+		if err == nil && a.When != "" {
+			a.when, a.whenErr = env.Compile(a.When)
+		}
+		want := expr.String
+		if SettableFields[a.Field] == "number" {
+			want = expr.Int
+		}
+		a.Value.compile(env, err, want)
+		a.Message.compile(env, err, expr.String)
+		a.Body.compile(env, err, expr.String)
+	}
+}
+
+func (v *Value) compile(env *expr.Env, envErr error, want *cel.Type) {
+	if v == nil {
+		return
+	}
+	v.program, v.err = nil, envErr
+	if envErr == nil && v.Expr != "" {
+		v.program, v.err = env.CompileAs(v.Expr, want)
+	}
+}
+
+// Applies reports whether the rule is for this timing and event.
+func (r *Rule) Applies(timing, event string) bool {
+	return r.Timing == timing && slices.Contains(r.On, event)
+}
+
+// ---- what the engine needs to run a rule ----
+
+// Condition returns the rule's compiled filter (nil when it has none) and any reason it cannot be evaluated.
+func (r *Rule) Condition() (*expr.Program, error) { return r.when, r.whenErr }
+
+// Condition returns the action's compiled filter (nil when it has none) and any reason it cannot be evaluated.
+func (a *Action) Condition() (*expr.Program, error) { return a.when, a.whenErr }
+
+// Compiled returns the value's expression program (nil for a literal) and any reason it cannot be evaluated.
+func (v *Value) Compiled() (*expr.Program, error) {
+	if v == nil {
+		return nil, nil
+	}
+	return v.program, v.err
+}

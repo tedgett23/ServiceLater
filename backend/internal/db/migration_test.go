@@ -148,7 +148,33 @@ func TestTasksMigrationKeepsExistingData(t *testing.T) {
 		}
 	})
 
+	t.Run("the migrations after the tasks one roll back cleanly and forward again", func(t *testing.T) {
+		// Rolled back by version, not by count, so a new migration never shifts which one this test exercises.
+		if _, err := p.DownTo(ctx, 9); err != nil {
+			t.Fatalf("rolling back to the tasks migration: %v", err)
+		}
+		for _, gone := range []string{"jobs", "action_runs"} {
+			if n := scalar[int](t, db, `SELECT count(*) FROM pg_class WHERE relname = '`+gone+`'`); n != 0 {
+				t.Errorf("the %s table survived its rollback", gone)
+			}
+		}
+		if n := scalar[int](t, db, `SELECT count(*) FROM pg_proc WHERE proname = 'enqueue_job'`); n != 0 {
+			t.Error("enqueue_job survived its rollback")
+		}
+		if _, err := p.Up(ctx); err != nil {
+			t.Fatalf("migrating up again: %v", err)
+		}
+		for _, back := range []string{"jobs", "action_runs"} {
+			if n := scalar[int](t, db, `SELECT count(*) FROM pg_class WHERE relname = '`+back+`'`); n != 1 {
+				t.Errorf("the %s table is missing after migrating up again", back)
+			}
+		}
+	})
+
 	t.Run("rolling back is refused while another type exists, then works", func(t *testing.T) {
+		if _, err := p.DownTo(ctx, 9); err != nil { // the later migrations again, so the next step is the tasks migration
+			t.Fatalf("rolling back to the tasks migration: %v", err)
+		}
 		if _, err := p.Down(ctx); err == nil || !strings.Contains(err.Error(), "tasks of other types exist") {
 			t.Fatalf("rollback with a change present should be refused: %v", err)
 		}

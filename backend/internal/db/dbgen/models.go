@@ -9,6 +9,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type ActionRun struct {
+	ID         int64              `json:"id"`
+	App        string             `json:"app"`
+	Rule       string             `json:"rule"`
+	Timing     string             `json:"timing"`
+	Event      string             `json:"event"`
+	RecordID   uuid.NullUUID      `json:"record_id"`
+	Outcome    string             `json:"outcome"`
+	Detail     string             `json:"detail"`
+	DurationMs int32              `json:"duration_ms"`
+	JobID      pgtype.Int8        `json:"job_id"`
+	Attempt    int32              `json:"attempt"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
 type App struct {
 	Name        string             `json:"name"`
 	Version     string             `json:"version"`
@@ -35,6 +50,22 @@ type Incident struct {
 	TaskID     uuid.UUID `json:"task_id"`
 	Type       string    `json:"type"`
 	Resolution string    `json:"resolution"`
+}
+
+type Job struct {
+	ID          int64              `json:"id"`
+	Kind        string             `json:"kind"`
+	Payload     []byte             `json:"payload"`
+	State       string             `json:"state"`
+	RunAt       pgtype.Timestamptz `json:"run_at"`
+	Attempts    int32              `json:"attempts"`
+	MaxAttempts int32              `json:"max_attempts"`
+	LockedBy    pgtype.Text        `json:"locked_by"`
+	LockedAt    pgtype.Timestamptz `json:"locked_at"`
+	LastError   pgtype.Text        `json:"last_error"`
+	DedupeKey   pgtype.Text        `json:"dedupe_key"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	FinishedAt  pgtype.Timestamptz `json:"finished_at"`
 }
 
 type RateLimit struct {

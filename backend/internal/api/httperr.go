@@ -12,6 +12,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
+	"github.com/servicelater/servicelater/backend/internal/records"
 )
 
 // apiError is returned from transaction bodies to produce a specific HTTP response.
@@ -22,11 +23,9 @@ type apiError struct {
 
 func (e *apiError) Error() string { return e.msg }
 
-func badRequest(msg string) error { return &apiError{http.StatusBadRequest, msg} }
-func invalid(msg string) error    { return &apiError{http.StatusUnprocessableEntity, msg} }
-func forbidden(msg string) error  { return &apiError{http.StatusForbidden, msg} }
-func conflict(msg string) error   { return &apiError{http.StatusConflict, msg} }
-func notFound() error             { return &apiError{http.StatusNotFound, "not found"} }
+func invalid(msg string) error   { return &apiError{http.StatusUnprocessableEntity, msg} }
+func forbidden(msg string) error { return &apiError{http.StatusForbidden, msg} }
+func notFound() error            { return &apiError{http.StatusNotFound, "not found"} }
 
 // tx runs fn as the authenticated user under RLS and writes the error response itself on failure.
 // It reports whether fn succeeded; on false the caller must just return.
@@ -48,6 +47,7 @@ func (h *handlers) tx(w http.ResponseWriter, r *http.Request, fn func(q *dbgen.Q
 
 func writeDBError(w http.ResponseWriter, err error) {
 	var ae *apiError
+	var re *records.Error
 	var pe *pgconn.PgError
 	switch {
 	case errors.Is(err, context.Canceled):
@@ -55,6 +55,9 @@ func writeDBError(w http.ResponseWriter, err error) {
 		return
 	case errors.As(err, &ae):
 		writeError(w, ae.code, ae.msg)
+	case errors.As(err, &re):
+		writeError(w, map[records.Kind]int{records.KindInvalid: http.StatusUnprocessableEntity, records.KindForbidden: http.StatusForbidden,
+			records.KindConflict: http.StatusConflict, records.KindBad: http.StatusBadRequest}[re.Kind], re.Msg)
 	case errors.Is(err, pgx.ErrNoRows):
 		writeError(w, http.StatusNotFound, "not found") // missing or hidden by RLS: indistinguishable on purpose
 	case errors.As(err, &pe) && pe.Code == "42501": // insufficient_privilege, incl. RLS WITH CHECK failures

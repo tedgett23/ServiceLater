@@ -1,4 +1,4 @@
-import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { PASSWORD, stateFile, USERS, type Who } from './users';
 
 export type Ticket = { id: string; type: string; number: number; reference: string; title: string; status: string };
@@ -6,9 +6,18 @@ export type Ticket = { id: string; type: string; number: number; reference: stri
 /** Short unique text so tests can find their own data among everyone else's. */
 export const uid = () => Math.random().toString(36).slice(2, 8);
 
+// Contexts made by these helpers are not fixtures, so Playwright would keep them (and their live connections) open
+// until the whole run ends. The server allows a user ten WebSocket connections, and the agent user is in most tests, so
+// unclosed contexts eventually make a page's live connection be refused ("Reconnecting..."). Close them per test.
+const opened: BrowserContext[] = [];
+test.afterEach(async () => {
+	await Promise.all(opened.splice(0).map((c) => c.close().catch(() => {})));
+});
+
 /** A browser context that is already signed in as this user (shared saved session). */
 export async function as(browser: Browser, who: Who, options: Parameters<Browser['newContext']>[0] = {}) {
 	const context = await browser.newContext({ storageState: stateFile(who), ...options });
+	opened.push(context);
 	const page = await context.newPage();
 	return { context, page };
 }
@@ -16,6 +25,7 @@ export async function as(browser: Browser, who: Who, options: Parameters<Browser
 /** Signs in with a brand-new session that no other test shares. Use for sign-out and token-refresh tests. */
 export async function freshLogin(browser: Browser, who: Who) {
 	const context = await browser.newContext();
+	opened.push(context);
 	const res = await context.request.post('/api/v1/auth/login', { data: { email: USERS[who].email, password: PASSWORD } });
 	expect(res.ok(), 'login').toBeTruthy();
 	return { context, page: await context.newPage() };

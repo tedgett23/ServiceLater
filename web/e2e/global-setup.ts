@@ -18,7 +18,7 @@ export default async function globalSetup(config: FullConfig) {
 	const client = new pg.Client({ connectionString: DATABASE_URL });
 	await client.connect();
 	try {
-		await client.query('TRUNCATE tasks, sessions, rate_limits, user_credentials, users CASCADE');
+		await client.query('TRUNCATE tasks, jobs, action_runs, sessions, rate_limits, user_credentials, users CASCADE');
 		// Restart each type's numbering, so ticket numbers start at 1 on every run.
 		await client.query(`DO $$ DECLARE t text; BEGIN FOR t IN SELECT type FROM task_types LOOP EXECUTE format('ALTER SEQUENCE %I RESTART', 'task_number_' || t); END LOOP; END $$`);
 	} finally {

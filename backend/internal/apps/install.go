@@ -218,11 +218,15 @@ func buildPlan(ctx context.Context, q *dbgen.Queries, c *Compiled) (*Plan, error
 		ref := DefRef{d.Kind, d.Name}
 		seen[ref] = true
 		plan.Sources[ref] = d.Source()
-		if other, err := q.FindDefinitionProvider(ctx, dbgen.FindDefinitionProviderParams{Kind: d.Kind, Name: d.Name, AppName: m.Name}); err == nil {
-			problems = append(problems, fmt.Sprintf("the %s is already provided by %s: uninstall it first, or remove it from one of the apps", ref, other))
-			continue
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, err
+		// A record type has one lifecycle, so two apps cannot both provide it. Rules do not compete: each is named
+		// within its own app, and every applicable rule runs.
+		if d.Kind == "lifecycle" {
+			if other, err := q.FindDefinitionProvider(ctx, dbgen.FindDefinitionProviderParams{Kind: d.Kind, Name: d.Name, AppName: m.Name}); err == nil {
+				problems = append(problems, fmt.Sprintf("the %s is already provided by %s: uninstall it first, or remove it from one of the apps", ref, other))
+				continue
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return nil, err
+			}
 		}
 		isNew := false
 		switch sum, ok := have[ref]; {

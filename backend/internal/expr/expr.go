@@ -66,6 +66,8 @@ type Input struct {
 	Old    *Record
 	User   *User
 	Now    time.Time
+	// Event is what is happening to the record (create or update). Only rules see it; guards have no event.
+	Event string
 }
 
 // Env compiles expressions for one context. It is safe for concurrent use.
@@ -97,6 +99,30 @@ func LifecycleGuard() (*Env, error) {
 	return guardEnv, guardErr
 }
 
+var (
+	ruleOnce sync.Once
+	ruleEnv  *Env
+	ruleErr  error
+)
+
+// Rule is the environment for a rule's `when`, its per-action `when`, and the values its actions compute. It is the
+// guard environment plus `event`. On create, `old` is an empty record, so use event == "create" to tell.
+func Rule() (*Env, error) {
+	ruleOnce.Do(func() {
+		var e *cel.Env
+		e, ruleErr = cel.NewEnv(
+			ext.NativeTypes(reflect.TypeOf(&Record{}), reflect.TypeOf(&User{}), ext.ParseStructTags(true)),
+			cel.Variable("record", cel.ObjectType("expr.Record")),
+			cel.Variable("old", cel.ObjectType("expr.Record")),
+			cel.Variable("user", cel.ObjectType("expr.User")),
+			cel.Variable("now", cel.TimestampType),
+			cel.Variable("event", cel.StringType),
+		)
+		ruleEnv = &Env{env: e}
+	})
+	return ruleEnv, ruleErr
+}
+
 // Program is a compiled, checked expression.
 type Program struct {
 	prg    cel.Program
@@ -104,8 +130,32 @@ type Program struct {
 }
 
 // Compile parses and type-checks a boolean expression. The error is one readable sentence with a position.
-func (e *Env) Compile(source string) (*Program, error) {
-	if p, ok := e.cache.Load(source); ok {
+func (e *Env) Compile(source string) (*Program, error) { return e.CompileAs(source, cel.BoolType) }
+
+// Types an expression may be required to produce.
+var (
+	Bool   = cel.BoolType
+	Int    = cel.IntType
+	String = cel.StringType
+)
+
+func describe(t *cel.Type) string {
+	switch {
+	case t.IsExactType(cel.BoolType):
+		return "true or false"
+	case t.IsExactType(cel.IntType):
+		return "a whole number"
+	case t.IsExactType(cel.StringType):
+		return "text"
+	}
+	return t.String()
+}
+
+// CompileAs is Compile for an expression that must produce a particular type: a rule's `set` value is a number or
+// text, not a condition.
+func (e *Env) CompileAs(source string, want *cel.Type) (*Program, error) {
+	key := want.String() + "|" + source
+	if p, ok := e.cache.Load(key); ok {
 		return p.(*Program), nil
 	}
 	src := strings.TrimSpace(source)
@@ -128,15 +178,15 @@ func (e *Env) Compile(source string) (*Program, error) {
 	if err := issues(iss); err != nil {
 		return nil, err
 	}
-	if !a.OutputType().IsExactType(cel.BoolType) {
-		return nil, fmt.Errorf("the expression must produce true or false, not %s", a.OutputType())
+	if !a.OutputType().IsExactType(want) {
+		return nil, fmt.Errorf("the expression must produce %s, not %s", describe(want), a.OutputType())
 	}
 	prg, err := e.env.Program(a, cel.EvalOptions(cel.OptTrackCost), cel.CostLimit(costLimit))
 	if err != nil {
 		return nil, err
 	}
 	p := &Program{prg: prg, Source: src}
-	e.cache.Store(source, p)
+	e.cache.Store(key, p)
 	return p, nil
 }
 
@@ -169,6 +219,19 @@ func nullLiteral(a *cel.Ast) (column int, found bool) {
 // Eval runs a compiled expression. An error means it could not be decided (for example the cost limit was hit or
 // a value was missing); callers must treat that as "no", never as "yes".
 func (p *Program) Eval(ctx context.Context, in Input) (bool, error) {
+	v, err := p.EvalValue(ctx, in)
+	if err != nil {
+		return false, err
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return false, fmt.Errorf("expression produced %T, not a boolean", v)
+	}
+	return b, nil
+}
+
+// EvalValue runs an expression compiled with CompileAs and returns its value: a bool, an int64 or a string.
+func (p *Program) EvalValue(ctx context.Context, in Input) (any, error) {
 	rec, old, user := in.Record, in.Old, in.User
 	if rec == nil {
 		rec = &Record{}
@@ -179,13 +242,9 @@ func (p *Program) Eval(ctx context.Context, in Input) (bool, error) {
 	if user == nil {
 		user = &User{}
 	}
-	out, _, err := p.prg.ContextEval(ctx, map[string]any{"record": rec, "old": old, "user": user, "now": in.Now})
+	out, _, err := p.prg.ContextEval(ctx, map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event})
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	b, ok := out.Value().(bool)
-	if !ok {
-		return false, fmt.Errorf("expression produced %T, not a boolean", out.Value())
-	}
-	return b, nil
+	return out.Value(), nil
 }

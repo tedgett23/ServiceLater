@@ -14,7 +14,20 @@ import (
 )
 
 func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+	return ConnectMax(ctx, url, 0)
+}
+
+// ConnectMax is Connect with an explicit connection limit (0 keeps the driver's default). The worker role uses its
+// own small pool, so a burst of background work can never take connections that web requests need.
+func ConnectMax(ctx context.Context, url string, maxConns int32) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, fmt.Errorf("db: connect: %w", err)
+	}
+	if maxConns > 0 {
+		cfg.MaxConns = maxConns
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("db: connect: %w", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/acme/autocert"
@@ -19,18 +20,27 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/config"
 	"github.com/servicelater/servicelater/backend/internal/db"
+	"github.com/servicelater/servicelater/backend/internal/jobs"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
+	"github.com/servicelater/servicelater/backend/internal/ruleruns"
+	"github.com/servicelater/servicelater/backend/internal/ruleworker"
 	"github.com/servicelater/servicelater/backend/internal/webui"
 )
 
 func Run(ctx context.Context, cfg config.Config) error {
 	var deps api.Deps
+	// Background goroutines that must finish before the database pool closes (the job worker draining).
+	var background sync.WaitGroup
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if cfg.NeedsDB() {
 		pool, err := db.Connect(ctx, cfg.DatabaseURL)
 		if err != nil {
 			return err
 		}
 		defer pool.Close()
+		// Runs before pool.Close (defers unwind last-in first): stop the workers, then wait for them to drain.
+		defer func() { cancel(); background.Wait() }()
 		if err := db.Migrate(ctx, pool); err != nil {
 			return err
 		}
@@ -71,7 +81,32 @@ func Run(ctx context.Context, cfg config.Config) error {
 			deps.Apps.OnChange(deps.Hub.DefinitionsChanged)
 			go deps.Hub.Run(ctx, cfg.DatabaseURL)
 		}
-		// TODO: when cfg.Has(config.RoleWorker), start job workers and the workflow engine.
+		if cfg.Has(config.RoleWorker) {
+			// The worker has a small pool of its own, so a burst of background jobs can never take the connections
+			// that web requests need (docs/apps-platform.md §7.5). Each executor holds one only while claiming or
+			// recording a job, plus whatever its handler uses.
+			workerPool, err := db.ConnectMax(ctx, cfg.DatabaseURL, int32(cfg.WorkerConcurrency)+2) //nolint:gosec // config.Load limits it to 1..64
+			if err != nil {
+				return err
+			}
+			worker := jobs.NewWorker(workerPool, jobs.Options{Concurrency: cfg.WorkerConcurrency, DSN: cfg.DatabaseURL})
+			// The worker keeps its own copy of the installed definitions, refreshed by NOTIFY like the api's, so the
+			// roles never depend on sharing a process (a worker started alone still knows every rule).
+			workerApps := apps.NewRegistry(workerPool)
+			if err := workerApps.Load(ctx); err != nil {
+				return err
+			}
+			go workerApps.Run(ctx, cfg.DatabaseURL)
+			// Job kinds are registered here as they are added (workflow steps next).
+			worker.Register(ruleruns.Kind, ruleworker.Handler(workerPool, workerApps))
+			background.Add(1)
+			go func() {
+				defer background.Done()
+				worker.Run(ctx)
+				workerPool.Close()
+			}()
+			slog.Info("job worker started", "concurrency", cfg.WorkerConcurrency)
+		}
 	}
 
 	h, err := handler(cfg, deps)

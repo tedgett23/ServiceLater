@@ -3,12 +3,10 @@ package api
 import (
 	"context"
 	"log/slog"
-	"time"
 
-	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
-	"github.com/servicelater/servicelater/backend/internal/expr"
+	"github.com/servicelater/servicelater/backend/internal/records"
 )
 
 // moveDTO is one thing a person may try to do to a ticket right now. The server decides what is offered, so
@@ -18,35 +16,6 @@ type moveDTO struct {
 	Verb    string `json:"verb"`
 	Primary bool   `json:"primary"`
 	Blocked string `json:"blocked,omitempty"` // why it is not available at the moment
-}
-
-const cannotCheck = "This move is blocked because its rule could not be checked. Ask an administrator to review the app that defines it."
-
-func toExprRecord(d ticketDTO) *expr.Record {
-	r := &expr.Record{
-		ID: d.ID.String(), Type: d.Type, Number: d.Number, Reference: d.Reference, Title: d.Title, Description: d.Description,
-		Resolution: d.Resolution, Status: d.Status,
-		StateCategory: d.StateCategory, Priority: int64(d.Priority), RequesterID: d.RequesterID.String(),
-		RequesterName: d.Requester, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt, AssigneeName: d.Assignee,
-	}
-	if d.AssigneeID != nil {
-		id := d.AssigneeID.String()
-		r.AssigneeID = &id
-	}
-	return r
-}
-
-// guardInput is what a transition guard sees: the ticket as it would be after the move, as it is now, and who is acting.
-func guardInput(cur ticketDTO, to string, lc *apps.Lifecycle, u dbgen.User) expr.Input {
-	next := cur
-	next.Status = to
-	if c, ok := lc.Category(to); ok {
-		next.StateCategory = string(c)
-	}
-	return expr.Input{
-		Record: toExprRecord(next), Old: toExprRecord(cur), Now: time.Now(),
-		User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role},
-	}
 }
 
 // movesFor lists the moves offered on a ticket. Only staff can move tickets, so everyone else gets none.
@@ -73,17 +42,17 @@ func (h *handlers) movesFor(ctx context.Context, q *dbgen.Queries, p auth.Princi
 				u, err := q.GetUser(ctx, p.UserID)
 				if err != nil {
 					slog.Error("loading the acting user for move guards", "err", err)
-					m.Blocked = cannotCheck
+					m.Blocked = records.CannotCheck
 					out = append(out, m)
 					continue
 				}
 				user, loaded = u, true
 			}
-			ok, msg, err := lc.Check(ctx, cur.Status, t.To, guardInput(cur, t.To, lc, user))
+			ok, msg, err := lc.Check(ctx, cur.Status, t.To, records.GuardInput(cur.Ticket, t.To, lc, user))
 			switch {
 			case err != nil:
 				slog.Error("move guard", "ticket", cur.Number, "from", cur.Status, "to", t.To, "err", err)
-				m.Blocked = cannotCheck
+				m.Blocked = records.CannotCheck
 			case !ok:
 				m.Blocked = msg
 			}
