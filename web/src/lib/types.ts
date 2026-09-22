@@ -77,3 +77,40 @@ export interface LifecycleData {
 	app: string;
 	version: string;
 }
+
+export type RunStatus = 'queued' | 'running' | 'waiting' | 'done' | 'failed' | 'cancelled';
+
+export interface WorkflowRun {
+	id: string;
+	app: string;
+	workflow: string;
+	app_version: string;
+	ticket_id: string | null;
+	reference: string;
+	started_by: string;
+	status: RunStatus;
+	current_step: string;
+	steps_run: number;
+	error: string;
+	wake_at: string | null;
+	created_at: string;
+	updated_at: string;
+	finished_at: string | null;
+	// Only when one run is fetched: the graph it started with, its variables now, and what happened.
+	graph?: { id: string; type: string; next: string[] }[];
+	vars?: Record<string, unknown>;
+	steps?: RunStep[];
+}
+
+export interface RunStep {
+	seq: number;
+	step_id: string;
+	type: string;
+	outcome: 'ok' | 'waiting' | 'timeout' | 'failed';
+	detail: Record<string, unknown>;
+	error: string;
+	duration_ms: number;
+	at: string;
+}
+
+export const runFinished = (s: RunStatus) => s === 'done' || s === 'failed' || s === 'cancelled';

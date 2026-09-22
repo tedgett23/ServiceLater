@@ -41,7 +41,7 @@ func Pool(t *testing.T) *pgxpool.Pool {
 	if err := db.Migrate(ctx, pool); err != nil { // idempotent
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE tasks, sessions, rate_limits, user_credentials, users, apps, jobs, action_runs CASCADE"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE tasks, sessions, rate_limits, user_credentials, users, apps, jobs, action_runs, workflow_executions CASCADE"); err != nil {
 		t.Fatal(err)
 	}
 	// TRUNCATE leaves the per-type numbering alone, so restart it: every test starts at INC1, CHG1 and so on.

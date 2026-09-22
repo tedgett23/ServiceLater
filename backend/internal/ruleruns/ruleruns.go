@@ -71,6 +71,20 @@ func (c Cause) Blocks(r *apps.Rule) string {
 	return ""
 }
 
+// BlocksWorkflow says why a save with this cause may not start a workflow, or "" if it may. Starting a workflow is
+// not a reaction to a change, so an app's own rule can start its own workflow; only the depth of the chain limits it.
+func (c Cause) BlocksWorkflow() string {
+	if c.Depth+1 > MaxDepth {
+		return fmt.Sprintf("the chain of rules and workflows setting each other off is already %d deep", c.Depth)
+	}
+	return ""
+}
+
+// ThroughKey is the cause of what a run saves, for a run named by key ("app/workflow").
+func (c Cause) ThroughKey(key string) Cause {
+	return Cause{Depth: c.Depth + 1, Chain: append(append([]string(nil), c.Chain...), key)}
+}
+
 // through is the cause of what a run of this rule saves.
 func (c Cause) through(r *apps.Rule) Cause {
 	return Cause{Depth: c.Depth + 1, Chain: append(append([]string(nil), c.Chain...), ruleKey(r))}

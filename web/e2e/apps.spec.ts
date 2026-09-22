@@ -4,7 +4,7 @@ import { USERS } from './users';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { bumpVersion, installFirstParty, modifiedIncidentApp, servicelater, writeLocalOverride } from './apps';
+import { bumpVersion, installFirstParty, modifiedIncidentApp, servicelater, tempApp, writeLocalOverride } from './apps';
 
 // These tests change the installed apps, so they put the first-party versions back afterwards.
 test.afterEach(() => {
@@ -330,5 +330,44 @@ run:
 	} finally {
 		servicelater('uninstall', 'e2e-update-rules');
 		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// Regressed: a live update that arrived while the agent's own edit was still in flight was thrown away, and then the
+// edit's response (which predates it) overwrote the page. Here a rule's follow-up change commits while the PATCH
+// response is held back, so the race happens every time instead of one run in three.
+test('a change made by a rule while your own edit is in flight is not lost', async ({ browser }) => {
+	const { context, page } = await as(browser, 'agent');
+	const tag = uid();
+	const t = await createTicket(context, { title: `Race ${tag}` });
+	const app = tempApp(`e2e-race-${tag}`, {
+		'default/rules/claim.yaml': `kind: rule
+name: claim-when-critical
+record_type: incident
+timing: async
+on: [update]
+when: 'record.title.contains("${tag}") && record.priority == 1 && old.priority != 1'
+run:
+  - action: record.update
+    field: assignee_id
+    value: =user.id
+`
+	});
+	try {
+		servicelater('install', app.dir);
+		await openTicket(page, t.number);
+		// Hold the edit's response back long enough for the worker to finish first.
+		// The server handles the edit at once, and the response then waits: the worker's change commits in the meantime.
+		await page.route(/\/api\/v1\/tickets\/[^/]+$/, async (route) => {
+			if (route.request().method() !== 'PATCH') return route.continue();
+			const response = await route.fetch();
+			await new Promise((r) => setTimeout(r, 1500));
+			await route.fulfill({ response });
+		});
+		await details(page).getByLabel('Priority').selectOption('Critical');
+		await expect(details(page).getByLabel('Assignee').locator('option:checked')).toHaveText(USERS.agent.name);
+	} finally {
+		servicelater('uninstall', `e2e-race-${tag}`);
+		app.cleanup();
 	}
 });

@@ -37,6 +37,10 @@ type Config struct {
 	BundledApps  string
 	AppsLocalDir string
 
+	// MaxLiveConns is how many live (WebSocket) connections one person may hold at once: their open tabs and devices
+	// (SL_MAX_LIVE_CONNS, default 10).
+	MaxLiveConns int
+
 	// WorkerConcurrency is how many background jobs the worker role runs at once (SL_WORKER_CONCURRENCY, default 4).
 	WorkerConcurrency int
 
@@ -64,11 +68,19 @@ func Load() (Config, error) {
 		AccessTTL:         15 * time.Minute,
 		RefreshTTL:        30 * 24 * time.Hour,
 		WorkerConcurrency: 4,
+		MaxLiveConns:      10,
 		BundledApps:       os.Getenv("SL_BUNDLED_APPS"),
 		AppsLocalDir:      os.Getenv("SL_APPS_LOCAL_DIR"),
 		BootstrapEmail:    os.Getenv("SL_BOOTSTRAP_ADMIN_EMAIL"),
 		BootstrapName:     getenv("SL_BOOTSTRAP_ADMIN_NAME", "Administrator"),
 		BootstrapPassword: os.Getenv("SL_BOOTSTRAP_ADMIN_PASSWORD"),
+	}
+	if v := os.Getenv("SL_MAX_LIVE_CONNS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 1000 {
+			return c, fmt.Errorf("SL_MAX_LIVE_CONNS must be a number from 1 to 1000, got %q", v)
+		}
+		c.MaxLiveConns = n
 	}
 	if v := os.Getenv("SL_WORKER_CONCURRENCY"); v != "" {
 		n, err := strconv.Atoi(v)

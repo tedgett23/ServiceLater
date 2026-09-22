@@ -22,9 +22,12 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/jobs"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
+	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/ruleruns"
 	"github.com/servicelater/servicelater/backend/internal/ruleworker"
 	"github.com/servicelater/servicelater/backend/internal/webui"
+	"github.com/servicelater/servicelater/backend/internal/workflow"
+	"github.com/servicelater/servicelater/backend/internal/workflowengine"
 )
 
 func Run(ctx context.Context, cfg config.Config) error {
@@ -78,6 +81,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 			}
 			go deps.Apps.Run(ctx, cfg.DatabaseURL)
 			deps.Hub = realtime.NewHub()
+			deps.Hub.MaxPerUser = cfg.MaxLiveConns
 			deps.Apps.OnChange(deps.Hub.DefinitionsChanged)
 			go deps.Hub.Run(ctx, cfg.DatabaseURL)
 		}
@@ -97,12 +101,18 @@ func Run(ctx context.Context, cfg config.Config) error {
 				return err
 			}
 			go workerApps.Run(ctx, cfg.DatabaseURL)
-			// Job kinds are registered here as they are added (workflow steps next).
 			worker.Register(ruleruns.Kind, ruleworker.Handler(workerPool, workerApps))
+			// Workflows: the handler moves an execution one step; the timer wakes sleeping ones when they are due.
+			engine := workflowengine.New(workerPool, &records.Service{Apps: workerApps, Pool: workerPool})
+			worker.Register(workflow.RunKind, engine.Handler())
 			background.Add(1)
 			go func() {
 				defer background.Done()
+				var timer sync.WaitGroup
+				timer.Add(1)
+				go func() { defer timer.Done(); engine.RunTimer(ctx, time.Second) }()
 				worker.Run(ctx)
+				timer.Wait() // both use the pool, so it closes only when both have stopped
 				workerPool.Close()
 			}()
 			slog.Info("job worker started", "concurrency", cfg.WorkerConcurrency)

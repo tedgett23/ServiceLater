@@ -68,6 +68,8 @@ type Input struct {
 	Now    time.Time
 	// Event is what is happening to the record (create or update). Only rules see it; guards have no event.
 	Event string
+	// Vars are a workflow's variables. Only workflows see them.
+	Vars map[string]any
 }
 
 // Env compiles expressions for one context. It is safe for concurrent use.
@@ -123,6 +125,30 @@ func Rule() (*Env, error) {
 	return ruleEnv, ruleErr
 }
 
+var (
+	wfOnce sync.Once
+	wfEnv  *Env
+	wfErr  error
+)
+
+// Workflow is the environment for a workflow step's expressions: the record as it is now, the person the workflow
+// runs as, the time, and the workflow's own variables (`vars.name`, of no fixed type: a variable is whatever a `set`
+// step stored in it).
+func Workflow() (*Env, error) {
+	wfOnce.Do(func() {
+		var e *cel.Env
+		e, wfErr = cel.NewEnv(
+			ext.NativeTypes(reflect.TypeOf(&Record{}), reflect.TypeOf(&User{}), ext.ParseStructTags(true)),
+			cel.Variable("record", cel.ObjectType("expr.Record")),
+			cel.Variable("user", cel.ObjectType("expr.User")),
+			cel.Variable("now", cel.TimestampType),
+			cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
+		)
+		wfEnv = &Env{env: e}
+	})
+	return wfEnv, wfErr
+}
+
 // Program is a compiled, checked expression.
 type Program struct {
 	prg    cel.Program
@@ -154,7 +180,18 @@ func describe(t *cel.Type) string {
 // CompileAs is Compile for an expression that must produce a particular type: a rule's `set` value is a number or
 // text, not a condition.
 func (e *Env) CompileAs(source string, want *cel.Type) (*Program, error) {
-	key := want.String() + "|" + source
+	return e.compile(source, want)
+}
+
+// CompileAny is CompileAs for an expression whose result may be of any type: a workflow variable holds whatever it
+// is given.
+func (e *Env) CompileAny(source string) (*Program, error) { return e.compile(source, nil) }
+
+func (e *Env) compile(source string, want *cel.Type) (*Program, error) {
+	key := "any|" + source
+	if want != nil {
+		key = want.String() + "|" + source
+	}
 	if p, ok := e.cache.Load(key); ok {
 		return p.(*Program), nil
 	}
@@ -178,7 +215,7 @@ func (e *Env) CompileAs(source string, want *cel.Type) (*Program, error) {
 	if err := issues(iss); err != nil {
 		return nil, err
 	}
-	if !a.OutputType().IsExactType(want) {
+	if want != nil && !a.OutputType().IsExactType(want) {
 		return nil, fmt.Errorf("the expression must produce %s, not %s", describe(want), a.OutputType())
 	}
 	prg, err := e.env.Program(a, cel.EvalOptions(cel.OptTrackCost), cel.CostLimit(costLimit))
@@ -242,7 +279,11 @@ func (p *Program) EvalValue(ctx context.Context, in Input) (any, error) {
 	if user == nil {
 		user = &User{}
 	}
-	out, _, err := p.prg.ContextEval(ctx, map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event})
+	vars := in.Vars
+	if vars == nil {
+		vars = map[string]any{}
+	}
+	out, _, err := p.prg.ContextEval(ctx, map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event, "vars": vars})
 	if err != nil {
 		return nil, err
 	}

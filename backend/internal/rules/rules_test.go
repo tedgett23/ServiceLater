@@ -15,6 +15,9 @@ import (
 func compile(t *testing.T, timing string, bodies ...string) []*apps.Rule {
 	t.Helper()
 	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: test-app\nversion: 1.0.0\nauthor: t\ndescription: \"Test app.\"\n")}
+	for _, name := range []string{"escalate", "never"} { // for the rules that start a workflow
+		files["default/workflows/"+name+".yaml"] = []byte("kind: workflow\nname: " + name + "\nrecord_type: incident\nstart: e\nsteps:\n  e:\n    type: end\n")
+	}
 	for i, b := range bodies {
 		name := string(rune('a' + i))
 		files["default/rules/"+name+".yaml"] = []byte("kind: rule\nname: rule-" + name + "\nrecord_type: incident\ntiming: " + timing + "\non: [create, update]\n" + b)
@@ -25,7 +28,9 @@ func compile(t *testing.T, timing string, bodies ...string) []*apps.Rule {
 	}
 	var out []*apps.Rule
 	for _, d := range c.Definitions {
-		out = append(out, d.Rule)
+		if d.Rule != nil {
+			out = append(out, d.Rule)
+		}
 	}
 	return out
 }
@@ -95,12 +100,14 @@ func TestAfterRulesCollectCommentsAndCanAbort(t *testing.T) {
 	list := compile(t, "after",
 		"run:\n  - action: comment.add\n    body: =\"Hi \" + user.name\n    internal: true\n  - action: comment.add\n    body: second\n",
 	)
-	comments, err := rules.After(context.Background(), list, input())
+	fx, err := rules.After(context.Background(), list, input())
+	comments := fx.Comments
 	if err != nil || len(comments) != 2 || comments[0].Body != "Hi Ada" || !comments[0].Internal || comments[1].Internal || comments[1].Rule != "rule-a" {
 		t.Errorf("got %+v, %v", comments, err)
 	}
 	list = compile(t, "after", "run:\n  - action: comment.add\n    body: x\n  - action: abort\n    message: stop\n")
-	comments, err = rules.After(context.Background(), list, input())
+	fx, err = rules.After(context.Background(), list, input())
+	comments = fx.Comments
 	if err == nil || comments != nil {
 		t.Errorf("an aborted save must not hand back comments: %+v, %v", comments, err)
 	}
@@ -185,7 +192,8 @@ func TestRunAsyncTakesTheRuleAsFiredButJudgesEachAction(t *testing.T) {
 	list := compile(t, "async", "when: 'record.priority == 1'\nrun:\n"+
 		"  - action: comment.add\n    body: =\"now \" + string(record.priority)\n"+
 		"  - action: comment.add\n    body: only while critical\n    when: 'record.priority == 1'\n")
-	_, comments, err := rules.RunAsync(context.Background(), list[0], input()) // priority is 3
+	_, fx, err := rules.RunAsync(context.Background(), list[0], input()) // priority is 3
+	comments := fx.Comments
 	if err != nil || len(comments) != 1 || comments[0].Body != "now 3" {
 		t.Errorf("got %+v, %v", comments, err)
 	}
@@ -195,9 +203,19 @@ func TestRunAsyncTakesTheRuleAsFiredButJudgesEachAction(t *testing.T) {
 func TestRunAsyncFailsWhole(t *testing.T) {
 	list := compile(t, "async", "run:\n  - action: comment.add\n    body: first\n  - action: comment.add\n    body: '=string(record.priority / (record.priority - 3))'\n")
 	list[0].App = "house"
-	_, comments, err := rules.RunAsync(context.Background(), list[0], input())
+	_, fx, err := rules.RunAsync(context.Background(), list[0], input())
+	comments := fx.Comments
 	var br *rules.Broken
 	if !errors.As(err, &br) || br.App != "house" || br.Rule != "rule-a" || comments != nil {
 		t.Errorf("got %+v, %v", comments, err)
+	}
+}
+
+func TestAWorkflowStartIsAnEffectNotAnAction(t *testing.T) {
+	list := compile(t, "after", "run:\n  - action: workflow.start\n    workflow: escalate\n  - action: workflow.start\n    workflow: never\n    when: 'record.priority == 1'\n")
+	list[0].App = "house"
+	fx, err := rules.After(context.Background(), list, input())
+	if err != nil || len(fx.Starts) != 1 || fx.Starts[0] != (rules.Start{App: "house", Workflow: "escalate", Rule: "rule-a"}) {
+		t.Errorf("got %+v, %v", fx, err)
 	}
 }

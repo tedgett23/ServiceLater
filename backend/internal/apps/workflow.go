@@ -1,0 +1,564 @@
+package apps
+
+import (
+	"fmt"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/servicelater/servicelater/backend/internal/expr"
+)
+
+// Step types of this version. More arrive with what they depend on (mail, approvals, lists).
+const (
+	StepSet          = "set"
+	StepCondition    = "condition"
+	StepWait         = "wait"
+	StepRecordUpdate = "record.update"
+	StepCommentAdd   = "comment.add"
+	StepEnd          = "end"
+
+	maxWorkflowSteps = 50
+	maxStepAssigns   = 20
+	minWait          = time.Second
+	maxWait          = 30 * 24 * time.Hour
+)
+
+var stepTypes = []string{StepSet, StepCondition, StepWait, StepRecordUpdate, StepCommentAdd, StepEnd}
+
+var stepIDRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
+
+// NamedValue is one assignment: a variable of a `set` step or a field of a `record.update`. They are a list, not a
+// map, so the author's order is kept and a later one can use an earlier one.
+type NamedValue struct {
+	Name  string `json:"name"`
+	Value *Value `json:"value"`
+}
+
+// Step is one node of a workflow. Which fields apply depends on Type; validation refuses the rest.
+type Step struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+	// Next is where to go after this step. Not used by condition (Then and Else) or end.
+	Next string `json:"next,omitempty"`
+
+	Vars []NamedValue `json:"vars,omitempty"` // set
+
+	If   string `json:"if,omitempty"` // condition
+	Then string `json:"then,omitempty"`
+	Else string `json:"else,omitempty"`
+
+	For       string `json:"for,omitempty"` // wait: a duration, or until an expression is true, with a limit
+	Until     string `json:"until,omitempty"`
+	Timeout   string `json:"timeout,omitempty"`
+	OnTimeout string `json:"on_timeout,omitempty"`
+
+	Set []NamedValue `json:"set,omitempty"` // record.update: field and value
+
+	Body     *Value `json:"body,omitempty"` // comment.add
+	Internal bool   `json:"internal,omitempty"`
+
+	cond      *expr.Program
+	until     *expr.Program
+	compileEr error
+	forDur    time.Duration
+	timeout   time.Duration
+}
+
+// Workflow is a graph of steps run by the durable engine, interpreted from this definition.
+type Workflow struct {
+	Name       string `json:"name"`
+	RecordType string `json:"record_type"`
+	Start      string `json:"start"`
+	Steps      []Step `json:"steps"`
+
+	// App and Version say where the workflow came from. They are set at runtime and are not part of the definition.
+	App     string `json:"-"`
+	Version string `json:"-"`
+}
+
+// ---- YAML ----
+
+type workflowFile struct {
+	Kind       string       `yaml:"kind"`
+	Name       string       `yaml:"name"`
+	RecordType string       `yaml:"record_type"`
+	Start      string       `yaml:"start"`
+	Steps      orderedSteps `yaml:"steps"`
+}
+
+type stepFile struct {
+	Type      string        `yaml:"type"`
+	Next      string        `yaml:"next"`
+	Vars      orderedValues `yaml:"vars"`
+	If        string        `yaml:"if"`
+	Then      string        `yaml:"then"`
+	Else      string        `yaml:"else"`
+	For       string        `yaml:"for"`
+	Until     string        `yaml:"until"`
+	Timeout   string        `yaml:"timeout"`
+	OnTimeout string        `yaml:"on_timeout"`
+	Set       orderedValues `yaml:"set"`
+	Body      *Value        `yaml:"body"`
+	Internal  bool          `yaml:"internal"`
+}
+
+// orderedSteps reads the steps map keeping the author's order, which is the order the viewer lists them in.
+type orderedSteps []Step
+
+func (o *orderedSteps) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("line %d: steps must be a map of step id to its definition", n.Line)
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		key, val := n.Content[i], n.Content[i+1]
+		var f stepFile
+		// Strictly: an unknown field is an author's typo, not something to ignore.
+		if err := decodeNodeStrict(val, &f); err != nil {
+			return fmt.Errorf("step %q: %w", key.Value, err)
+		}
+		*o = append(*o, Step{ID: key.Value, Type: f.Type, Next: f.Next, Vars: f.Vars, If: f.If, Then: f.Then, Else: f.Else,
+			For: f.For, Until: f.Until, Timeout: f.Timeout, OnTimeout: f.OnTimeout, Set: f.Set, Body: f.Body, Internal: f.Internal})
+	}
+	return nil
+}
+
+func decodeNodeStrict(n *yaml.Node, into any) error {
+	raw, err := yaml.Marshal(n)
+	if err != nil {
+		return err
+	}
+	return decodeStrict(raw, into)
+}
+
+// orderedValues reads a map of name to value, keeping the order.
+type orderedValues []NamedValue
+
+func (o *orderedValues) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("line %d: expected a map of name to value", n.Line)
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		var v Value
+		if err := n.Content[i+1].Decode(&v); err != nil {
+			return fmt.Errorf("%q: %w", n.Content[i].Value, err)
+		}
+		*o = append(*o, NamedValue{Name: n.Content[i].Value, Value: &v})
+	}
+	return nil
+}
+
+func parseWorkflow(file string, data []byte, p *Problems) *Workflow {
+	var f workflowFile
+	if err := decodeStrict(data, &f); err != nil {
+		p.add(file, "%v", err)
+		return nil
+	}
+	if f.Kind != "workflow" {
+		p.add(file, "kind must be workflow in this folder, got %q", f.Kind)
+		return nil
+	}
+	w := &Workflow{Name: f.Name, RecordType: f.RecordType, Start: f.Start, Steps: f.Steps}
+	before := len(*p)
+	w.validate(file, p)
+	if len(*p) > before {
+		return nil
+	}
+	return w
+}
+
+// ---- validation ----
+
+func (w *Workflow) validate(file string, p *Problems) {
+	w.validateStructure(file, p)
+	w.compile()
+	for i := range w.Steps {
+		if err := w.Steps[i].compileEr; err != nil {
+			p.add(file, "step %s: %v", w.Steps[i].ID, err)
+		}
+	}
+}
+
+// ParseDuration reads a duration such as 30s, 15m, 2h or 7d (days are the one unit Go does not have).
+func ParseDuration(s string) (time.Duration, error) {
+	if n, ok := strings.CutSuffix(s, "d"); ok {
+		days, err := strconv.Atoi(n)
+		if err != nil || days < 1 {
+			return 0, fmt.Errorf("%q is not a duration such as 30s, 15m, 2h or 7d", s)
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("%q is not a duration such as 30s, 15m, 2h or 7d", s)
+	}
+	return d, nil
+}
+
+func (w *Workflow) validateStructure(file string, p *Problems) {
+	if !ruleNameRE.MatchString(w.Name) {
+		p.add(file, "name %q must be 2-63 characters: lowercase letters, digits and hyphens, starting with a letter", w.Name)
+	}
+	if !slices.Contains(KnownRecordTypes, w.RecordType) {
+		p.add(file, "record_type %q is not a record type this version provides (available: %v)", w.RecordType, KnownRecordTypes)
+	}
+	switch n := len(w.Steps); {
+	case n == 0:
+		p.add(file, "a workflow needs steps")
+		return
+	case n > maxWorkflowSteps:
+		p.add(file, "a workflow may have at most %d steps, this has %d", maxWorkflowSteps, n)
+	}
+	byID := map[string]*Step{}
+	for i := range w.Steps {
+		s := &w.Steps[i]
+		if !stepIDRE.MatchString(s.ID) {
+			p.add(file, "step id %q must be lowercase letters, digits and underscores, starting with a letter", s.ID)
+		}
+		byID[s.ID] = s
+	}
+	if w.Start == "" {
+		p.add(file, "start is required: the id of the first step")
+	} else if byID[w.Start] == nil {
+		p.add(file, "start: there is no step %q", w.Start)
+	}
+	for i := range w.Steps {
+		s := &w.Steps[i]
+		for _, msg := range s.structureProblems(w, byID) {
+			p.add(file, "step %s: %s", s.ID, msg)
+		}
+	}
+	if byID[w.Start] != nil {
+		w.graphProblems(file, byID, p)
+	}
+}
+
+// edges are the steps this step can go to next.
+func (s *Step) edges() []string {
+	var out []string
+	for _, t := range []string{s.Next, s.Then, s.Else, s.OnTimeout} {
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []string) {
+	add := func(format string, args ...any) { out = append(out, fmt.Sprintf(format, args...)) }
+	forbid := func(name string, present bool) {
+		if present {
+			add("%s does not take %s", s.Type, name)
+		}
+	}
+	target := func(field, id string, required bool) {
+		switch {
+		case id == "" && required:
+			add("%s needs %s: the step to go to", s.Type, field)
+		case id != "" && byID[id] == nil:
+			add("%s: there is no step %q", field, id)
+		case id == s.ID:
+			add("%s: a step cannot go to itself", field)
+		}
+	}
+	// Every field this type does not use is refused, so a typo or a misplaced field is not silently ignored.
+	unused := func(used ...string) {
+		all := map[string]bool{"next": s.Next != "", "vars": len(s.Vars) > 0, "if": s.If != "", "then": s.Then != "", "else": s.Else != "",
+			"for": s.For != "", "until": s.Until != "", "timeout": s.Timeout != "", "on_timeout": s.OnTimeout != "",
+			"set": len(s.Set) > 0, "body": s.Body != nil, "internal": s.Internal}
+		for _, u := range used {
+			delete(all, u)
+		}
+		for _, name := range []string{"next", "vars", "if", "then", "else", "for", "until", "timeout", "on_timeout", "set", "body", "internal"} {
+			forbid(name, all[name])
+		}
+	}
+	switch s.Type {
+	case StepSet:
+		unused("next", "vars")
+		target("next", s.Next, true)
+		if len(s.Vars) == 0 {
+			add("set needs vars: the variables to set")
+		}
+		out = append(out, assignProblems("vars", s.Vars, func(name string) []string {
+			if !varNameRE.MatchString(name) {
+				return []string{fmt.Sprintf("%q is not a variable name (lowercase letters, digits and underscores)", name)}
+			}
+			return nil
+		})...)
+	case StepCondition:
+		unused("if", "then", "else")
+		if s.If == "" {
+			add("condition needs if: the expression to test")
+		}
+		target("then", s.Then, true)
+		target("else", s.Else, true)
+		if s.Then != "" && s.Then == s.Else {
+			add("then and else go to the same step, so the condition decides nothing")
+		}
+	case StepWait:
+		unused("next", "for", "until", "timeout", "on_timeout")
+		target("next", s.Next, true)
+		switch {
+		case s.For != "" && s.Until != "":
+			add("wait takes either for or until, not both")
+		case s.For == "" && s.Until == "":
+			add("wait needs for (a duration) or until (an expression)")
+		}
+		if s.For != "" {
+			forbid("timeout", s.Timeout != "")
+			forbid("on_timeout", s.OnTimeout != "")
+			if d, err := ParseDuration(s.For); err != nil {
+				add("for: %v", err)
+			} else if d < minWait || d > maxWait {
+				add("for must be between %s and 30d", minWait)
+			}
+		}
+		if s.Until != "" {
+			if s.Timeout == "" {
+				add("wait until needs a timeout, so no workflow waits forever")
+			} else if d, err := ParseDuration(s.Timeout); err != nil {
+				add("timeout: %v", err)
+			} else if d < minWait || d > maxWait {
+				add("timeout must be between %s and 30d", minWait)
+			}
+			target("on_timeout", s.OnTimeout, false)
+		}
+	case StepRecordUpdate:
+		unused("next", "set")
+		target("next", s.Next, true)
+		if len(s.Set) == 0 {
+			add("record.update needs set: the fields to change")
+		}
+		out = append(out, assignProblems("set", s.Set, func(name string) []string {
+			_, ok := SettableFields[name]
+			switch {
+			case !ok:
+				return []string{fmt.Sprintf("record.update cannot change %q (it can change: %s)", name, settableList())}
+			case name == "resolution" && w.RecordType != "incident":
+				return []string{"resolution notes belong to incidents, so a workflow that sets them must be for record_type incident"}
+			}
+			return nil
+		})...)
+		for _, nv := range s.Set {
+			if kind, ok := SettableFields[nv.Name]; ok && nv.Value != nil && nv.Value.Expr == "" {
+				out = append(out, literalProblems(nv.Name, kind, nv.Value.Literal)...)
+			}
+		}
+	case StepCommentAdd:
+		unused("next", "body", "internal")
+		target("next", s.Next, true)
+		if s.Body == nil {
+			add("comment.add needs a body")
+		}
+	case StepEnd:
+		unused()
+	case "":
+		add("a step needs a type (%s)", strings.Join(stepTypes, ", "))
+	default:
+		add("unknown step type %q (available: %s)", s.Type, strings.Join(stepTypes, ", "))
+	}
+	return out
+}
+
+var varNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
+
+func assignProblems(what string, list []NamedValue, name func(string) []string) (out []string) {
+	if len(list) > maxStepAssigns {
+		out = append(out, fmt.Sprintf("%s has %d entries; the limit is %d", what, len(list), maxStepAssigns))
+	}
+	seen := map[string]bool{}
+	for _, nv := range list {
+		out = append(out, name(nv.Name)...)
+		if seen[nv.Name] {
+			out = append(out, fmt.Sprintf("%s: %q is set twice", what, nv.Name))
+		}
+		seen[nv.Name] = true
+	}
+	return out
+}
+
+// graphProblems checks the shape: no cycles, and nothing that can never run. A workflow is a DAG, so every execution
+// is finite; repetition comes from waiting and from steps that loop over a list, never from a loop in the graph.
+func (w *Workflow) graphProblems(file string, byID map[string]*Step, p *Problems) {
+	const (
+		visiting = 1
+		done     = 2
+	)
+	state := map[string]int{}
+	var path []string
+	var walk func(id string) bool
+	walk = func(id string) bool {
+		switch state[id] {
+		case visiting:
+			from := slices.Index(path, id)
+			p.add(file, "the steps loop: %s", strings.Join(append(append([]string(nil), path[from:]...), id), " -> "))
+			return false
+		case done:
+			return true
+		}
+		state[id] = visiting
+		path = append(path, id)
+		ok := true
+		for _, next := range byID[id].edges() {
+			if byID[next] != nil && !walk(next) {
+				ok = false
+				break
+			}
+		}
+		path = path[:len(path)-1]
+		state[id] = done
+		return ok
+	}
+	if !walk(w.Start) {
+		return
+	}
+	for i := range w.Steps {
+		if state[w.Steps[i].ID] == 0 {
+			p.add(file, "step %s can never run: nothing leads to it", w.Steps[i].ID)
+		}
+	}
+}
+
+// ---- expressions ----
+
+// compile compiles every expression and duration in the workflow. Anything that fails is remembered, so at run time
+// the step fails (and the execution with it) instead of being silently skipped.
+func (w *Workflow) compile() {
+	env, envErr := expr.Workflow()
+	for i := range w.Steps {
+		s := &w.Steps[i]
+		s.cond, s.until, s.compileEr = nil, nil, envErr
+		if envErr != nil {
+			continue
+		}
+		var problems []string
+		fail := func(what string, err error) {
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("%s: %v", what, err))
+			}
+		}
+		if s.If != "" {
+			var err error
+			s.cond, err = env.Compile(s.If)
+			fail("if", err)
+		}
+		if s.Until != "" {
+			var err error
+			s.until, err = env.Compile(s.Until)
+			fail("until", err)
+		}
+		if s.For != "" {
+			var err error
+			s.forDur, err = ParseDuration(s.For)
+			fail("for", err)
+		}
+		if s.Timeout != "" {
+			var err error
+			s.timeout, err = ParseDuration(s.Timeout)
+			fail("timeout", err)
+		}
+		for _, nv := range s.Vars {
+			nv.Value.compileAny(env, envErr)
+			fail("vars."+nv.Name, nv.Value.err)
+		}
+		for _, nv := range s.Set {
+			want := expr.String
+			if SettableFields[nv.Name] == "number" {
+				want = expr.Int
+			}
+			nv.Value.compile(env, envErr, want)
+			fail("set."+nv.Name, nv.Value.err)
+		}
+		s.Body.compile(env, envErr, expr.String)
+		if s.Body != nil {
+			fail("body", s.Body.err)
+		}
+		if len(problems) > 0 {
+			s.compileEr = fmt.Errorf("%s", strings.Join(problems, "; "))
+		}
+	}
+}
+
+func (v *Value) compileAny(env *expr.Env, envErr error) {
+	if v == nil {
+		return
+	}
+	v.program, v.err = nil, envErr
+	if envErr == nil && v.Expr != "" {
+		v.program, v.err = env.CompileAny(v.Expr)
+	}
+}
+
+// ---- what the engine needs to run a workflow ----
+
+// Compile prepares a workflow read back from storage (a snapshot pinned by an execution, or a registry load): its
+// expressions are compiled again, and a step that no longer compiles fails when it is reached.
+func (w *Workflow) Compile() { w.compile() }
+
+// Step returns the step with this id.
+func (w *Workflow) Step(id string) *Step {
+	for i := range w.Steps {
+		if w.Steps[i].ID == id {
+			return &w.Steps[i]
+		}
+	}
+	return nil
+}
+
+// Condition returns a condition step's compiled test, or why it cannot run.
+func (s *Step) Condition() (*expr.Program, error) { return s.cond, s.compileEr }
+
+// UntilCondition returns a wait step's compiled `until`, or why it cannot run.
+func (s *Step) UntilCondition() (*expr.Program, error) { return s.until, s.compileEr }
+
+// ForDuration and TimeoutDuration are a wait step's parsed durations.
+func (s *Step) ForDuration() time.Duration     { return s.forDur }
+func (s *Step) TimeoutDuration() time.Duration { return s.timeout }
+
+// Err is why the step's expressions cannot run, or nil.
+func (s *Step) Err() error { return s.compileEr }
+
+// checkWorkflowStarts checks what only the whole app can tell: that every workflow a rule starts is defined in the same
+// app, for the same kind of record. Definitions are checked one at a time, so this runs once they all are.
+func checkWorkflowStarts(defs []Definition, p *Problems) {
+	workflows := map[string]*Workflow{}
+	for _, d := range defs {
+		if d.Workflow != nil {
+			workflows[d.Workflow.Name] = d.Workflow
+		}
+	}
+	for _, d := range defs {
+		if d.Rule == nil {
+			continue
+		}
+		for i, a := range d.Rule.Run {
+			if a.Action != "workflow.start" || a.Workflow == "" {
+				continue
+			}
+			wf := workflows[a.Workflow]
+			switch {
+			case wf == nil:
+				p.add(d.File, "run[%d]: there is no workflow %q in this app (workflows: %s)", i, a.Workflow, workflowNames(workflows))
+			case wf.RecordType != d.Rule.RecordType && wf.RecordType != "task":
+				p.add(d.File, "run[%d]: workflow %q is for %s records, but this rule is for %s", i, a.Workflow, wf.RecordType, d.Rule.RecordType)
+			}
+		}
+	}
+}
+
+func workflowNames(m map[string]*Workflow) string {
+	if len(m) == 0 {
+		return "none"
+	}
+	names := make([]string, 0, len(m))
+	for n := range m {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	return strings.Join(names, ", ")
+}

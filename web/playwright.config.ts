@@ -33,7 +33,9 @@ export default defineConfig({
 			SL_ADDR: `:${PORT}`,
 			SL_JWT_SECRET: 'e2e-only-secret-e2e-only-secret-e2e-only',
 			SL_DATABASE_URL: DATABASE_URL,
-			SL_APPS_LOCAL_DIR: APPS_LOCAL_DIR
+			SL_APPS_LOCAL_DIR: APPS_LOCAL_DIR,
+			// Chromium releases a closed test context's sockets late, and the suite opens many as one user.
+			SL_MAX_LIVE_CONNS: '200'
 		}
 	}
 });

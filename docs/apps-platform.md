@@ -588,6 +588,71 @@ replace it.
 - **Measure, then tune.** Slice 6 includes a load harness reporting executions per second, step latency at p50 and
   p99, and queue lag, and the pool size is chosen from that data.
 
+### 7.6 What is built (slice 6)
+
+The engine, the storage, the triggers, the API and a read-only run viewer. Not yet built are listed at the end.
+
+**Definition.** `default/workflows/<name>.yaml` (`kind: workflow`): `name`, `record_type`, `start` and `steps`, a map of
+step id to definition. Layers apply as everywhere: a local file can change one step's `timeout` without copying the
+workflow. Everything is checked at install and every problem is reported at once: unknown step types and fields, a
+`next` that goes nowhere, a **loop** (the path is named: `a -> b -> c -> a`), a step nothing leads to, expressions that
+do not compile or have the wrong type, and a `wait until` with no `timeout`. A rule's `workflow.start` must name a
+workflow of the same app and record type.
+
+**Steps in this version:** `set` (variables, one `=expression` or literal each, in order, so a later one can use an
+earlier one), `condition` (`if`, `then`, `else`), `wait` (`for: 15m`, or `until: <expression>` with a `timeout` and an
+optional `on_timeout` step; without one a timeout fails the run), `record.update` (the same fields and checks as a
+rule's), `comment.add` and `end`. Expressions see `record` (as it is *now*, re-read for every step), `user`, `now` and
+`vars`. Variables hold text, numbers or true/false, and are stored with the execution.
+
+**How it runs.**
+- An **execution** is a row (`workflow_executions`) holding the definition **as it was when it started** (so an upgrade
+  never changes a run in flight), its current step, its variables and its status (`queued`, `running`, `waiting`, `done`,
+  `failed`, `cancelled`); every visit to a step is a row in `workflow_steps` with its outcome, detail and timing.
+- Starting one, from a rule's `workflow.start` (in an after rule it is part of the save's transaction; in an async rule,
+  of the worker's) or by hand (`POST /workflow-runs`), inserts the row and queues a `workflow.run` job in the same
+  transaction, so a save that rolls back starts nothing.
+- A `workflow.run` job moves the execution forward **one step per transaction**, as the person who started it, under
+  their RLS. The step's effect and the record that it happened commit together, so a retry never repeats an effect. A
+  step that fails for a reason retrying will not change (a refused edit, an expression error, a missing ticket) rolls its
+  transaction back and ends the execution in a second transaction, so earlier steps keep their history and effects.
+  A database fault is retried by the job queue; when attempts run out the execution is marked `failed`.
+- A job runs at most 25 steps, then queues itself again, so a long workflow cannot hold a worker.
+- **Waiting is data.** A sleeping execution has a wake-up time. A timer in every worker (each second, `SKIP LOCKED`)
+  queues the ones that are due. A `wait until` is also woken **when its ticket changes** (a trigger brings the wake-up
+  forward) and re-checked at least every 30 seconds, because a condition may depend on the clock.
+- **Loop protection carries over.** What a workflow saves carries its cause (`app/workflow`, depth + 1), so an app's
+  rules do not answer its own workflow's edits, and the chain is cut at depth 5 (§6.4).
+- Runs are kept for 30 days after they finish.
+
+**API and viewer (staff only).** `GET /workflows`, `GET /workflow-runs?status=&ticket=&workflow=`, `GET /workflow-runs/{id}`
+(the graph it started with, its variables and every step), `POST /workflow-runs` (`{"workflow": "app/name", "ticket": ...}`)
+and `POST /workflow-runs/{id}/cancel`. The web app has **Runs**: the list, and one run with its steps (which is done, which
+is current, which was not reached) and what happened at each visit. It refreshes itself while a run is unfinished.
+
+**Measured** (`SL_BENCH=1 go test -run WorkflowThroughput -v ./internal/workflowengine`; a five-step workflow that
+sets, branches, comments and edits a ticket through the full save path; 8 cores, database on the same machine):
+
+| Executors | Executions per second | Step p99 |
+|---|---|---|
+| 1 | 116 | 1 ms |
+| 4 | 406 | 1 ms |
+| 8 | 586 | 2 ms |
+| 16 | 646 | 4 ms |
+| 32 | 617 | 7 ms |
+
+Throughput scales with the pool up to about 8 and then flattens, because the database is the limit. The default stays
+at 4 (`SL_WORKER_CONCURRENCY`) because in the all-in-one install the pool shares the machine and its connection budget
+with the API; raise it to 8 on a dedicated worker. The step itself costs about a millisecond, so nearly all of an
+execution's time is waiting for a free executor and for the database.
+
+**Not built yet, and why:** `approval` (needs an inbox and a way to ask a person), `notify.email` / `sms` / `slack` and
+`http.request` (need mail transport, secrets and host allow-lists, which arrive with the config and secrets work),
+`foreach` / `record.query` / `subflow` (a bounded list and calling another workflow), `record.create` / `record.delete`,
+and the `schedule` trigger. Steps run as the person who started the workflow: a workflow started by a requester cannot
+edit tickets (only staff can), which is the same rule as by hand; service principals lift this (roles slice). Live
+highlighting of the running step arrives with the visual builder; the viewer refreshes by polling.
+
 ## 8. Declarative UI
 
 Apps describe what to show; the core Svelte UI renders it (D4).
@@ -817,7 +882,7 @@ Each slice is shippable and leaves the product working.
 | **3. Record types** (done) | The `tasks` base and the `incidents` extension table (D14); the `task_types` registry with per-type numbering and references (INC42); comments referencing `tasks.id`; lifecycle inheritance from `task`; incident resolution notes. Extension tables for change, request and problem come with their apps, and rule inheritance with rules in slice 5. | Slice 1 |
 | **4. Forms** | Field definitions, `fields jsonb`, form rendering. | Slices 2 and 3 |
 | **5. Rules** (done: job queue and worker, before/after/async rules, `action_runs` audit, one shared save path, `record.update` and loop protection) | Before, after and async rules with the built-in actions; job queue and worker role; transactional outbox; `action_runs` audit; loop protection. | Slices 2 and 3 |
-| **6. Workflow engine** | Durable execution, the v1 step library, workflows as YAML, run history API and a read-only run viewer. | Slice 5 |
+| **6. Workflow engine** (done: durable engine, `set` / `condition` / `wait` / `record.update` / `comment.add` / `end`, rule and manual triggers, run history API and viewer, load harness; the rest of the step library follows, see §7.6) | Durable execution, the v1 step library, workflows as YAML, run history API and a read-only run viewer. | Slice 5 |
 | **6b. SLAs** | First-class SLA definitions with pause and resume, business calendars and breach actions. | Slice 6 |
 | **7. Roles and permissions** | Custom RBAC and app service principals (open question 3). | Slice 5 |
 | **8. Content kinds** | Catalog, knowledge, notification templates, declarative list views and dashboards. | Slice 4 |

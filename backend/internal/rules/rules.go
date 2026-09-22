@@ -50,6 +50,20 @@ type Comment struct {
 	Rule     string
 }
 
+// Start is a workflow an after or async rule asked to start on the record. The caller starts it, in the save's
+// transaction, so it exists only if the save commits.
+type Start struct {
+	App      string
+	Workflow string
+	Rule     string
+}
+
+// Effects are what rules asked for besides changing the record: comments to write and workflows to start.
+type Effects struct {
+	Comments []Comment
+	Starts   []Start
+}
+
 // Before runs before rules in order against in.Record, which it never changes: the record as the rules left it is
 // returned. Later rules and actions see the earlier ones' changes.
 func Before(ctx context.Context, list []*apps.Rule, in expr.Input) (*expr.Record, error) {
@@ -57,10 +71,10 @@ func Before(ctx context.Context, list []*apps.Rule, in expr.Input) (*expr.Record
 	return rec, err
 }
 
-// After runs after rules against the saved record and returns the comments they ask for.
-func After(ctx context.Context, list []*apps.Rule, in expr.Input) ([]Comment, error) {
-	_, comments, err := run(ctx, Budget, list, in, false)
-	return comments, err
+// After runs after rules against the saved record and returns what they ask for.
+func After(ctx context.Context, list []*apps.Rule, in expr.Input) (Effects, error) {
+	_, fx, err := run(ctx, Budget, list, in, false)
+	return fx, err
 }
 
 // Fire decides which async rules a save sets off: those whose filter is true for the change, judged with the old
@@ -86,23 +100,23 @@ func Fire(ctx context.Context, list []*apps.Rule, in expr.Input) (fired []*apps.
 // save fired it and is not asked again; each action's filter is judged on the current data, so an action whose
 // condition has stopped being true is skipped. A rule with an action that cannot be evaluated fails whole: the job
 // is retried, and nothing is half-done, because the comments come back to the caller to write together.
-func RunAsync(ctx context.Context, r *apps.Rule, in expr.Input) (*expr.Record, []Comment, error) {
+func RunAsync(ctx context.Context, r *apps.Rule, in expr.Input) (*expr.Record, Effects, error) {
 	return run(ctx, AsyncBudget, []*apps.Rule{r}, in, true)
 }
 
 // run applies rules in order. With asyncRun the rules' own filters are taken as already true and on_error is
 // ignored: an error in an async run is always an error.
-func run(ctx context.Context, budget time.Duration, list []*apps.Rule, in expr.Input, asyncRun bool) (*expr.Record, []Comment, error) {
+func run(ctx context.Context, budget time.Duration, list []*apps.Rule, in expr.Input, asyncRun bool) (*expr.Record, Effects, error) {
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	// Work on a copy: the caller's record is only replaced when every rule has run.
 	cp := *in.Record
 	in.Record = &cp
-	var comments []Comment
+	var fx Effects
 	for _, r := range list {
 		// The budget is checked between steps as well as inside expressions, so literals cannot outrun it.
 		if err := ctx.Err(); err != nil {
-			return nil, nil, &Broken{App: r.App, Rule: r.Name, Err: err}
+			return nil, Effects{}, &Broken{App: r.App, Rule: r.Name, Err: err}
 		}
 		ran, err := true, error(nil)
 		if !asyncRun {
@@ -110,7 +124,7 @@ func run(ctx context.Context, budget time.Duration, list []*apps.Rule, in expr.I
 		}
 		if err != nil {
 			if fail(r, err) != nil {
-				return nil, nil, fail(r, err)
+				return nil, Effects{}, fail(r, err)
 			}
 			continue
 		}
@@ -119,24 +133,24 @@ func run(ctx context.Context, budget time.Duration, list []*apps.Rule, in expr.I
 		}
 		for i := range r.Run {
 			if err := ctx.Err(); err != nil {
-				return nil, nil, &Broken{App: r.App, Rule: r.Name, Err: err}
+				return nil, Effects{}, &Broken{App: r.App, Rule: r.Name, Err: err}
 			}
 			a := &r.Run[i]
 			ok, err := condition(ctx, a.Condition, in)
 			if err == nil && ok {
-				err = perform(ctx, r, a, in, &comments)
+				err = perform(ctx, r, a, in, &fx)
 			}
 			var ab *Abort
 			switch {
 			case err == nil:
 			case errors.As(err, &ab):
-				return nil, nil, err
+				return nil, Effects{}, err
 			case fail(r, err) != nil:
-				return nil, nil, fail(r, err)
+				return nil, Effects{}, fail(r, err)
 			}
 		}
 	}
-	return in.Record, comments, nil
+	return in.Record, fx, nil
 }
 
 // fail is what a broken rule does to the save: nothing for on_error: skip, otherwise it stops it. A timeout stops it
@@ -160,7 +174,7 @@ func condition(ctx context.Context, get func() (*expr.Program, error), in expr.I
 	return p.Eval(ctx, in)
 }
 
-func perform(ctx context.Context, r *apps.Rule, a *apps.Action, in expr.Input, comments *[]Comment) error {
+func perform(ctx context.Context, r *apps.Rule, a *apps.Action, in expr.Input, fx *Effects) error {
 	switch a.Action {
 	case "abort":
 		msg, err := text(ctx, a.Message, in)
@@ -173,7 +187,10 @@ func perform(ctx context.Context, r *apps.Rule, a *apps.Action, in expr.Input, c
 		if err != nil {
 			return err
 		}
-		*comments = append(*comments, Comment{Body: body, Internal: a.Internal, Rule: r.Name})
+		fx.Comments = append(fx.Comments, Comment{Body: body, Internal: a.Internal, Rule: r.Name})
+		return nil
+	case "workflow.start":
+		fx.Starts = append(fx.Starts, Start{App: r.App, Workflow: a.Workflow, Rule: r.Name})
 		return nil
 	case "set", "record.update":
 		// Both change the record in memory. In a before rule that is the save itself; in an async rule the caller

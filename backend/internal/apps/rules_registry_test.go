@@ -73,3 +73,33 @@ func TestRegistryOrdersRules(t *testing.T) {
 		t.Errorf("delete rules = %v", ruleNames(got))
 	}
 }
+
+func TestRegistryServesWorkflows(t *testing.T) {
+	pool := dbtest.Pool(t)
+	ctx := context.Background()
+	files := map[string][]byte{
+		"app.yaml":                   []byte("apiVersion: 1\nname: house\nversion: 2.0.0\nauthor: t\ndescription: \"Test app.\"\n"),
+		"default/workflows/esc.yaml": []byte("kind: workflow\nname: esc\nrecord_type: incident\nstart: a\nsteps:\n  a:\n    type: set\n    vars: { n: 1 }\n    next: b\n  b:\n    type: end\n"),
+	}
+	c, err := (&apps.Bundle{Files: files}).Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := apps.Install(ctx, pool, c, apps.InstallOptions{InstalledBy: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	r := loaded(t, pool)
+	wf := r.Workflow("house", "esc")
+	if wf == nil || wf.App != "house" || wf.Version != "2.0.0" || wf.Start != "a" || len(wf.Steps) != 2 {
+		t.Fatalf("workflow: %+v", wf)
+	}
+	if n, ok := wf.Step("a").Vars[0].Value.Literal.(int64); !ok || n != 1 {
+		t.Errorf("a literal must survive storage as a whole number: %T", wf.Step("a").Vars[0].Value.Literal)
+	}
+	if r.Workflow("house", "nope") != nil || r.Workflow("other", "esc") != nil {
+		t.Error("a workflow was found under the wrong name")
+	}
+	if all := r.Workflows(); len(all) != 1 || all[0].Name != "esc" {
+		t.Errorf("workflows: %+v", all)
+	}
+}

@@ -276,6 +276,9 @@ func (w *Worker) sweep(ctx context.Context) {
 		if _, err := q.PurgeActionRuns(ctx, w.opt.KeepRuns.Seconds()); err != nil {
 			return err
 		}
+		if _, err := q.PurgeExecutions(ctx, w.opt.KeepRuns.Seconds()); err != nil {
+			return err
+		}
 		if reaped > 0 {
 			slog.Warn("recovered jobs from a lost worker", "jobs", reaped)
 			w.signal()

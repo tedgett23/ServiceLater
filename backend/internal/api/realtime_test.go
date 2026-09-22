@@ -196,6 +196,24 @@ func TestRealtimeConnectionCap(t *testing.T) {
 	}
 }
 
+// The cap is a setting (SL_MAX_LIVE_CONNS), not a constant: an office of people with many tabs may want more.
+func TestRealtimeConnectionCapIsConfigurable(t *testing.T) {
+	hub := startHub(t)
+	hub.MaxPerUser = 2
+	h, pool, _ := setupWith(t, time.Minute, hub)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	agent := newActor(t, h, pool, "agent@x.test", "agent")
+	for i := 0; i < 2; i++ {
+		if _, _, err := dial(t, srv, agent); err != nil {
+			t.Fatalf("connection %d: %v", i+1, err)
+		}
+	}
+	if _, status, err := dial(t, srv, agent); err == nil || status != 429 {
+		t.Errorf("3rd connection should be refused with 429: err=%v status=%d", err, status)
+	}
+}
+
 func TestRealtimeClosesWhenTokenExpires(t *testing.T) {
 	hub := startHub(t)
 	h, pool, _ := setupWith(t, 2*time.Second, hub)

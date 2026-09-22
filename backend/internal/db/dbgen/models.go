@@ -127,3 +127,39 @@ type UserCredential struct {
 	PasswordHash string             `json:"password_hash"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
+
+type WorkflowExecution struct {
+	ID            uuid.UUID          `json:"id"`
+	App           string             `json:"app"`
+	Workflow      string             `json:"workflow"`
+	AppVersion    string             `json:"app_version"`
+	Definition    []byte             `json:"definition"`
+	RecordID      uuid.NullUUID      `json:"record_id"`
+	StartedBy     uuid.UUID          `json:"started_by"`
+	Cause         []byte             `json:"cause"`
+	Status        string             `json:"status"`
+	CurrentStep   string             `json:"current_step"`
+	Vars          []byte             `json:"vars"`
+	StepsRun      int32              `json:"steps_run"`
+	WaitStartedAt pgtype.Timestamptz `json:"wait_started_at"`
+	WaitDeadline  pgtype.Timestamptz `json:"wait_deadline"`
+	WaitUntil     bool               `json:"wait_until"`
+	WakeAt        pgtype.Timestamptz `json:"wake_at"`
+	Error         string             `json:"error"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
+}
+
+type WorkflowStep struct {
+	ID          int64              `json:"id"`
+	ExecutionID uuid.UUID          `json:"execution_id"`
+	Seq         int32              `json:"seq"`
+	StepID      string             `json:"step_id"`
+	Type        string             `json:"type"`
+	Outcome     string             `json:"outcome"`
+	Detail      []byte             `json:"detail"`
+	Error       string             `json:"error"`
+	DurationMs  int32              `json:"duration_ms"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}

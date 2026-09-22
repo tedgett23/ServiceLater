@@ -17,7 +17,8 @@ import (
 
 type snapshot struct {
 	lifecycles map[string]*Lifecycle
-	rules      map[string][]*Rule // by record type, in run order
+	rules      map[string][]*Rule   // by record type, in run order
+	workflows  map[string]*Workflow // by "app/name"
 	apps       []Installed
 }
 
@@ -36,7 +37,7 @@ type Registry struct {
 // ever does (useful in tests and before any app is installed).
 func NewRegistry(pool *pgxpool.Pool) *Registry {
 	r := &Registry{pool: pool}
-	r.snap.Store(&snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}})
+	r.snap.Store(&snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}})
 	return r
 }
 
@@ -45,7 +46,7 @@ func (r *Registry) Load(ctx context.Context) error {
 	if r.pool == nil {
 		return nil
 	}
-	next := &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}}
+	next := &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}}
 	err := db.WithSystem(ctx, r.pool, func(tx pgx.Tx) error {
 		q := dbgen.New(tx)
 		apps, err := q.ListApps(ctx)
@@ -84,6 +85,23 @@ func (r *Registry) Load(ctx context.Context) error {
 				rule.compile()
 				rule.App, rule.Version = d.AppName, versions[d.AppName]
 				next.rules[rule.RecordType] = append(next.rules[rule.RecordType], &rule)
+				continue
+			}
+			if d.Kind == "workflow" {
+				var wf Workflow
+				if err := json.Unmarshal(d.Body, &wf); err != nil {
+					slog.Error("skipping unreadable workflow", "app", d.AppName, "workflow", d.Name, "err", err)
+					continue
+				}
+				var p Problems
+				if wf.validateStructure(d.AppName, &p); len(p) > 0 {
+					slog.Error("skipping invalid workflow", "app", d.AppName, "workflow", d.Name, "problems", p.Error())
+					continue
+				}
+				// A step whose expressions no longer compile stays, and fails the execution that reaches it.
+				wf.compile()
+				wf.App, wf.Version = d.AppName, versions[d.AppName]
+				next.workflows[wf.App+"/"+wf.Name] = &wf
 				continue
 			}
 			if d.Kind != "lifecycle" {
@@ -146,6 +164,20 @@ func (r *Registry) Rules(recordType, timing, event string) []*Rule {
 			}
 		}
 	}
+	return out
+}
+
+// Workflow finds a workflow by the app that defines it and its name. It is nil when there is none.
+func (r *Registry) Workflow(app, name string) *Workflow { return r.snap.Load().workflows[app+"/"+name] }
+
+// Workflows lists every installed workflow, by app and name.
+func (r *Registry) Workflows() []*Workflow {
+	m := r.snap.Load().workflows
+	out := make([]*Workflow, 0, len(m))
+	for _, w := range m {
+		out = append(out, w)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].App+"/"+out[i].Name < out[j].App+"/"+out[j].Name })
 	return out
 }
 

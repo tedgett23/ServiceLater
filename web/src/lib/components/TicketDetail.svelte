@@ -22,6 +22,7 @@
 	let resolutionDraft = $state(untrack(() => props.ticket.resolution));
 	let editingResolution = false; // while typing, live updates must not overwrite the draft
 	let inflight = $state(0); // local edits awaiting the server; live refetches wait so they can't undo them, and actions pause
+	let stale = false; // a live update arrived while an edit was in flight: refetch as soon as the edit settles
 
 	const canEdit = $derived(isStaff(session.user));
 	const path = $derived(`/api/v1/tickets/${ticket.id}`);
@@ -62,15 +63,27 @@
 			error = e instanceof Error ? e.message : 'That change didn’t save';
 		} finally {
 			inflight--;
+			// A change made by someone or something else (a rule, a workflow, another agent) can commit while our own edit
+			// is still travelling. Its live hint was set aside, and our response predates it, so look again now.
+			if (inflight === 0 && stale) {
+				stale = false;
+				void reloadTicket();
+			}
 		}
 	}
 
 	// Live updates: another person changed this ticket or commented. Refetch through the API.
 	async function reloadTicket() {
-		if (inflight > 0) return;
+		if (inflight > 0) {
+			stale = true; // not dropped: change() looks again when the edit settles
+			return;
+		}
 		try {
 			const fresh = await api<Ticket>(path);
-			if (inflight > 0) return;
+			if (inflight > 0) {
+				stale = true; // an edit started meanwhile; this answer may predate it
+				return;
+			}
 			if (fresh.updated_at !== ticket.updated_at) ui.announce = 'This ticket was updated';
 			ticket = fresh;
 			queue.upsert(fresh);

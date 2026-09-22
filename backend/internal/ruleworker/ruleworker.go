@@ -75,16 +75,23 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 			// see the ticket as it is, twice.
 			in := expr.Input{Record: rec, Old: rec, Event: p.Event, Now: time.Now(),
 				User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role}}
-			res, comments, err := rules.RunAsync(ctx, rule, in)
+			res, fx, err := rules.RunAsync(ctx, rule, in)
 			if err != nil {
 				return err
 			}
-			for _, c := range comments {
+			for _, c := range fx.Comments {
 				body := strings.TrimSpace(c.Body)
 				if body == "" || len(body) > records.MaxComment {
 					return jobs.Permanent(errors.New("the rule wrote a comment that is empty or too long"))
 				}
 				if _, err := q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: p.RecordID, AuthorID: p.UserID, Body: body, Internal: c.Internal}); err != nil {
+					return err
+				}
+			}
+			// Started after the comments and before the update, so a workflow that begins on this record begins on it
+			// as it is when the rule ran, and is not raced by the rule's own edit (its steps read the record afresh).
+			for _, st := range fx.Starts {
+				if err := svc.StartFromAsyncRule(ctx, q, records.Actor{ID: u.ID, Role: u.Role}, p.Cause, t, st); err != nil {
 					return err
 				}
 			}

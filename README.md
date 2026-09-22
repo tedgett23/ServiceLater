@@ -25,6 +25,8 @@ One binary, one image. `SL_ROLES` selects what a process does (`web`, `api`, `wo
 - **AIO:** `SL_ROLES=all` serves UI, API and background workers in one process.
 - **Split:** run separate `web`, `api` and `worker` processes and scale each independently (`deploy/compose/docker-compose.split.yml`).
 
+Two settings tune capacity: `SL_WORKER_CONCURRENCY` (background jobs and workflow steps run at once, default 4; about 8 is the sweet spot on a dedicated worker, see `docs/apps-platform.md` §7.6) and `SL_MAX_LIVE_CONNS` (live connections one person may hold across tabs and devices, default 10).
+
 TLS is off by default (terminate at a load balancer or ingress). `SL_TLS=auto` uses Let's Encrypt; `SL_TLS=files` uses your certificate.
 
 ## Database

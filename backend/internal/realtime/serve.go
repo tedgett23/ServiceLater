@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -13,9 +14,9 @@ import (
 )
 
 const (
-	maxConnsPerUser = 10
-	writeTimeout    = 5 * time.Second
-	pingEvery       = 25 * time.Second
+	DefaultMaxConnsPerUser = 10
+	writeTimeout           = 5 * time.Second
+	pingEvery              = 25 * time.Second
 
 	// Application close codes (4000-4999 are ours to define).
 	CloseSessionExpired = websocket.StatusCode(4401)
@@ -39,7 +40,7 @@ func (c *client) shutdown() { c.downOnce.Do(func() { close(c.down) }) }
 func (h *Hub) add(c *client) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.perUser[c.userID] >= maxConnsPerUser {
+	if h.perUser[c.userID] >= h.max() {
 		return false
 	}
 	h.perUser[c.userID]++
@@ -68,6 +69,7 @@ func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, p auth.Principal) {
 		send: make(chan []byte, sendBuffer), kicked: make(chan struct{}), down: make(chan struct{}),
 	}
 	if !h.add(c) {
+		slog.Warn("refused a live connection: the person already has the most allowed", "user", c.userID, "limit", h.max())
 		http.Error(w, "too many connections", http.StatusTooManyRequests)
 		return
 	}

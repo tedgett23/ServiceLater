@@ -52,11 +52,21 @@ type commentNote struct {
 }
 
 type Hub struct {
+	// MaxPerUser is how many live connections one person may hold (open tabs and devices). Zero means the default.
+	MaxPerUser int
+
 	mu      sync.Mutex
 	clients map[*client]struct{}
 	perUser map[uuid.UUID]int
 	ready   chan struct{}
 	once    sync.Once
+}
+
+func (h *Hub) max() int {
+	if h.MaxPerUser > 0 {
+		return h.MaxPerUser
+	}
+	return DefaultMaxConnsPerUser
 }
 
 func NewHub() *Hub {

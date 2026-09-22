@@ -439,7 +439,7 @@ func withRuleFields(base, from Ticket) Ticket {
 // save (the transaction rolls back); the comments the rules ask for are written as the person acting.
 func (s *Service) runAfter(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, event string, cur *Ticket, saved Ticket) error {
 	if list := s.Apps.Rules(saved.Type, apps.TimingAfter, event); len(list) > 0 {
-		if err := s.runAfterRules(ctx, q, a, event, cur, saved, list); err != nil {
+		if err := s.runAfterRules(ctx, q, a, cause, event, cur, saved, list); err != nil {
 			return err
 		}
 	}
@@ -447,21 +447,26 @@ func (s *Service) runAfter(ctx context.Context, q *dbgen.Queries, a Actor, cause
 	return s.queueAsync(ctx, q, a, cause, event, cur, saved)
 }
 
-func (s *Service) runAfterRules(ctx context.Context, q *dbgen.Queries, a Actor, event string, cur *Ticket, saved Ticket, list []*apps.Rule) error {
+func (s *Service) runAfterRules(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, event string, cur *Ticket, saved Ticket, list []*apps.Rule) error {
 	in, err := s.ruleInput(ctx, q, a, event, cur, saved)
 	if err != nil {
 		return err
 	}
-	comments, err := rules.After(ctx, list, in)
+	fx, err := rules.After(ctx, list, in)
 	if err != nil {
 		return s.ruleError(ctx, err, apps.TimingAfter, event, &saved.ID, saved.Reference)
 	}
-	for _, c := range comments {
+	for _, c := range fx.Comments {
 		body := strings.TrimSpace(c.Body)
 		if body == "" || len(body) > MaxComment {
 			return Invalid(fmt.Sprintf("the rule %s wrote a comment that is empty or too long", c.Rule))
 		}
 		if _, err := q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: saved.ID, AuthorID: a.ID, Body: body, Internal: c.Internal}); err != nil {
+			return err
+		}
+	}
+	for _, st := range fx.Starts {
+		if err := s.startFromRule(ctx, q, a, cause, apps.TimingAfter, saved, st); err != nil {
 			return err
 		}
 	}

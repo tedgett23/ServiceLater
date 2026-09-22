@@ -44,3 +44,18 @@ export function modifiedIncidentApp(edits: Record<string, (text: string) => stri
 
 /** Bumps the version so the change is recorded as a new release of the app. */
 export const bumpVersion = (to: string) => (text: string) => text.replace(/^version: .*$/m, `version: ${to}`);
+
+/** A small app made of the given files (paths relative to the app, e.g. `default/workflows/x.yaml`), in a temp folder. */
+export function tempApp(name: string, files: Record<string, string>) {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-app-'));
+	fs.writeFileSync(
+		path.join(dir, 'app.yaml'),
+		`apiVersion: 1\nname: ${name}\nversion: 1.0.0\nauthor: e2e\ndescription: "Made by an end-to-end test."\n`
+	);
+	for (const [file, content] of Object.entries(files)) {
+		const full = path.join(dir, file);
+		fs.mkdirSync(path.dirname(full), { recursive: true });
+		fs.writeFileSync(full, content);
+	}
+	return { dir, cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) };
+}

@@ -107,6 +107,7 @@ type Action struct {
 	Message  *Value `json:"message,omitempty"` // abort: what the person sees
 	Body     *Value `json:"body,omitempty"`    // comment.add: the text
 	Internal bool   `json:"internal,omitempty"`
+	Workflow string `json:"workflow,omitempty"` // workflow.start: the name of a workflow in the same app
 
 	when    *expr.Program
 	whenErr error
@@ -153,6 +154,7 @@ type actionFile struct {
 	Message  *Value `yaml:"message"`
 	Body     *Value `yaml:"body"`
 	Internal bool   `yaml:"internal"`
+	Workflow string `yaml:"workflow"`
 }
 
 func parseRule(file string, data []byte, p *Problems) *Rule {
@@ -173,7 +175,7 @@ func parseRule(file string, data []byte, p *Problems) *Rule {
 		r.OnError = OnErrorBlock
 	}
 	for _, a := range f.Run {
-		r.Run = append(r.Run, Action{Action: a.Action, When: a.When, Field: a.Field, Value: a.Value, Message: a.Message, Body: a.Body, Internal: a.Internal})
+		r.Run = append(r.Run, Action{Action: a.Action, When: a.When, Field: a.Field, Value: a.Value, Message: a.Message, Body: a.Body, Internal: a.Internal, Workflow: a.Workflow})
 	}
 	before := len(*p)
 	r.validate(file, p)
@@ -315,10 +317,24 @@ func (a *Action) structureProblems(r *Rule, _ int) (out []string) {
 		extra("field", a.Field != "")
 		extra("value", a.Value != nil)
 		extra("message", a.Message != nil)
+	case "workflow.start":
+		if r.Timing == TimingBefore {
+			add("workflow.start is only allowed in an after or async rule, because the ticket must exist first")
+		}
+		switch {
+		case a.Workflow == "":
+			add("workflow.start needs workflow: the name of a workflow in this app")
+		case !ruleNameRE.MatchString(a.Workflow):
+			add("workflow %q is not a workflow name", a.Workflow)
+		}
+		extra("field", a.Field != "")
+		extra("value", a.Value != nil)
+		extra("message", a.Message != nil)
+		extra("body", a.Body != nil)
 	case "":
-		add("an action needs a name: abort, set, comment.add or record.update")
+		add("an action needs a name: abort, set, comment.add, record.update or workflow.start")
 	default:
-		add("unknown action %q (available: abort, set, comment.add, record.update)", a.Action)
+		add("unknown action %q (available: abort, set, comment.add, record.update, workflow.start)", a.Action)
 	}
 	return out
 }

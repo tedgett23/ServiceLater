@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
 	"slices"
@@ -55,26 +56,44 @@ func isStaff(role string) bool { return records.IsStaff(role) }
 
 var referenceRE = regexp.MustCompile(`^([A-Za-z]{2,5})([0-9]+)$`)
 
-// loadTicket resolves the {id} path segment: a UUID, a reference such as INC42, or a bare number. A bare number
-// means an incident, which keeps links from before there were several types.
-// Rows hidden by RLS come back as ErrNoRows, which the caller maps to 404.
+// loadTicket resolves the {id} path segment: see resolveTicket.
 func loadTicket(r *http.Request, q *dbgen.Queries) (dbgen.Task, error) {
-	raw := chi.URLParam(r, "id")
+	return resolveTicket(r.Context(), q, chi.URLParam(r, "id"))
+}
+
+// resolveTicket finds a ticket by a UUID, a reference such as INC42, or a bare number. A bare number means an
+// incident, which keeps links from before there were several types.
+// Rows hidden by RLS come back as ErrNoRows, which the caller maps to 404.
+func resolveTicket(ctx context.Context, q *dbgen.Queries, raw string) (dbgen.Task, error) {
 	if id, err := uuid.Parse(raw); err == nil {
-		return q.GetTask(r.Context(), id)
+		return q.GetTask(ctx, id)
 	}
 	if m := referenceRE.FindStringSubmatch(raw); m != nil {
 		n, err := strconv.ParseInt(m[2], 10, 64)
 		if err != nil || n < 1 {
 			return dbgen.Task{}, notFound()
 		}
-		return q.GetTaskByReference(r.Context(), dbgen.GetTaskByReferenceParams{Prefix: strings.ToUpper(m[1]), Number: n})
+		return q.GetTaskByReference(ctx, dbgen.GetTaskByReferenceParams{Prefix: strings.ToUpper(m[1]), Number: n})
 	}
 	n, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || n < 1 {
 		return dbgen.Task{}, notFound()
 	}
-	return q.GetTaskByTypeNumber(r.Context(), dbgen.GetTaskByTypeNumberParams{Type: "incident", Number: n})
+	return q.GetTaskByTypeNumber(ctx, dbgen.GetTaskByTypeNumberParams{Type: "incident", Number: n})
+}
+
+// intParam reads an optional whole-number query parameter within bounds, answering 400 itself when it is not one.
+func intParam(w http.ResponseWriter, raw, name string, lo, hi int, into *int) bool {
+	if raw == "" {
+		return true
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < lo || n > hi {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("%s must be %d to %d", name, lo, hi))
+		return false
+	}
+	*into = n
+	return true
 }
 
 // GET /tickets?type=&status=&priority=&assignee=&requester=&q=&limit=&offset=

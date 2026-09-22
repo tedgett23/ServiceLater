@@ -50,6 +50,7 @@ type Definition struct {
 	Checksum  string
 	Lifecycle *Lifecycle
 	Rule      *Rule
+	Workflow  *Workflow
 }
 
 // Source is the layers joined for storage and display, for example "default+local".
@@ -65,7 +66,7 @@ type Compiled struct {
 var definitionDirs = map[string]struct{ kind, unsupported string }{
 	"lifecycles":    {kind: "lifecycle"},
 	"rules":         {kind: "rule"},
-	"workflows":     {unsupported: "workflows are not supported yet"},
+	"workflows":     {kind: "workflow"},
 	"forms":         {unsupported: "forms are not supported yet"},
 	"catalog":       {unsupported: "catalog items are not supported yet"},
 	"knowledge":     {unsupported: "knowledge articles are not supported yet"},
@@ -313,6 +314,7 @@ func (b *Bundle) Compile() (*Compiled, error) {
 			defs = append(defs, *d)
 		}
 	}
+	checkWorkflowStarts(defs, &p)
 	if err := p.orNil(); err != nil || m == nil {
 		return nil, p
 	}
@@ -366,6 +368,14 @@ func compileDefinition(kind, file string, data []byte, p *Problems) *Definition 
 		body, _ := json.Marshal(r)
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: r.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Rule: r}
+	case "workflow":
+		w := parseWorkflow(file, data, p)
+		if w == nil {
+			return nil
+		}
+		body, _ := json.Marshal(w)
+		sum := sha256.Sum256(body)
+		return &Definition{Kind: kind, Name: w.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Workflow: w}
 	}
 	return nil
 }

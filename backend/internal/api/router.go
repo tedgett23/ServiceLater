@@ -80,7 +80,15 @@ func NewRouter(d Deps) http.Handler {
 					r.With(auth.RequireRole("admin", "agent")).Post("/transitions", h.transitionTicket)
 				})
 			})
-			// TODO: cmdb, workflows, catalog routes (§7.3)
+			r.Route("/workflow-runs", func(r chi.Router) {
+				r.Use(auth.RequireRole("admin", "agent"))
+				r.Get("/", h.listRuns)
+				r.Post("/", h.startRun)
+				r.Get("/{id}", h.getRun)
+				r.Post("/{id}/cancel", h.cancelRun)
+			})
+			r.With(auth.RequireRole("admin", "agent")).Get("/workflows", h.listWorkflows)
+			// TODO: cmdb, catalog routes (§7.3)
 		})
 	})
 

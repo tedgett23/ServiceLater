@@ -292,3 +292,37 @@ func TestTypedExpressionsProduceTheRightThing(t *testing.T) {
 		t.Error("a boolean expression was accepted where a number is required")
 	}
 }
+
+func TestWorkflowExpressionsSeeVarsAndTheRecord(t *testing.T) {
+	env, err := Workflow()
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := Input{Record: &Record{Priority: 2, Title: "Printer"}, User: &User{Name: "Ada"}, Vars: map[string]any{"level": int64(3), "tag": "urgent"}, Now: time.Now()}
+	p, err := env.CompileAny(`vars.level + record.priority`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, err := p.EvalValue(context.Background(), in); err != nil || v != int64(5) {
+		t.Errorf("got %v, %v", v, err)
+	}
+	b, err := env.Compile(`vars.tag == "urgent" && record.title.startsWith("P")`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := b.Eval(context.Background(), in); err != nil || !ok {
+		t.Errorf("got %v, %v", ok, err)
+	}
+	// A variable that was never set is an evaluation error, not a silent false: the step fails, it does not guess.
+	miss, _ := env.Compile(`vars.nothing == "x"`)
+	if _, err := miss.Eval(context.Background(), in); err == nil {
+		t.Error("a missing variable should be an error")
+	}
+	// Typos in the record are still caught at install time, even though vars have no fixed type.
+	if _, err := env.Compile(`record.prioity == 1`); err == nil {
+		t.Error("record typo accepted")
+	}
+	if _, err := env.CompileAny(`event`); err == nil {
+		t.Error("`event` belongs to rules, not workflows")
+	}
+}
