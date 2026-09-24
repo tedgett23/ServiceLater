@@ -121,6 +121,11 @@ func TestWorkflowsAreRejectedWhenTheyAreWrong(t *testing.T) {
 		{"record.update with a priority out of range", one("  a:\n    type: record.update\n    set: { priority: 9 }\n    next: b\n  b:\n    type: end\n"), "priority must be 1 (critical) to 4 (low)"},
 		{"record.update with an expression of the wrong type", one("  a:\n    type: record.update\n    set: { priority: '=record.title' }\n    next: b\n  b:\n    type: end\n"), "must produce a whole number"},
 		{"comment.add with no body", one("  a:\n    type: comment.add\n    next: b\n  b:\n    type: end\n"), "comment.add needs a body"},
+		{"approval with no approvers", one("  a:\n    type: approval\n    next: b\n  b:\n    type: end\n"), "approval needs approvers"},
+		{"approval with a bad rule", one("  a:\n    type: approval\n    approvers: '[\"x\"]'\n    rule: some\n    next: b\n  b:\n    type: end\n"), "rule must be one of"},
+		{"approval whose approvers is not a list", one("  a:\n    type: approval\n    approvers: 'record.title'\n    next: b\n  b:\n    type: end\n"), "must produce a list of text"},
+		{"approval with a bad timeout", one("  a:\n    type: approval\n    approvers: '[\"x\"]'\n    timeout: soon\n    next: b\n  b:\n    type: end\n"), `"soon" is not a duration`},
+		{"approval with no next", one("  a:\n    type: approval\n    approvers: '[\"x\"]'\n"), "approval needs next"},
 		{"too many steps", workflowApp(map[string]string{"w.yaml": manySteps(51)}), "at most 50 steps"},
 	}
 	for _, c := range cases {
@@ -133,6 +138,23 @@ func TestWorkflowsAreRejectedWhenTheyAreWrong(t *testing.T) {
 				t.Errorf("error %q does not mention %q", p.Error(), c.want)
 			}
 		})
+	}
+}
+
+func TestAnApprovalStepCompilesWithADefaultRule(t *testing.T) {
+	c, p := compile(t, workflowApp(map[string]string{"w.yaml": "kind: workflow\nname: ww\nrecord_type: incident\nstart: a\nsteps:\n  a:\n    type: approval\n    approvers: '[record.requester_id]'\n    timeout: 1h\n    on_timeout: b\n    next: b\n  b:\n    type: end\n"}))
+	if p != nil {
+		t.Fatal(p)
+	}
+	a := c.Definitions[0].Workflow.Step("a")
+	if a.ApprovalRule() != RuleAny {
+		t.Errorf("rule should default to any, got %q", a.ApprovalRule())
+	}
+	if prog, err := a.ApproversProgram(); err != nil || prog == nil {
+		t.Errorf("approvers should compile: %v", err)
+	}
+	if a.TimeoutDuration().Hours() != 1 {
+		t.Error("timeout was not parsed")
 	}
 }
 
