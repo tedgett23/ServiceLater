@@ -8,7 +8,7 @@ dev-backend:
 	cd backend && SL_APPS_LOCAL_DIR=$(CURDIR)/apps-local SL_JWT_SECRET=dev-only-secret-dev-only-secret-dev-only SL_BOOTSTRAP_ADMIN_EMAIL=admin@localhost SL_BOOTSTRAP_ADMIN_PASSWORD=admin-password go run ./cmd/servicelater
 
 dev-web:
-	cd web && npm run dev
+	cd web && npm run dev -- --host
 
 # Frontend first: it is embedded into the binary.
 build:
