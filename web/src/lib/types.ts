@@ -114,3 +114,17 @@ export interface RunStep {
 }
 
 export const runFinished = (s: RunStatus) => s === 'done' || s === 'failed' || s === 'cancelled';
+
+/** One pending "approval" workflow step asking this person to decide. Answering it is not staff-only: a workflow
+ * can name anyone as an approver. */
+export interface Approval {
+	id: string;
+	execution_id: string;
+	step_id: string;
+	/** "app/workflow". */
+	workflow: string;
+	/** The ticket it is about, if any: empty for a workflow with none, or if it has since been removed. */
+	reference: string;
+	title: string;
+	created_at: string;
+}

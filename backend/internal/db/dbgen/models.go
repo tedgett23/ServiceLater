@@ -128,6 +128,17 @@ type UserCredential struct {
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
+type WorkflowApproval struct {
+	ID          uuid.UUID          `json:"id"`
+	ExecutionID uuid.UUID          `json:"execution_id"`
+	StepID      string             `json:"step_id"`
+	ApproverID  uuid.UUID          `json:"approver_id"`
+	Decision    pgtype.Text        `json:"decision"`
+	Comment     string             `json:"comment"`
+	DecidedAt   pgtype.Timestamptz `json:"decided_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type WorkflowExecution struct {
 	ID            uuid.UUID          `json:"id"`
 	App           string             `json:"app"`

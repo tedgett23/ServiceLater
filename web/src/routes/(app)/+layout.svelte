@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
+	import { approvals } from '$lib/approvals.svelte';
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { queue } from '$lib/queue.svelte';
 	import { realtime } from '$lib/realtime.svelte';
@@ -11,7 +12,12 @@
 
 	let { children } = $props();
 
+	// Anyone can be named an approver, not only staff, so this loads regardless of role; the nav link below only
+	// shows up when there is actually something for this person to do.
+	let showSections = $derived(isStaff(session.user) || approvals.items.length > 0);
+
 	onMount(() => {
+		void approvals.ensureLoaded();
 		realtime.start();
 		const off = realtime.on((e) => {
 			if (e.type === 'ticket.changed' || e.type === 'resync') queue.scheduleRefresh();
@@ -19,22 +25,33 @@
 			if (e.type === 'definitions.changed' || e.type === 'resync') void lifecycle.reload();
 			if (e.type === 'definitions.changed') queue.scheduleRefresh();
 		});
+		// Approvals have no realtime event of their own yet, so a new one, or someone else answering one first,
+		// shows up on the next tick of this poll rather than needing a reload.
+		const poll = setInterval(() => void approvals.load(), 5000);
 		return () => {
 			off();
 			realtime.stop();
+			clearInterval(poll);
 		};
 	});
 </script>
 
 {#snippet sections()}
-	<a href="/tickets" aria-current={page.url.pathname.startsWith('/tickets') ? 'page' : undefined}>Tickets</a>
-	<a href="/runs" aria-current={page.url.pathname.startsWith('/runs') ? 'page' : undefined}>Runs</a>
+	{#if isStaff(session.user)}
+		<a href="/tickets" aria-current={page.url.pathname.startsWith('/tickets') ? 'page' : undefined}>Tickets</a>
+		<a href="/runs" aria-current={page.url.pathname.startsWith('/runs') ? 'page' : undefined}>Runs</a>
+	{/if}
+	{#if approvals.items.length > 0}
+		<a href="/approvals" aria-current={page.url.pathname.startsWith('/approvals') ? 'page' : undefined}>
+			Approvals ({approvals.items.length})
+		</a>
+	{/if}
 {/snippet}
 
 <div class="shell">
 	<header>
 		<a class="mark" href="/tickets" aria-label="ServiceLater, ticket queue">ServiceLater</a>
-		{#if isStaff(session.user)}
+		{#if showSections}
 			<nav class="wide" aria-label="Sections">
 				{@render sections()}
 			</nav>
@@ -51,7 +68,7 @@
 		</div>
 	</header>
 
-	{#if isStaff(session.user)}
+	{#if showSections}
 		<!-- On a phone there is no room for these in the app bar, so they get a bar of their own. -->
 		<nav class="narrow" aria-label="Sections">
 			{@render sections()}

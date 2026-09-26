@@ -602,8 +602,23 @@ workflow of the same app and record type.
 **Steps in this version:** `set` (variables, one `=expression` or literal each, in order, so a later one can use an
 earlier one), `condition` (`if`, `then`, `else`), `wait` (`for: 15m`, or `until: <expression>` with a `timeout` and an
 optional `on_timeout` step; without one a timeout fails the run), `record.update` (the same fields and checks as a
-rule's), `comment.add` and `end`. Expressions see `record` (as it is *now*, re-read for every step), `user`, `now` and
-`vars`. Variables hold text, numbers or true/false, and are stored with the execution.
+rule's), `comment.add`, `approval` and `end`. Expressions see `record` (as it is *now*, re-read for every step),
+`user`, `now` and `vars`. Variables hold text, numbers or true/false, and are stored with the execution.
+
+**Approval.** `approvers` is an expression producing a list of user ids (there is no `group()` yet: list the ids you
+mean, e.g. `=[record.requester_id]`), `rule` is `any` (the default), `all` or `majority`, and `timeout`/`on_timeout`
+work exactly as a `wait`'s. The first visit files one pending request per approver (`workflow_approvals`); later
+visits are the timer or someone deciding, waking it. The rule is recomputed from the requests every time, so it never
+disagrees with what is stored, and it short-circuits as soon as the outcome cannot change: `any` stops at the first
+yes, `all` stops at the first no. There is no `steps.<id>.output` yet (§7.2's aspirational syntax), so the result
+lands in variables instead, namespaced by the step's id: `vars.<id>_decision` (`approved`, `rejected` or, on timeout,
+`timeout`), `vars.<id>_comment` and `vars.<id>_decided_by`, all from whichever request settled it. Deciding is
+`POST /api/v1/approvals/{id}/decide` and the inbox is `GET /api/v1/approvals`; neither is staff-only, because anyone
+named in `approvers` can be asked, and only the addressed approver may answer, once (RLS: `workflow_approvals`'s own
+policies, plus narrow read access to the one execution and ticket a pending request is about, through two
+`SECURITY DEFINER` functions, so an approver outside a ticket's normal audience can still see what they are asked to
+approve without a general RLS exception). A decision wakes the execution at once (a trigger on `workflow_approvals`
+brings its `wake_at` forward, the same way a `wait until` is brought forward by a ticket change), not the poll.
 
 **How it runs.**
 - An **execution** is a row (`workflow_executions`) holding the definition **as it was when it started** (so an upgrade
@@ -646,7 +661,7 @@ at 4 (`SL_WORKER_CONCURRENCY`) because in the all-in-one install the pool shares
 with the API; raise it to 8 on a dedicated worker. The step itself costs about a millisecond, so nearly all of an
 execution's time is waiting for a free executor and for the database.
 
-**Not built yet, and why:** `approval` (needs an inbox and a way to ask a person), `notify.email` / `sms` / `slack` and
+**Not built yet, and why:** `notify.email` / `sms` / `slack` and
 `http.request` (need mail transport, secrets and host allow-lists, which arrive with the config and secrets work),
 `foreach` / `record.query` / `subflow` (a bounded list and calling another workflow), `record.create` / `record.delete`,
 and the `schedule` trigger. Steps run as the person who started the workflow: a workflow started by a requester cannot

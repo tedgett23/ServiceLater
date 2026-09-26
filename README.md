@@ -127,4 +127,5 @@ and leaves the app as it was; the instance keeps running.
   open screens pick up new labels, buttons and guards live.
 - Uninstalling never deletes tickets. They fall back to a built-in flow and can still be closed. A bundled app comes
   back at the next start unless left out of `SL_BUNDLED_APPS`.
-- Not available yet: rules, workflows, forms and the rest (the validator says so), and `app dev`.
+- Not available yet: forms, catalog, knowledge, roles and the rest (the validator says so), and `app dev`. Rules and
+  workflows, including approvals, are available; see `docs/apps-platform.md`.

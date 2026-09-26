@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
@@ -16,6 +17,10 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/ruleruns"
 )
+
+// noTimeout is the deadline an approval with no timeout waits until: far enough that only a decision (through the
+// wake trigger) or a cancel ever moves it, never the timer.
+const noTimeout = 100 * 365 * 24 * time.Hour
 
 // run performs one step against the execution as it is now. Anything it changes, it changes through q, in the step's
 // transaction. A returned *stepFailure ends the execution; any other error is retried.
@@ -71,6 +76,8 @@ func (e *Engine) run(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExe
 			return out, failf("comment.add needs a ticket, and this execution has none")
 		}
 		return e.doComment(ctx, q, ex, st, in, out)
+	case apps.StepApproval:
+		return e.doApproval(ctx, q, ex, st, in, out)
 	case apps.StepEnd:
 		out.next = ""
 		return out, nil
@@ -320,4 +327,170 @@ func (e *Engine) doComment(ctx context.Context, q *dbgen.Queries, ex dbgen.Workf
 	}
 	out.detail["internal"] = st.Internal
 	return out, nil
+}
+
+// doApproval asks a person (or several), or finishes asking. The first visit resolves the approvers and files one
+// pending request per approver; a later visit is the timer, or someone deciding, waking it. Whether the step is done,
+// and which way, is computed fresh from the request rows every time, so it never disagrees with what is stored.
+func (e *Engine) doApproval(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExecution, st *apps.Step, in expr.Input, out outcome) (outcome, error) {
+	rows, err := q.ListApprovalsForStep(ctx, dbgen.ListApprovalsForStepParams{ExecutionID: ex.ID, StepID: st.ID})
+	if err != nil {
+		return out, err
+	}
+	if len(rows) == 0 {
+		approvers, err := resolveApprovers(ctx, q, st, in)
+		if err != nil {
+			return out, err
+		}
+		for _, id := range approvers {
+			if err := q.CreateApproval(ctx, dbgen.CreateApprovalParams{ExecutionID: ex.ID, StepID: st.ID, ApproverID: id}); err != nil {
+				return out, err
+			}
+		}
+		if rows, err = q.ListApprovalsForStep(ctx, dbgen.ListApprovalsForStepParams{ExecutionID: ex.ID, StepID: st.ID}); err != nil {
+			return out, err
+		}
+	}
+	if decision, comment, decider, done := evaluateApprovals(st.ApprovalRule(), rows); done {
+		decidedBy := ""
+		if decider.ApproverID != uuid.Nil {
+			if u, err := q.GetUser(ctx, decider.ApproverID); err == nil {
+				decidedBy = u.Name
+			}
+		}
+		return approvalDone(out, st, in.Vars, decision, comment, decidedBy), nil
+	}
+	now := time.Now()
+	started := ex.WaitStartedAt.Valid
+	startedAt, deadline := now, now.Add(noTimeout)
+	if st.Timeout != "" {
+		deadline = now.Add(st.TimeoutDuration())
+	}
+	if started {
+		startedAt, deadline = ex.WaitStartedAt.Time, ex.WaitDeadline.Time
+	}
+	if st.Timeout != "" && !now.Before(deadline) {
+		out.kind, out.detail["timed_out_after"] = "timeout", st.Timeout
+		out = approvalDone(out, st, in.Vars, "timeout", "", "")
+		if st.OnTimeout == "" {
+			return out, failf("timed out after %s waiting for approval", st.Timeout)
+		}
+		out.next = st.OnTimeout
+		return out, nil
+	}
+	wake := deadline
+	if w := now.Add(e.pollEvery()); st.Timeout != "" && w.Before(deadline) {
+		wake = w
+	}
+	out.kind, out.detail["pending"] = "waiting", pendingApprovers(rows)
+	out.wait = &waiting{started: startedAt, deadline: deadline, wake: wake, until: true}
+	return out, nil
+}
+
+// resolveApprovers evaluates an approval step's `approvers` into the distinct users it names, checking each exists.
+func resolveApprovers(ctx context.Context, q *dbgen.Queries, st *apps.Step, in expr.Input) ([]uuid.UUID, error) {
+	prog, err := st.ApproversProgram()
+	if err != nil {
+		return nil, failf("this step cannot run: %v", err)
+	}
+	raw, err := prog.EvalStringList(ctx, in)
+	if err != nil {
+		return nil, failf("approvers could not be evaluated: %v", err)
+	}
+	seen := map[uuid.UUID]bool{}
+	var out []uuid.UUID
+	for _, s := range raw {
+		id, err := uuid.Parse(s)
+		if err != nil {
+			return nil, failf("approvers: %q is not a user id", s)
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		if _, err := q.GetUser(ctx, id); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, failf("approvers: no such user %s", id)
+			}
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	if len(out) == 0 {
+		return nil, failf("approval has no approvers")
+	}
+	return out, nil
+}
+
+// approvalDone records an approval step's result in vars, namespaced by the step's id so several approval steps in
+// one workflow do not collide: vars.<id>_decision, vars.<id>_comment and vars.<id>_decided_by.
+func approvalDone(out outcome, st *apps.Step, vars map[string]any, decision, comment, decidedBy string) outcome {
+	next := make(map[string]any, len(vars)+3)
+	for k, v := range vars {
+		next[k] = v
+	}
+	next[st.ID+"_decision"], next[st.ID+"_comment"], next[st.ID+"_decided_by"] = decision, comment, decidedBy
+	out.vars = next
+	out.detail["decision"], out.detail["comment"] = decision, comment
+	return out
+}
+
+// pendingApprovers is how many of an approval step's requests have no decision yet.
+func pendingApprovers(rows []dbgen.WorkflowApproval) int {
+	n := 0
+	for _, r := range rows {
+		if !r.Decision.Valid {
+			n++
+		}
+	}
+	return n
+}
+
+// evaluateApprovals decides an approval step from its requests and its rule (any, all or majority), short-circuiting
+// as soon as the outcome cannot change however the rest decide. comment and decider are the deciding vote's: the most
+// recently decided request, which is exactly the one that just settled it.
+func evaluateApprovals(rule string, rows []dbgen.WorkflowApproval) (decision, comment string, decider dbgen.WorkflowApproval, done bool) {
+	total := len(rows)
+	var approved, rejected int
+	for _, r := range rows {
+		switch r.Decision.String {
+		case "approved":
+			approved++
+		case "rejected":
+			rejected++
+		default:
+			continue
+		}
+		if !decider.DecidedAt.Valid || r.DecidedAt.Time.After(decider.DecidedAt.Time) {
+			decider = r
+		}
+	}
+	pending := total - approved - rejected
+	switch rule {
+	case apps.RuleAll:
+		switch {
+		case rejected > 0:
+			decision, done = "rejected", true
+		case pending == 0:
+			decision, done = "approved", true
+		}
+	case apps.RuleMajority:
+		switch {
+		case approved*2 > total:
+			decision, done = "approved", true
+		case (approved+pending)*2 <= total:
+			decision, done = "rejected", true
+		}
+	default: // any
+		switch {
+		case approved > 0:
+			decision, done = "approved", true
+		case pending == 0:
+			decision, done = "rejected", true
+		}
+	}
+	if done {
+		comment = decider.Comment
+	}
+	return decision, comment, decider, done
 }

@@ -18,6 +18,7 @@ import (
 	"cel.dev/cel-go/cel"
 	"cel.dev/cel-go/common/ast"
 	"cel.dev/cel-go/common/types"
+	"cel.dev/cel-go/common/types/ref"
 	"cel.dev/cel-go/ext"
 )
 
@@ -160,9 +161,10 @@ func (e *Env) Compile(source string) (*Program, error) { return e.CompileAs(sour
 
 // Types an expression may be required to produce.
 var (
-	Bool   = cel.BoolType
-	Int    = cel.IntType
-	String = cel.StringType
+	Bool       = cel.BoolType
+	Int        = cel.IntType
+	String     = cel.StringType
+	StringList = cel.ListType(cel.StringType)
 )
 
 func describe(t *cel.Type) string {
@@ -173,6 +175,8 @@ func describe(t *cel.Type) string {
 		return "a whole number"
 	case t.IsExactType(cel.StringType):
 		return "text"
+	case t.IsExactType(StringList):
+		return "a list of text"
 	}
 	return t.String()
 }
@@ -267,8 +271,7 @@ func (p *Program) Eval(ctx context.Context, in Input) (bool, error) {
 	return b, nil
 }
 
-// EvalValue runs an expression compiled with CompileAs and returns its value: a bool, an int64 or a string.
-func (p *Program) EvalValue(ctx context.Context, in Input) (any, error) {
+func (p *Program) eval(ctx context.Context, in Input) (ref.Val, error) {
 	rec, old, user := in.Record, in.Old, in.User
 	if rec == nil {
 		rec = &Record{}
@@ -284,8 +287,31 @@ func (p *Program) EvalValue(ctx context.Context, in Input) (any, error) {
 		vars = map[string]any{}
 	}
 	out, _, err := p.prg.ContextEval(ctx, map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event, "vars": vars})
+	return out, err
+}
+
+// EvalValue runs an expression compiled with CompileAs and returns its value: a bool, an int64 or a string.
+func (p *Program) EvalValue(ctx context.Context, in Input) (any, error) {
+	out, err := p.eval(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	return out.Value(), nil
+}
+
+// EvalStringList runs an expression compiled with CompileAs(..., StringList) and returns its value as a []string.
+func (p *Program) EvalStringList(ctx context.Context, in Input) ([]string, error) {
+	out, err := p.eval(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	native, err := out.ConvertToNative(reflect.TypeOf([]string{}))
+	if err != nil {
+		return nil, err
+	}
+	list, ok := native.([]string)
+	if !ok {
+		return nil, fmt.Errorf("expression produced %T, not a list of text", native)
+	}
+	return list, nil
 }

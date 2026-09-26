@@ -13,13 +13,14 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/expr"
 )
 
-// Step types of this version. More arrive with what they depend on (mail, approvals, lists).
+// Step types of this version. More arrive with what they depend on (mail, lists).
 const (
 	StepSet          = "set"
 	StepCondition    = "condition"
 	StepWait         = "wait"
 	StepRecordUpdate = "record.update"
 	StepCommentAdd   = "comment.add"
+	StepApproval     = "approval"
 	StepEnd          = "end"
 
 	maxWorkflowSteps = 50
@@ -28,7 +29,16 @@ const (
 	maxWait          = 30 * 24 * time.Hour
 )
 
-var stepTypes = []string{StepSet, StepCondition, StepWait, StepRecordUpdate, StepCommentAdd, StepEnd}
+// Approval rules: how many of the asked approvers must agree.
+const (
+	RuleAny      = "any"
+	RuleAll      = "all"
+	RuleMajority = "majority"
+)
+
+var approvalRules = []string{RuleAny, RuleAll, RuleMajority}
+
+var stepTypes = []string{StepSet, StepCondition, StepWait, StepRecordUpdate, StepCommentAdd, StepApproval, StepEnd}
 
 var stepIDRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
 
@@ -62,8 +72,12 @@ type Step struct {
 	Body     *Value `json:"body,omitempty"` // comment.add
 	Internal bool   `json:"internal,omitempty"`
 
+	Approvers string `json:"approvers,omitempty"` // approval: an expression producing a list of user ids
+	Rule      string `json:"rule,omitempty"`      // approval: any, all or majority (default any)
+
 	cond      *expr.Program
 	until     *expr.Program
+	approvers *expr.Program
 	compileEr error
 	forDur    time.Duration
 	timeout   time.Duration
@@ -105,6 +119,8 @@ type stepFile struct {
 	Set       orderedValues `yaml:"set"`
 	Body      *Value        `yaml:"body"`
 	Internal  bool          `yaml:"internal"`
+	Approvers string        `yaml:"approvers"`
+	Rule      string        `yaml:"rule"`
 }
 
 // orderedSteps reads the steps map keeping the author's order, which is the order the viewer lists them in.
@@ -122,7 +138,8 @@ func (o *orderedSteps) UnmarshalYAML(n *yaml.Node) error {
 			return fmt.Errorf("step %q: %w", key.Value, err)
 		}
 		*o = append(*o, Step{ID: key.Value, Type: f.Type, Next: f.Next, Vars: f.Vars, If: f.If, Then: f.Then, Else: f.Else,
-			For: f.For, Until: f.Until, Timeout: f.Timeout, OnTimeout: f.OnTimeout, Set: f.Set, Body: f.Body, Internal: f.Internal})
+			For: f.For, Until: f.Until, Timeout: f.Timeout, OnTimeout: f.OnTimeout, Set: f.Set, Body: f.Body, Internal: f.Internal,
+			Approvers: f.Approvers, Rule: f.Rule})
 	}
 	return nil
 }
@@ -269,11 +286,11 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 	unused := func(used ...string) {
 		all := map[string]bool{"next": s.Next != "", "vars": len(s.Vars) > 0, "if": s.If != "", "then": s.Then != "", "else": s.Else != "",
 			"for": s.For != "", "until": s.Until != "", "timeout": s.Timeout != "", "on_timeout": s.OnTimeout != "",
-			"set": len(s.Set) > 0, "body": s.Body != nil, "internal": s.Internal}
+			"set": len(s.Set) > 0, "body": s.Body != nil, "internal": s.Internal, "approvers": s.Approvers != "", "rule": s.Rule != ""}
 		for _, u := range used {
 			delete(all, u)
 		}
-		for _, name := range []string{"next", "vars", "if", "then", "else", "for", "until", "timeout", "on_timeout", "set", "body", "internal"} {
+		for _, name := range []string{"next", "vars", "if", "then", "else", "for", "until", "timeout", "on_timeout", "set", "body", "internal", "approvers", "rule"} {
 			forbid(name, all[name])
 		}
 	}
@@ -355,6 +372,23 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 		if s.Body == nil {
 			add("comment.add needs a body")
 		}
+	case StepApproval:
+		unused("next", "approvers", "rule", "timeout", "on_timeout")
+		target("next", s.Next, true)
+		target("on_timeout", s.OnTimeout, false)
+		if s.Approvers == "" {
+			add("approval needs approvers: an expression producing a list of user ids")
+		}
+		if s.Rule != "" && !slices.Contains(approvalRules, s.Rule) {
+			add("rule must be one of %s, got %q", strings.Join(approvalRules, ", "), s.Rule)
+		}
+		if s.Timeout != "" {
+			if d, err := ParseDuration(s.Timeout); err != nil {
+				add("timeout: %v", err)
+			} else if d < minWait || d > maxWait {
+				add("timeout must be between %s and 30d", minWait)
+			}
+		}
 	case StepEnd:
 		unused()
 	case "":
@@ -432,7 +466,7 @@ func (w *Workflow) compile() {
 	env, envErr := expr.Workflow()
 	for i := range w.Steps {
 		s := &w.Steps[i]
-		s.cond, s.until, s.compileEr = nil, nil, envErr
+		s.cond, s.until, s.approvers, s.compileEr = nil, nil, nil, envErr
 		if envErr != nil {
 			continue
 		}
@@ -451,6 +485,11 @@ func (w *Workflow) compile() {
 			var err error
 			s.until, err = env.Compile(s.Until)
 			fail("until", err)
+		}
+		if s.Approvers != "" {
+			var err error
+			s.approvers, err = env.CompileAs(s.Approvers, expr.StringList)
+			fail("approvers", err)
 		}
 		if s.For != "" {
 			var err error
@@ -515,6 +554,17 @@ func (s *Step) Condition() (*expr.Program, error) { return s.cond, s.compileEr }
 
 // UntilCondition returns a wait step's compiled `until`, or why it cannot run.
 func (s *Step) UntilCondition() (*expr.Program, error) { return s.until, s.compileEr }
+
+// ApproversProgram returns an approval step's compiled `approvers`, or why it cannot run.
+func (s *Step) ApproversProgram() (*expr.Program, error) { return s.approvers, s.compileEr }
+
+// ApprovalRule is an approval step's rule (any, all or majority), defaulting to any.
+func (s *Step) ApprovalRule() string {
+	if s.Rule == "" {
+		return RuleAny
+	}
+	return s.Rule
+}
 
 // ForDuration and TimeoutDuration are a wait step's parsed durations.
 func (s *Step) ForDuration() time.Duration     { return s.forDur }

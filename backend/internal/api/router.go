@@ -80,6 +80,10 @@ func NewRouter(d Deps) http.Handler {
 					r.With(auth.RequireRole("admin", "agent")).Post("/transitions", h.transitionTicket)
 				})
 			})
+			r.Route("/approvals", func(r chi.Router) {
+				r.Get("/", h.listMyApprovals)
+				r.Post("/{id}/decide", h.decideApproval)
+			})
 			r.Route("/workflow-runs", func(r chi.Router) {
 				r.Use(auth.RequireRole("admin", "agent"))
 				r.Get("/", h.listRuns)
