@@ -97,9 +97,23 @@ export interface WorkflowRun {
 	updated_at: string;
 	finished_at: string | null;
 	// Only when one run is fetched: the graph it started with, its variables now, and what happened.
-	graph?: { id: string; type: string; next: string[] }[];
+	start?: string;
+	graph?: GraphStep[];
 	vars?: Record<string, unknown>;
 	steps?: RunStep[];
+}
+
+/** One way out of a step. kind is absent for the ordinary "next", and 'then' | 'else' | 'timeout' for the branch a
+ * condition, wait or approval step can take. */
+export interface GraphEdge {
+	to: string;
+	kind?: 'then' | 'else' | 'timeout';
+}
+
+export interface GraphStep {
+	id: string;
+	type: string;
+	next: GraphEdge[];
 }
 
 export interface RunStep {

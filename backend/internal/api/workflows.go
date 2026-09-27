@@ -37,15 +37,23 @@ type runDTO struct {
 	FinishedAt  *time.Time `json:"finished_at"`
 
 	// Only on a single run: what the workflow looked like when it started, the variables now, and what happened.
+	Start string      `json:"start,omitempty"`
 	Graph []graphStep `json:"graph,omitempty"`
 	Vars  any         `json:"vars,omitempty"`
 	Steps []stepDTO   `json:"steps,omitempty"`
 }
 
 type graphStep struct {
-	ID   string   `json:"id"`
-	Type string   `json:"type"`
-	Next []string `json:"next"`
+	ID   string      `json:"id"`
+	Type string      `json:"type"`
+	Next []graphEdge `json:"next"`
+}
+
+// graphEdge is one way out of a step. Kind is empty for the ordinary "next", and "then"/"else"/"timeout" for the
+// branches a condition, wait or approval step can take, so the viewer can label them.
+type graphEdge struct {
+	To   string `json:"to"`
+	Kind string `json:"kind,omitempty"`
 }
 
 type stepDTO struct {
@@ -77,23 +85,27 @@ func toRun(e dbgen.WorkflowExecution, reference string) runDTO {
 	return d
 }
 
-// graphOf reads the pinned definition into the shape the viewer draws.
-func graphOf(definition []byte) []graphStep {
+// graphOf reads the pinned definition into the shape the viewer draws, plus the id of its start step.
+func graphOf(definition []byte) ([]graphStep, string) {
 	var wf apps.Workflow
 	if json.Unmarshal(definition, &wf) != nil {
-		return nil
+		return nil, ""
 	}
 	out := make([]graphStep, 0, len(wf.Steps))
 	for _, s := range wf.Steps {
-		g := graphStep{ID: s.ID, Type: s.Type, Next: []string{}}
-		for _, n := range []string{s.Next, s.Then, s.Else, s.OnTimeout} {
-			if n != "" {
-				g.Next = append(g.Next, n)
+		g := graphStep{ID: s.ID, Type: s.Type, Next: []graphEdge{}}
+		add := func(to, kind string) {
+			if to != "" {
+				g.Next = append(g.Next, graphEdge{To: to, Kind: kind})
 			}
 		}
+		add(s.Next, "")
+		add(s.Then, "then")
+		add(s.Else, "else")
+		add(s.OnTimeout, "timeout")
 		out = append(out, g)
 	}
-	return out
+	return out, wf.Start
 }
 
 type workflowDTO struct {
@@ -177,7 +189,7 @@ func (h *handlers) getRun(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		out = toRun(v.WorkflowExecution, v.Reference)
-		out.Graph = graphOf(v.WorkflowExecution.Definition)
+		out.Graph, out.Start = graphOf(v.WorkflowExecution.Definition)
 		_ = json.Unmarshal(v.WorkflowExecution.Vars, &out.Vars)
 		steps, err := q.ListSteps(r.Context(), id)
 		if err != nil {

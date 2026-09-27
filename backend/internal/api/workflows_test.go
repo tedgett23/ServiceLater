@@ -66,10 +66,14 @@ type run struct {
 	StepsRun    int     `json:"steps_run"`
 	Error       string  `json:"error"`
 	WakeAt      *string `json:"wake_at"`
+	Start       string  `json:"start"`
 	Graph       []struct {
-		ID   string   `json:"id"`
-		Type string   `json:"type"`
-		Next []string `json:"next"`
+		ID   string `json:"id"`
+		Type string `json:"type"`
+		Next []struct {
+			To   string `json:"to"`
+			Kind string `json:"kind"`
+		} `json:"next"`
 	} `json:"graph"`
 	Vars  map[string]any `json:"vars"`
 	Steps []struct {
@@ -149,8 +153,9 @@ func TestARuleStartsAWorkflowThatRunsInAWorkerAndShowsInTheViewer(t *testing.T) 
 
 	// One run in the viewer: the graph it was started with, its variables, and each step's outcome.
 	one := decodeBody[run](t, agent.do(h, "GET", "/api/v1/workflow-runs/"+r.ID, ""))
-	if len(one.Graph) != 4 || one.Graph[0].ID != "tag" || one.Graph[0].Next[0] != "bump" || one.Graph[3].Type != "end" {
-		t.Errorf("graph: %+v", one.Graph)
+	if one.Start != "tag" || len(one.Graph) != 4 || one.Graph[0].ID != "tag" || one.Graph[0].Next[0].To != "bump" ||
+		one.Graph[0].Next[0].Kind != "" || one.Graph[3].Type != "end" {
+		t.Errorf("start %q, graph: %+v", one.Start, one.Graph)
 	}
 	if one.Vars["level"] != float64(4) || len(one.Steps) != 4 || one.Steps[1].StepID != "bump" || one.Steps[1].Outcome != "ok" ||
 		!strings.Contains(string(one.Steps[1].Detail), "priority") {

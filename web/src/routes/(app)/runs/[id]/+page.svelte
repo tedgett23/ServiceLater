@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import RunStatus from '$lib/components/RunStatus.svelte';
+	import WorkflowGraph from '$lib/components/WorkflowGraph.svelte';
 	import { when } from '$lib/format';
 	import { runFinished, type WorkflowRun } from '$lib/types';
 
@@ -47,7 +48,6 @@
 		if (!runFinished(run.status) && run.current_step === id) return { visits: visits.length, state: 'current' as const };
 		return { visits: visits.length, state: visits.length ? ('visited' as const) : ('pending' as const) };
 	}
-	const stateText = { visited: 'Done', current: 'Here now', failed: 'Failed', pending: 'Not reached' };
 
 	/** One line of what a step did, from its detail. */
 	function summary(detail: Record<string, unknown>) {
@@ -88,17 +88,7 @@
 		<section aria-labelledby="steps">
 			<h2 id="steps">Steps</h2>
 			<p class="note">The workflow as it was when this run started.</p>
-			<ol class="graph">
-				{#each run.graph ?? [] as s (s.id)}
-					{@const st = standing(s.id)}
-					<li class={st.state} aria-current={st.state === 'current' ? 'step' : undefined}>
-						<span class="id">{s.id}</span>
-						<span class="type">{s.type}</span>
-						<span class="state">{stateText[st.state]}{st.visits > 1 ? `, ${st.visits} visits` : ''}</span>
-						{#if s.next.length}<span class="to">goes to {s.next.join(' or ')}</span>{:else}<span class="to">ends here</span>{/if}
-					</li>
-				{/each}
-			</ol>
+			<WorkflowGraph graph={run.graph ?? []} start={run.start} {standing} />
 		</section>
 
 		<section aria-labelledby="history">
@@ -196,48 +186,9 @@
 		background: var(--surface);
 	}
 
-	.graph {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		border-top: 1px solid var(--rule);
-	}
-	.graph li {
-		display: grid;
-		grid-template-columns: 9rem 8rem 9rem 1fr;
-		gap: 0.5rem;
-		align-items: baseline;
-		padding: 0.5rem 0.25rem;
-		border-bottom: 1px solid var(--rule);
-	}
-	.id {
-		font-weight: 700;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
 	.type {
 		color: var(--ink-2);
 		font-size: 0.85rem;
-	}
-	.to {
-		color: var(--ink-2);
-		font-size: 0.875rem;
-	}
-	.graph li.pending .id {
-		color: var(--ink-2);
-		font-weight: 500;
-	}
-	/* Where the run is is the one thing to look at, so it gets the marker. */
-	.graph li.current {
-		background: var(--marker-soft);
-		box-shadow: inset 4px 0 0 var(--marker);
-	}
-	.graph li.failed {
-		box-shadow: inset 4px 0 0 var(--red);
-	}
-	.graph li.failed .state {
-		color: var(--red);
-		font-weight: 700;
 	}
 
 	table {
@@ -276,13 +227,6 @@
 	}
 
 	@media (max-width: 40rem) {
-		.graph li {
-			grid-template-columns: 1fr auto;
-		}
-		.graph li .type,
-		.graph li .to {
-			grid-column: 1 / -1;
-		}
 		th:nth-child(5),
 		td:nth-child(5) {
 			display: none;
