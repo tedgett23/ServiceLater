@@ -161,6 +161,38 @@ func TestRealtimeRoutingAndPrivacy(t *testing.T) {
 	cb.none(t, "bob after internal note")
 }
 
+// A pending approval reaches only the person it was asked of, and deciding it tells them again (this time to drop
+// the badge), never the stranger watching the same server.
+func TestRealtimeNotifiesTheApprover(t *testing.T) {
+	hub := startHub(t)
+	h, pool, _, reg := build(t, time.Minute, hub)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	agent := newActor(t, h, pool, "agent@x.test", "agent")
+	reviewer := newActor(t, h, pool, "review@x.test", "end_user")
+	stranger := newActor(t, h, pool, "stranger@x.test", "end_user")
+	cr, cs := mustDial(t, srv, reviewer), mustDial(t, srv, stranger)
+
+	installFlows(t, pool, reg, map[string]string{"ask": wfSrc("ask", "ask", askFlow(reviewer.id))}, nil)
+	startFlowWorker(t, pool, reg)
+
+	tk := decodeBody[ticket](t, agent.do(h, "POST", "/api/v1/tickets", `{"title":"needs a yes"}`))
+	agent.do(h, "POST", "/api/v1/workflow-runs", `{"workflow":"house-flows/ask","ticket":"`+tk.ID+`"}`)
+
+	cr.next(t, "notification.changed")
+	cs.none(t, "a stranger must not learn about someone else's approval")
+
+	l := decodeBody[notificationList](t, reviewer.do(h, "GET", "/api/v1/notifications", ""))
+	if len(l.Items) != 1 {
+		t.Fatalf("reviewer's notifications: %+v", l)
+	}
+	expect(t, reviewer.do(h, "POST", "/api/v1/approvals/"+l.Items[0].ApprovalID+"/decide", `{"decision":"approved"}`), 200, "decide")
+
+	cr.next(t, "notification.changed")
+	cs.none(t, "a stranger must not learn about someone else's decision")
+}
+
 func TestRealtimeHandshakeRules(t *testing.T) {
 	hub := startHub(t)
 	h, pool, _ := setupWith(t, time.Minute, hub)

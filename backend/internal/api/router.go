@@ -84,6 +84,10 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/", h.listMyApprovals)
 				r.Post("/{id}/decide", h.decideApproval)
 			})
+			r.Route("/notifications", func(r chi.Router) {
+				r.Get("/", h.listMyNotifications)
+				r.Post("/{id}/read", h.markNotificationRead)
+			})
 			r.Route("/workflow-runs", func(r chi.Router) {
 				r.Use(auth.RequireRole("admin", "agent"))
 				r.Get("/", h.listRuns)

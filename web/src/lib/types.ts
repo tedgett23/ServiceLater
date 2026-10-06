@@ -142,3 +142,13 @@ export interface Approval {
 	title: string;
 	created_at: string;
 }
+
+/** A hint that something needs this person's attention. Only one kind exists today (a pending approval), so
+ * approval_id is always set; more kinds will add their own optional id fields the same way. */
+export interface Notification {
+	id: string;
+	kind: 'approval_pending';
+	approval_id?: string;
+	created_at: string;
+	read_at?: string;
+}

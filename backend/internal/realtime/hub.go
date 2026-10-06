@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	channelTickets  = "ticket_changes"
-	channelComments = "comment_changes"
+	channelTickets       = "ticket_changes"
+	channelComments      = "comment_changes"
+	channelNotifications = "notification_changes"
 
 	sendBuffer = 32 // per client; a client that falls this far behind is dropped and resyncs on reconnect
 )
@@ -32,6 +33,10 @@ type ticketEvent struct {
 type commentEvent struct {
 	Type     string    `json:"type"` // comment.added
 	TicketID uuid.UUID `json:"ticket_id"`
+}
+
+type notificationEvent struct {
+	Type string `json:"type"` // notification.changed
 }
 
 type resyncEvent struct {
@@ -49,6 +54,12 @@ type commentNote struct {
 	TicketID    uuid.UUID  `json:"ticket_id"`
 	Internal    bool       `json:"internal"`
 	RequesterID *uuid.UUID `json:"requester_id"`
+}
+
+// Produced by the notification triggers in migration 00015: who to tell, never what happened, so a client always
+// refetches its own list through /notifications rather than trusting the wire.
+type notificationNote struct {
+	UserID uuid.UUID `json:"user_id"`
 }
 
 type Hub struct {
@@ -80,7 +91,7 @@ func (h *Hub) Ready() <-chan struct{} { return h.ready }
 // because NOTIFY is fire-and-forget and anything sent while we were away is gone.
 func (h *Hub) Run(ctx context.Context, dsn string) {
 	defer h.closeAll()
-	db.Listen(ctx, dsn, []string{channelTickets, channelComments},
+	db.Listen(ctx, dsn, []string{channelTickets, channelComments, channelNotifications},
 		func(reconnected bool) {
 			if reconnected {
 				h.broadcast(mustJSON(resyncEvent{Type: "resync"}), func(*client) bool { return true })
@@ -93,6 +104,8 @@ func (h *Hub) Run(ctx context.Context, dsn string) {
 				h.onTicket(payload)
 			case channelComments:
 				h.onComment(payload)
+			case channelNotifications:
+				h.onNotification(payload)
 			}
 		})
 }
@@ -131,6 +144,18 @@ func (h *Hub) onComment(payload string) {
 		}
 		return visibleTo(c, *n.RequesterID)
 	})
+}
+
+// onNotification tells exactly the one person a notification was created or cleared for, so an approver's
+// header updates the moment a workflow asks for their decision, and clears the moment they (or someone else, for a
+// multi-approver step) decide it. There is no broader audience to reason about, unlike a ticket or comment.
+func (h *Hub) onNotification(payload string) {
+	var n notificationNote
+	if err := json.Unmarshal([]byte(payload), &n); err != nil {
+		slog.Error("realtime: bad notification", "err", err)
+		return
+	}
+	h.broadcast(mustJSON(notificationEvent{Type: "notification.changed"}), func(c *client) bool { return c.userID == n.UserID })
 }
 
 // broadcast queues msg for every allowed client without ever blocking on a slow one.

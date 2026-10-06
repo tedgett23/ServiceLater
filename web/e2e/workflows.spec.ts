@@ -62,8 +62,8 @@ test('a workflow started by a rule runs to the end and can be followed in the ru
 		await expect(page.getByRole('heading', { name: 'nap-flow' })).toBeVisible();
 		await expect(page.getByText('Done', { exact: true }).first()).toBeVisible();
 		// Every step, in order, and what happened at each visit: it slept once and was woken.
-		await expect(page.locator('.graph li')).toHaveCount(4);
-		await expect(page.locator('.graph li').first()).toContainText('note');
+		await expect(page.locator('.step')).toHaveCount(4);
+		await expect(page.locator('.step').first()).toContainText('note');
 		const history = page.locator('tbody tr');
 		await expect(history).toHaveCount(5);
 		await expect(history.nth(1)).toContainText('Went to sleep');
@@ -114,8 +114,8 @@ steps:
 		await row.click();
 
 		await expect(page.getByRole('alert').filter({ hasText: 'It stopped at second.' })).toBeVisible();
-		await expect(page.locator('.graph li.failed')).toContainText('second');
-		await expect(page.locator('.graph li').first()).toContainText('Done');
+		await expect(page.locator('.step.failed')).toContainText('second');
+		await expect(page.locator('.step').first()).toContainText('Done');
 		await expect(page.locator('tbody tr.failed')).toContainText('Failed');
 		// The step before it kept its effect: its comment is on the ticket.
 		await expect(page.getByRole('button', { name: 'Cancel this run' })).toHaveCount(0);
@@ -153,7 +153,7 @@ steps:
 		await expect(row).toBeVisible({ timeout: 10_000 });
 		await row.click();
 		await expect(page.getByText('Waiting', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
-		await expect(page.locator('.graph li.current')).toContainText('nap');
+		await expect(page.locator('.step.current')).toContainText('nap');
 
 		await page.getByRole('button', { name: 'Cancel this run' }).click();
 		await expect(page.getByText('Cancelled', { exact: true }).first()).toBeVisible();

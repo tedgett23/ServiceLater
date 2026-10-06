@@ -68,6 +68,15 @@ type Job struct {
 	FinishedAt  pgtype.Timestamptz `json:"finished_at"`
 }
 
+type Notification struct {
+	ID         uuid.UUID          `json:"id"`
+	UserID     uuid.UUID          `json:"user_id"`
+	Kind       string             `json:"kind"`
+	ApprovalID uuid.NullUUID      `json:"approval_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ReadAt     pgtype.Timestamptz `json:"read_at"`
+}
+
 type RateLimit struct {
 	Key         string             `json:"key"`
 	Count       int32              `json:"count"`
