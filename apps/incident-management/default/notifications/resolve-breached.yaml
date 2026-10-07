@@ -1,0 +1,5 @@
+kind: notification
+name: resolve-breached
+title: "{{record.reference}} missed its resolution target"
+body: "{{record.title}}"
+channels: [in_app]

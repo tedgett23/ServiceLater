@@ -22,12 +22,13 @@ const (
 	CommentsInternal = "comments:internal" // read and write internal notes
 	CommentsDelete   = "comments:delete"   // delete a comment
 	WorkflowsReadAll = "workflows:read_all"
-	WorkflowsRun     = "workflows:run"  // start, cancel and advance workflow runs on any ticket
-	UsersRead        = "users:read"     // the people directory and pickers
-	UsersManage      = "users:manage"   // add, edit, deactivate and delete people, and set passwords
-	GroupsManage     = "groups:manage"  // create and change groups and who is in them
-	RolesManage      = "roles:manage"   // grant and revoke roles
-	FreezesManage    = "freezes:manage" // declare, change and lift change freeze windows
+	WorkflowsRun     = "workflows:run"    // start, cancel and advance workflow runs on any ticket
+	UsersRead        = "users:read"       // the people directory and pickers
+	UsersManage      = "users:manage"     // add, edit, deactivate and delete people, and set passwords
+	GroupsManage     = "groups:manage"    // create and change groups and who is in them
+	RolesManage      = "roles:manage"     // grant and revoke roles
+	FreezesManage    = "freezes:manage"   // declare, change and lift change freeze windows
+	CalendarsManage  = "calendars:manage" // add, change and remove the business calendars SLAs count by
 )
 
 // Record verbs: what records:<verb>:<type> allows on records of that type. A requester always sees, and comments on,
@@ -109,6 +110,7 @@ var Catalog = []Permission{
 	{GroupsManage, "Create and change groups and their members"},
 	{RolesManage, "Grant and revoke roles"},
 	{FreezesManage, "Declare, change and lift change freezes"},
+	{CalendarsManage, "Add, change and remove business calendars"},
 }
 
 // Known reports whether name is a permission the platform checks: one of the Catalog, or a well-formed record

@@ -513,6 +513,23 @@ func (r *Rule) compile() {
 	}
 }
 
+// locatedRule is a rule with where it sits in its file: "" for a rule definition, "on_breach: " for an SLA's breach.
+type locatedRule struct {
+	at   string
+	rule *Rule
+}
+
+// actionRules lists the rules in a definition whose actions may name a template or a workflow of the app.
+func (d Definition) actionRules() []locatedRule {
+	switch {
+	case d.Rule != nil:
+		return []locatedRule{{"", d.Rule}}
+	case d.SLA != nil:
+		return d.SLA.actionRules()
+	}
+	return nil
+}
+
 // Recipients are the people a notify action can name without an expression.
 var Recipients = []string{"assignee", "requester", "assignment_group"}
 

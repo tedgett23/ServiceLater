@@ -55,6 +55,8 @@ type Definition struct {
 	Notification *Notification
 	// Role is a named set of permissions (roles/).
 	Role *Role
+	// SLA is a service level agreement (slas/).
+	SLA *SLA
 }
 
 // Source is the layers joined for storage and display, for example "default+local".
@@ -76,6 +78,7 @@ var definitionDirs = map[string]struct{ kind, unsupported string }{
 	"knowledge":     {unsupported: "knowledge articles are not supported yet"},
 	"notifications": {kind: "notification"},
 	"roles":         {kind: "role"},
+	"slas":          {kind: "sla"},
 	"ui":            {unsupported: "declarative views are not supported yet"},
 }
 
@@ -398,6 +401,14 @@ func compileDefinition(kind, file string, data []byte, p *Problems) *Definition 
 		body, _ := json.Marshal(r)
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: r.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Role: r}
+	case "sla":
+		s := parseSLA(file, data, p)
+		if s == nil {
+			return nil
+		}
+		body, _ := json.Marshal(s)
+		sum := sha256.Sum256(body)
+		return &Definition{Kind: kind, Name: s.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), SLA: s}
 	}
 	return nil
 }

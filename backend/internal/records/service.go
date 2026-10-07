@@ -745,6 +745,10 @@ func withRuleFields(base, from Ticket) Ticket {
 // runAfter runs the after rules against the saved ticket, then queues the async ones. An abort undoes the whole
 // save (the transaction rolls back); the comments the rules ask for are written as the person acting.
 func (s *Service) runAfter(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, event string, cur *Ticket, saved Ticket) error {
+	// The clocks move with the record as saved, before the after rules: they are part of the save, not a reaction to it.
+	if err := s.trackSLAs(ctx, q, a, event, cur, saved); err != nil {
+		return err
+	}
 	if list := s.Apps.Rules(saved.Type, apps.TimingAfter, event); len(list) > 0 {
 		if err := s.runAfterRules(ctx, q, a, cause, event, cur, saved, list); err != nil {
 			return err

@@ -1,0 +1,20 @@
+# Someone must pick a new incident up: met when it has an assignee (or is finished first). It counts working hours of
+# the business-hours calendar (Admin > Calendars), and waits while the incident is on hold. Change the targets, the
+# calendar or who is told in local/slas/respond.yaml.
+kind: sla
+name: respond
+label: Respond
+record_type: incident
+stop: has(record.assignee_id) || record.state_category in ["done", "closed"]
+target: '=record.priority == 1 ? duration("30m") : record.priority == 2 ? duration("1h") : record.priority == 3 ? duration("4h") : duration("8h")'
+calendar: business-hours
+warnings:
+  - at: 75
+    run:
+      - action: notify
+        template: respond-warning
+        to: [assignment_group]
+on_breach:
+  - action: notify
+    template: respond-breached
+    to: [assignment_group]

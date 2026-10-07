@@ -1,0 +1,19 @@
+# An incident must be resolved within its priority's target, in working hours of the business-hours calendar. The
+# clock waits while the incident is on hold, stops when it is resolved, and picks up where it stopped if it is
+# reopened. A change of priority changes the target and keeps the time already used.
+kind: sla
+name: resolve
+label: Resolve
+record_type: incident
+target: '=record.priority == 1 ? duration("4h") : record.priority == 2 ? duration("8h") : record.priority == 3 ? duration("24h") : duration("40h")'
+calendar: business-hours
+warnings:
+  - at: 75
+    run:
+      - action: notify
+        template: resolve-warning
+        to: [assignee]
+on_breach:
+  - action: notify
+    template: resolve-breached
+    to: [assignee, assignment_group]

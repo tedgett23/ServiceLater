@@ -54,97 +54,110 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 		if rule == nil || rule.Timing != apps.TimingAsync {
 			return done(ruleruns.Skipped, "the rule is no longer installed", nil)
 		}
-		// The rule runs as its app's principal, on behalf of the person whose change set it off: what it may do is
-		// what the app's manifest declares (approved at install), not what that person may.
-		var principal uuid.UUID
-		if err := db.WithSystem(ctx, pool, func(tx pgx.Tx) error {
-			var err error
-			principal, err = dbgen.New(tx).AppPrincipal(ctx, p.App)
-			return err
-		}); err != nil {
-			return done(ruleruns.Failed, err.Error(), err)
-		}
-		err := db.WithPrincipal(ctx, pool, principal, p.UserID, func(tx pgx.Tx) error {
-			q := dbgen.New(tx)
-			// `user` in the rule's expressions is still the person.
-			u, err := q.GetUser(ctx, p.UserID)
-			if err != nil {
-				return err
-			}
-			actor, err := records.ActorIn(ctx, q, principal)
-			if err != nil {
-				return err
-			}
-			// Locked before it is read, so what the rule sees is what its update is applied to. Only an app that may
-			// edit tickets of this type can lock one under RLS; any other's run reads it plainly and any update it
-			// asks for is refused by the save.
-			task, err := q.GetTask(ctx, p.RecordID)
-			if err != nil {
-				return err
-			}
-			if actor.CanRecord(authz.Update, task.Type) {
-				if _, err := q.GetTaskForUpdate(ctx, p.RecordID); err != nil {
-					return err
-				}
-			}
-			t, err := records.Load(ctx, q, p.RecordID)
-			if err != nil {
-				return err
-			}
-			rec := t.ExprRecord()
-			// The old record is not kept: the rule's own filter was decided at the save, with both. Action filters
-			// see the ticket as it is, twice.
-			in := expr.Input{Record: rec, Old: rec, Event: p.Event, Now: time.Now(), Count: records.Counter(q),
-				User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role}}
-			res, fx, err := rules.RunAsync(ctx, rule, in)
-			if err != nil {
-				return err
-			}
-			for _, c := range fx.Comments {
-				body := strings.TrimSpace(c.Body)
-				if body == "" || len(body) > records.MaxComment {
-					return jobs.Permanent(errors.New("the rule wrote a comment that is empty or too long"))
-				}
-				if _, err := q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: p.RecordID, AuthorID: principal, Body: body, Internal: c.Internal}); err != nil {
-					return err
-				}
-			}
-			// Started after the comments and before the update, so a workflow that begins on this record begins on it
-			// as it is when the rule ran, and is not raced by the rule's own edit (its steps read the record afresh).
-			for _, st := range fx.Starts {
-				if err := svc.StartFromAsyncRule(ctx, q, actor, p.Cause, t, st); err != nil {
-					return err
-				}
-			}
-			for _, n := range fx.Notifies {
-				if err := svc.NotifyFromAsyncRule(ctx, q, t, n); err != nil {
-					return err
-				}
-			}
-			patch, err := patchFrom(ctx, q, t, res)
-			if err != nil || patch.Empty() {
-				return err
-			}
-			_, err = svc.Update(ctx, q, actor, p.Cause, p.RecordID, patch)
-			return err
-		})
+		outcome, detail, err := Outcome(Run(ctx, pool, svc, rule, p.RecordID, p.UserID, p.Event, p.Cause))
+		return done(outcome, detail, err)
+	}
+}
 
-		var pe *pgconn.PgError
-		var re *records.Error
-		switch {
-		case err == nil:
-			return done(ruleruns.OK, "", nil)
-		case errors.Is(err, pgx.ErrNoRows):
-			return done(ruleruns.Skipped, "the ticket no longer exists, or the app may not see it (its manifest lacks records:read for the type)", nil)
-		case errors.As(err, &pe) && pe.Code == "42501":
-			return done(ruleruns.Failed, "the app is not allowed to do what the rule does: add the permission to its manifest", jobs.Permanent(err))
-		case errors.As(err, &re):
-			// The save refused the rule's change (a before rule said no, a value was not allowed). Trying again
-			// would be refused the same way.
-			return done(ruleruns.Failed, "the change was refused: "+re.Msg, jobs.Permanent(err))
-		default:
-			return done(ruleruns.Failed, err.Error(), err)
+// Run carries out an async rule's actions on a record, in one transaction, as the rule's app's principal acting for
+// a person: the one whose change set it off, or nobody (uuid.Nil) for an SLA's warning or breach, which no change
+// did. `user` in the rule's expressions is that person, or the app when there is none.
+func Run(ctx context.Context, pool *pgxpool.Pool, svc *records.Service, rule *apps.Rule, recordID, person uuid.UUID, event string, cause ruleruns.Cause) error {
+	// What it may do is what the app's manifest declares (approved at install), not what that person may.
+	var principal uuid.UUID
+	if err := db.WithSystem(ctx, pool, func(tx pgx.Tx) error {
+		var err error
+		principal, err = dbgen.New(tx).AppPrincipal(ctx, rule.App)
+		return err
+	}); err != nil {
+		return err
+	}
+	return db.WithPrincipal(ctx, pool, principal, person, func(tx pgx.Tx) error {
+		q := dbgen.New(tx)
+		who := person
+		if who == uuid.Nil {
+			who = principal
 		}
+		u, err := q.GetUser(ctx, who)
+		if err != nil {
+			return err
+		}
+		actor, err := records.ActorIn(ctx, q, principal)
+		if err != nil {
+			return err
+		}
+		// Locked before it is read, so what the rule sees is what its update is applied to. Only an app that may
+		// edit tickets of this type can lock one under RLS; any other's run reads it plainly and any update it
+		// asks for is refused by the save.
+		task, err := q.GetTask(ctx, recordID)
+		if err != nil {
+			return err
+		}
+		if actor.CanRecord(authz.Update, task.Type) {
+			if _, err := q.GetTaskForUpdate(ctx, recordID); err != nil {
+				return err
+			}
+		}
+		t, err := records.Load(ctx, q, recordID)
+		if err != nil {
+			return err
+		}
+		rec := t.ExprRecord()
+		// The old record is not kept: the rule's own filter was decided at the save, with both. Action filters
+		// see the ticket as it is, twice.
+		in := expr.Input{Record: rec, Old: rec, Event: event, Now: time.Now(), Count: records.Counter(q),
+			User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role}}
+		res, fx, err := rules.RunAsync(ctx, rule, in)
+		if err != nil {
+			return err
+		}
+		for _, c := range fx.Comments {
+			body := strings.TrimSpace(c.Body)
+			if body == "" || len(body) > records.MaxComment {
+				return jobs.Permanent(errors.New("the rule wrote a comment that is empty or too long"))
+			}
+			if _, err := q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: recordID, AuthorID: principal, Body: body, Internal: c.Internal}); err != nil {
+				return err
+			}
+		}
+		// Started after the comments and before the update, so a workflow that begins on this record begins on it
+		// as it is when the rule ran, and is not raced by the rule's own edit (its steps read the record afresh).
+		for _, st := range fx.Starts {
+			if err := svc.StartFromAsyncRule(ctx, q, actor, cause, t, st); err != nil {
+				return err
+			}
+		}
+		for _, n := range fx.Notifies {
+			if err := svc.NotifyFromAsyncRule(ctx, q, t, n); err != nil {
+				return err
+			}
+		}
+		patch, err := patchFrom(ctx, q, t, res)
+		if err != nil || patch.Empty() {
+			return err
+		}
+		_, err = svc.Update(ctx, q, actor, cause, recordID, patch)
+		return err
+	})
+}
+
+// Outcome is how a run's error is audited and whether its job is tried again.
+func Outcome(err error) (outcome, detail string, retry error) {
+	var pe *pgconn.PgError
+	var re *records.Error
+	switch {
+	case err == nil:
+		return ruleruns.OK, "", nil
+	case errors.Is(err, pgx.ErrNoRows):
+		return ruleruns.Skipped, "the ticket no longer exists, or the app may not see it (its manifest lacks records:read for the type)", nil
+	case errors.As(err, &pe) && pe.Code == "42501":
+		return ruleruns.Failed, "the app is not allowed to do what the rule does: add the permission to its manifest", jobs.Permanent(err)
+	case errors.As(err, &re):
+		// The save refused the rule's change (a before rule said no, a value was not allowed). Trying again
+		// would be refused the same way.
+		return ruleruns.Failed, "the change was refused: " + re.Msg, jobs.Permanent(err)
+	default:
+		return ruleruns.Failed, err.Error(), err
 	}
 }
 

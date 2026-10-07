@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/servicelater/servicelater/backend/internal/realtime"
+	"github.com/servicelater/servicelater/backend/internal/slatimer"
 )
 
 // wsClient reads on a goroutine: coder/websocket closes the connection when a Read's context expires,
@@ -360,4 +361,29 @@ func TestRealtimeClosesOnShutdown(t *testing.T) {
 		t.Fatal("socket not closed on shutdown")
 	}
 	<-done
+}
+
+// A breach the SLA timer finds, with nobody saving, still reaches the ticket's watchers at once, routed like any change
+// to the ticket: the requester hears of it, another end user does not.
+func TestRealtimeTellsWatchersOfABreach(t *testing.T) {
+	hub := startHub(t)
+	h, pool, _ := setupWith(t, time.Minute, hub)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	admin := newActor(t, h, pool, "boss@x.test", "admin")
+	lena := newActor(t, h, pool, "lena@x.test", "end_user")
+	omar := newActor(t, h, pool, "omar@x.test", "end_user")
+	everyHour(t, h, admin)
+	mine, theirs := mustDial(t, srv, lena), mustDial(t, srv, omar)
+	tk := decodeBody[slaTicket](t, lena.do(h, "POST", "/api/v1/tickets", `{"title":"Nobody came","priority":1}`))
+	mine.next(t, "ticket.changed")
+
+	backdate(t, pool, tk.ID, "respond", time.Hour)
+	if _, err := slatimer.Tick(context.Background(), pool, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if e := mine.next(t, "ticket.changed"); e["id"] != tk.ID {
+		t.Errorf("the breach event: %v", e)
+	}
+	theirs.none(t, "another end user's ticket breached")
 }

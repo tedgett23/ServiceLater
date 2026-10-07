@@ -41,6 +41,48 @@ export interface Ticket {
 	updated_at: string;
 	/** A change's own fields; absent on other types. */
 	change?: ChangeFields;
+	/** The ticket's SLA clocks (single-ticket responses). */
+	slas?: SlaClock[];
+	/** Lists: when the soonest running SLA clock falls due, and whether any clock has breached. */
+	sla_due_at?: string;
+	sla_breached?: boolean;
+}
+
+/** An SLA clock on a ticket. The server works everything out; the page only counts down to due_at. */
+export interface SlaClock {
+	id: string;
+	app: string;
+	name: string;
+	/** What people call it: Respond, Resolve. */
+	label: string;
+	/** A stopped clock was met, unless breached_at is set. */
+	stage: 'running' | 'paused' | 'stopped';
+	target_ms: number;
+	/** Working time used, as of the response. */
+	used_ms: number;
+	/** The business calendar it counts by; empty means every hour. */
+	calendar: string;
+	due_at: string | null;
+	breached_at: string | null;
+	started_at: string;
+	stopped_at: string | null;
+	/** Why the clock could not be worked out on the last save, or empty. */
+	problem: string;
+}
+
+/** A business calendar: the working hours SLAs count, in a time zone, less holidays. */
+export interface BusinessCalendar {
+	id: string;
+	/** What an SLA definition names it by. */
+	name: string;
+	label: string;
+	time_zone: string;
+	/** Day 0 is Sunday; times are HH:MM, and end may be 24:00. */
+	hours: { day: number; start: string; end: string }[];
+	holidays: string[];
+	created_by_name: string | null;
+	created_at: string;
+	updated_at: string;
 }
 
 /** What a change has beyond the base: its kind, assessment, planned window and plans. */
@@ -121,7 +163,8 @@ export const P = {
 	usersManage: 'users:manage',
 	groupsManage: 'groups:manage',
 	rolesManage: 'roles:manage',
-	freezesManage: 'freezes:manage'
+	freezesManage: 'freezes:manage',
+	calendarsManage: 'calendars:manage'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */
@@ -149,7 +192,7 @@ export interface RecordType {
 
 /** Whether someone may reach anything in the admin section. */
 export const canAdmin = (u: User | null | undefined) =>
-	can(u, P.usersManage) || can(u, P.groupsManage) || can(u, P.rolesManage);
+	can(u, P.usersManage) || can(u, P.groupsManage) || can(u, P.rolesManage) || can(u, P.calendarsManage);
 
 export interface LifecycleState {
 	id: string;

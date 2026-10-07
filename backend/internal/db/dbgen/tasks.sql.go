@@ -489,12 +489,17 @@ func (q *Queries) ListTaskTypes(ctx context.Context) ([]TaskType, error) {
 
 const listTickets = `-- name: ListTickets :many
 SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
-       g.name AS assignment_group_name
+       g.name AS assignment_group_name, sla.due_at::timestamptz AS sla_due_at, COALESCE(sla.breached, false)::bool AS sla_breached
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 JOIN users r ON r.id = t.requester_id
 LEFT JOIN users a ON a.id = t.assignee_id
 LEFT JOIN groups g ON g.id = t.assignment_group_id
+LEFT JOIN LATERAL (
+    SELECT min(s.due_at) FILTER (WHERE s.stage = 'running' AND s.breached_at IS NULL) AS due_at,
+           bool_or(s.breached_at IS NOT NULL) AS breached
+    FROM task_slas s WHERE s.task_id = t.id AND s.stage <> 'cancelled'
+) sla ON true
 WHERE ($1::text IS NULL OR t.type = $1)
   AND ($2::text IS NULL OR t.status = $2)
   AND ($3::smallint IS NULL OR t.priority = $3)
@@ -507,8 +512,10 @@ WHERE ($1::text IS NULL OR t.type = $1)
   AND (NOT $10::bool OR t.assignment_group_id IN
        (SELECT m.group_id FROM group_members m WHERE m.user_id = app_current_user_id()))
   AND ($11::text IS NULL OR t.title ILIKE '%' || $11 || '%' ESCAPE '\')
-ORDER BY t.created_at DESC, t.id DESC
-LIMIT $13 OFFSET $12
+  AND (NOT $12::bool OR sla.breached)
+ORDER BY CASE WHEN $13::bool THEN NOT COALESCE(sla.breached, false) END,
+         CASE WHEN $13::bool THEN sla.due_at END ASC NULLS LAST, t.created_at DESC, t.id DESC
+LIMIT $15 OFFSET $14
 `
 
 type ListTicketsParams struct {
@@ -523,19 +530,26 @@ type ListTicketsParams struct {
 	NoGroup           bool          `json:"no_group"`
 	MyGroups          bool          `json:"my_groups"`
 	Search            pgtype.Text   `json:"search"`
+	Breached          bool          `json:"breached"`
+	ByDue             bool          `json:"by_due"`
 	Offset            int32         `json:"offset"`
 	Limit             int32         `json:"limit"`
 }
 
 type ListTicketsRow struct {
-	Task                Task        `json:"task"`
-	TypePrefix          string      `json:"type_prefix"`
-	RequesterName       string      `json:"requester_name"`
-	AssigneeName        pgtype.Text `json:"assignee_name"`
-	AssignmentGroupName pgtype.Text `json:"assignment_group_name"`
+	Task                Task               `json:"task"`
+	TypePrefix          string             `json:"type_prefix"`
+	RequesterName       string             `json:"requester_name"`
+	AssigneeName        pgtype.Text        `json:"assignee_name"`
+	AssignmentGroupName pgtype.Text        `json:"assignment_group_name"`
+	SlaDueAt            pgtype.Timestamptz `json:"sla_due_at"`
+	SlaBreached         bool               `json:"sla_breached"`
 }
 
 // The queue works on tasks alone, whatever their type, so it never needs the extension tables.
+// Each row carries its SLA summary: the soonest due time of its running clocks, and whether any clock in force has
+// breached.
+// by_due: breached first, then the soonest due, then the rest newest first.
 func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]ListTicketsRow, error) {
 	rows, err := q.db.Query(ctx, listTickets,
 		arg.Type,
@@ -549,6 +563,8 @@ func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]Lis
 		arg.NoGroup,
 		arg.MyGroups,
 		arg.Search,
+		arg.Breached,
+		arg.ByDue,
 		arg.Offset,
 		arg.Limit,
 	)
@@ -577,6 +593,8 @@ func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]Lis
 			&i.RequesterName,
 			&i.AssigneeName,
 			&i.AssignmentGroupName,
+			&i.SlaDueAt,
+			&i.SlaBreached,
 		); err != nil {
 			return nil, err
 		}

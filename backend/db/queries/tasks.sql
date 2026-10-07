@@ -55,14 +55,21 @@ LEFT JOIN changes c ON c.task_id = t.id
 WHERE t.id = $1;
 
 -- The queue works on tasks alone, whatever their type, so it never needs the extension tables.
+-- Each row carries its SLA summary: the soonest due time of its running clocks, and whether any clock in force has
+-- breached.
 -- name: ListTickets :many
 SELECT sqlc.embed(t), tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
-       g.name AS assignment_group_name
+       g.name AS assignment_group_name, sla.due_at::timestamptz AS sla_due_at, COALESCE(sla.breached, false)::bool AS sla_breached
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 JOIN users r ON r.id = t.requester_id
 LEFT JOIN users a ON a.id = t.assignee_id
 LEFT JOIN groups g ON g.id = t.assignment_group_id
+LEFT JOIN LATERAL (
+    SELECT min(s.due_at) FILTER (WHERE s.stage = 'running' AND s.breached_at IS NULL) AS due_at,
+           bool_or(s.breached_at IS NOT NULL) AS breached
+    FROM task_slas s WHERE s.task_id = t.id AND s.stage <> 'cancelled'
+) sla ON true
 WHERE (sqlc.narg('type')::text IS NULL OR t.type = sqlc.narg('type'))
   AND (sqlc.narg('status')::text IS NULL OR t.status = sqlc.narg('status'))
   AND (sqlc.narg('priority')::smallint IS NULL OR t.priority = sqlc.narg('priority'))
@@ -75,7 +82,10 @@ WHERE (sqlc.narg('type')::text IS NULL OR t.type = sqlc.narg('type'))
   AND (NOT sqlc.arg('my_groups')::bool OR t.assignment_group_id IN
        (SELECT m.group_id FROM group_members m WHERE m.user_id = app_current_user_id()))
   AND (sqlc.narg('search')::text IS NULL OR t.title ILIKE '%' || sqlc.narg('search') || '%' ESCAPE '\')
-ORDER BY t.created_at DESC, t.id DESC
+  AND (NOT sqlc.arg('breached')::bool OR sla.breached)
+-- by_due: breached first, then the soonest due, then the rest newest first.
+ORDER BY CASE WHEN sqlc.arg('by_due')::bool THEN NOT COALESCE(sla.breached, false) END,
+         CASE WHEN sqlc.arg('by_due')::bool THEN sla.due_at END ASC NULLS LAST, t.created_at DESC, t.id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: UpdateTask :one

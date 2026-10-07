@@ -48,6 +48,10 @@ func Pool(t *testing.T) *pgxpool.Pool {
 	if _, err := pool.Exec(ctx, "SELECT app_seed_builtin_roles()"); err != nil {
 		t.Fatal(err)
 	}
+	// users cascades to business calendars: put back the one incident-management's SLAs name.
+	if _, err := pool.Exec(ctx, "SELECT app_seed_business_calendars()"); err != nil {
+		t.Fatal(err)
+	}
 	// TRUNCATE leaves the per-type numbering alone, so restart it: every test starts at INC1, CHG1 and so on.
 	if _, err := pool.Exec(ctx, ResetNumbering); err != nil {
 		t.Fatal(err)

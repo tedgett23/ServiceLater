@@ -32,6 +32,10 @@ const (
 	Skipped = "skipped"
 )
 
+// TimingSLA is the timing recorded for what an SLA did: a clock that could not be worked out, or its warning and
+// breach actions (apps.TimingBefore and the rest are the rules').
+const TimingSLA = "sla"
+
 // Payload is what a queued async run carries: which rule, for which record, and who made the change. It holds ids
 // only. The worker reads the ticket itself, as that person, so what it sees is what they may see.
 type Payload struct {

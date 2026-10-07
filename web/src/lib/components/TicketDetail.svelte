@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import ChangePlan from '$lib/components/ChangePlan.svelte';
 	import Signal from '$lib/components/Signal.svelte';
+	import SlaClocks from '$lib/components/SlaClocks.svelte';
 	import Status from '$lib/components/Status.svelte';
 	import { priorityLabel, when } from '$lib/format';
 	import { groups } from '$lib/groups.svelte';
@@ -329,6 +330,13 @@
 							>
 							{#if move.blocked}<p class="why" id="why-{move.to}">{move.blocked}</p>{/if}
 						{/each}
+					</div>
+				{/if}
+
+				{#if ticket.slas?.length}
+					<div>
+						<dt>SLA</dt>
+						<dd><SlaClocks clocks={ticket.slas} /></dd>
 					</div>
 				{/if}
 

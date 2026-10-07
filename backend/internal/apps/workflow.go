@@ -598,19 +598,18 @@ func checkWorkflowStarts(defs []Definition, p *Problems) {
 		}
 	}
 	for _, d := range defs {
-		if d.Rule == nil {
-			continue
-		}
-		for i, a := range d.Rule.Run {
-			if a.Action != "workflow.start" || a.Workflow == "" {
-				continue
-			}
-			wf := workflows[a.Workflow]
-			switch {
-			case wf == nil:
-				p.add(d.File, "run[%d]: there is no workflow %q in this app (workflows: %s)", i, a.Workflow, workflowNames(workflows))
-			case wf.RecordType != d.Rule.RecordType && wf.RecordType != "task":
-				p.add(d.File, "run[%d]: workflow %q is for %s records, but this rule is for %s", i, a.Workflow, wf.RecordType, d.Rule.RecordType)
+		for _, lr := range d.actionRules() {
+			for i, a := range lr.rule.Run {
+				if a.Action != "workflow.start" || a.Workflow == "" {
+					continue
+				}
+				wf := workflows[a.Workflow]
+				switch {
+				case wf == nil:
+					p.add(d.File, "%srun[%d]: there is no workflow %q in this app (workflows: %s)", lr.at, i, a.Workflow, workflowNames(workflows))
+				case wf.RecordType != lr.rule.RecordType && wf.RecordType != "task":
+					p.add(d.File, "%srun[%d]: workflow %q is for %s records, but this is for %s", lr.at, i, a.Workflow, wf.RecordType, lr.rule.RecordType)
+				}
 			}
 		}
 	}

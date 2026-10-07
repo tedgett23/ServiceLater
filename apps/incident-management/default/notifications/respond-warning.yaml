@@ -1,0 +1,5 @@
+kind: notification
+name: respond-warning
+title: "{{record.reference}} still needs someone to pick it up"
+body: "{{record.title}}"
+channels: [in_app]

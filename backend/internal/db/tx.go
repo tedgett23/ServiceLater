@@ -31,13 +31,18 @@ func WithUser(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID, fn func
 
 // WithPrincipal runs fn as an app's service principal acting on behalf of a person: RLS checks the principal's
 // permissions (its app's manifest), and what it writes records whom it acted for (app_on_behalf_of). Async rules and
-// workflows run this way.
+// workflows run this way. An onBehalfOf of uuid.Nil means the app acts for nobody (an SLA's breach, which no person's
+// change set off).
 func WithPrincipal(ctx context.Context, pool *pgxpool.Pool, principal, onBehalfOf uuid.UUID, fn func(pgx.Tx) error) error {
 	return inTx(ctx, pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, "SET LOCAL ROLE servicelater_app"); err != nil {
 			return fmt.Errorf("db: set role: %w", err)
 		}
-		if _, err := tx.Exec(ctx, "SELECT app_begin_as($1, $2)", principal, onBehalfOf); err != nil {
+		var behalf any = onBehalfOf
+		if onBehalfOf == uuid.Nil {
+			behalf = nil
+		}
+		if _, err := tx.Exec(ctx, "SELECT app_begin_as($1, $2)", principal, behalf); err != nil {
 			return fmt.Errorf("db: set principal: %w", err)
 		}
 		return fn(tx)

@@ -25,6 +25,8 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/ruleruns"
 	"github.com/servicelater/servicelater/backend/internal/ruleworker"
+	"github.com/servicelater/servicelater/backend/internal/slaclock"
+	"github.com/servicelater/servicelater/backend/internal/slatimer"
 	"github.com/servicelater/servicelater/backend/internal/webui"
 	"github.com/servicelater/servicelater/backend/internal/workflow"
 	"github.com/servicelater/servicelater/backend/internal/workflowengine"
@@ -105,12 +107,14 @@ func Run(ctx context.Context, cfg config.Config) error {
 			// Workflows: the handler moves an execution one step; the timer wakes sleeping ones when they are due.
 			engine := workflowengine.New(workerPool, &records.Service{Apps: workerApps, Pool: workerPool})
 			worker.Register(workflow.RunKind, engine.Handler())
+			worker.Register(slaclock.AlertKind, slatimer.Handler(workerPool, workerApps))
 			background.Add(1)
 			go func() {
 				defer background.Done()
 				var timer sync.WaitGroup
-				timer.Add(1)
+				timer.Add(2)
 				go func() { defer timer.Done(); engine.RunTimer(ctx, time.Second) }()
+				go func() { defer timer.Done(); slatimer.Run(ctx, workerPool, time.Second) }()
 				worker.Run(ctx)
 				timer.Wait() // both use the pool, so it closes only when both have stopped
 				workerPool.Close()

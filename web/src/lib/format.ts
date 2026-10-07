@@ -18,3 +18,13 @@ export function when(iso: string): string {
 		minute: '2-digit'
 	});
 }
+
+/** A length of time for SLA clocks: 45m, 3h 20m, 2d 4h. */
+export function span(ms: number): string {
+	const m = Math.max(0, Math.round(ms / 60000));
+	if (m < 60) return `${m}m`;
+	const h = Math.floor(m / 60);
+	if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`;
+	const d = Math.floor(h / 24);
+	return h % 24 ? `${d}d ${h % 24}h` : `${d}d`;
+}

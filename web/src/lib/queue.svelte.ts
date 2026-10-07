@@ -2,14 +2,14 @@ import { api } from './api';
 import type { Ticket, TicketPage, User } from './types';
 import { canRecordAny } from './types';
 
-export type Filter = 'mine' | 'groups' | 'unassigned' | 'open' | 'all';
+export type Filter = 'mine' | 'groups' | 'unassigned' | 'due' | 'open' | 'all';
 
 const STORE_KEY = 'sl.filter';
 
 function remembered(): Filter | null {
 	try {
 		const v = localStorage.getItem(STORE_KEY);
-		return v === 'mine' || v === 'groups' || v === 'unassigned' || v === 'open' || v === 'all' ? v : null;
+		return v === 'mine' || v === 'groups' || v === 'unassigned' || v === 'due' || v === 'open' || v === 'all' ? v : null;
 	} catch {
 		return null; // storage blocked: fine, use the default
 	}
@@ -32,7 +32,7 @@ class Queue {
 		this.started = true;
 		const saved = remembered();
 		const staff = canRecordAny(user, 'read');
-		const allowed: Filter[] = staff ? ['mine', 'groups', 'unassigned', 'open', 'all'] : ['open', 'all'];
+		const allowed: Filter[] = staff ? ['mine', 'groups', 'unassigned', 'due', 'open', 'all'] : ['open', 'all'];
 		this.filter = saved && allowed.includes(saved) ? saved : staff ? 'mine' : 'open';
 		void this.load();
 	}
@@ -58,6 +58,10 @@ class Queue {
 		} else if (this.filter === 'unassigned') {
 			p.set('assignee', 'none');
 			p.set('open', 'true');
+		} else if (this.filter === 'due') {
+			// Open work by SLA: breached first, then the soonest due.
+			p.set('open', 'true');
+			p.set('sort', 'due');
 		} else if (this.filter === 'open') {
 			p.set('open', 'true');
 		}
@@ -129,7 +133,7 @@ class Queue {
 	/** Replace a ticket in place if listed. */
 	upsert(t: Ticket) {
 		const i = this.items.findIndex((x) => x.id === t.id);
-		if (i >= 0) this.items[i] = t;
+		if (i >= 0) this.items[i] = withSlaSummary(t, this.items[i]);
 	}
 
 	patch(id: string, changes: Partial<Ticket>) {
@@ -138,8 +142,22 @@ class Queue {
 	}
 
 	prepend(t: Ticket) {
-		this.items = [t, ...this.items.filter((x) => x.id !== t.id)];
+		this.items = [withSlaSummary(t), ...this.items.filter((x) => x.id !== t.id)];
 	}
+}
+
+/**
+ * A single ticket (from its page) carries its clocks, not the list's summary of them: work the summary out the way
+ * the list query does (the soonest due time of the running clocks not yet breached, and whether any breached), so a
+ * row keeps its SLA after an edit. Without clocks, keep what the row had.
+ */
+function withSlaSummary(t: Ticket, was?: Ticket): Ticket {
+	if (!t.slas) return { ...t, sla_due_at: t.sla_due_at ?? was?.sla_due_at, sla_breached: t.sla_breached ?? was?.sla_breached };
+	const due = t.slas
+		.filter((c) => c.stage === 'running' && !c.breached_at && c.due_at)
+		.map((c) => c.due_at!)
+		.sort()[0];
+	return { ...t, sla_due_at: due, sla_breached: t.slas.some((c) => !!c.breached_at) };
 }
 
 export const queue = new Queue();

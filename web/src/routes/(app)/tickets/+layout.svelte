@@ -4,7 +4,8 @@
 	import { page } from '$app/state';
 	import Signal from '$lib/components/Signal.svelte';
 	import Status from '$lib/components/Status.svelte';
-	import { age } from '$lib/format';
+	import { clock } from '$lib/clock.svelte';
+	import { age, span } from '$lib/format';
 	import { queue, type Filter } from '$lib/queue.svelte';
 	import { canRecordAny, prefixOf, type Ticket } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
@@ -18,6 +19,7 @@
 					{ id: 'mine', label: 'Mine' },
 					{ id: 'groups', label: 'My groups' },
 					{ id: 'unassigned', label: 'Unassigned' },
+					{ id: 'due', label: 'Due' },
 					{ id: 'open', label: 'Open' },
 					{ id: 'all', label: 'All' }
 				]
@@ -28,6 +30,17 @@
 	);
 
 	onMount(() => queue.start(data.user));
+	$effect(() => clock.watch());
+
+	/** A row's SLA, for open work only: breached in red, otherwise how long until the soonest clock is due. */
+	function sla(t: Ticket, now: number): { text: string; tone: string } | null {
+		if (t.state_category !== 'open' && t.state_category !== 'waiting') return null;
+		if (t.sla_breached) return { text: 'SLA breached', tone: 'bad' };
+		if (!t.sla_due_at) return null;
+		const left = new Date(t.sla_due_at).getTime() - now;
+		if (left <= 60_000) return { text: 'Due now', tone: 'soon' };
+		return { text: `Due in ${span(left).split(' ')[0]}`, tone: left < 3_600_000 ? 'soon' : '' };
+	}
 
 	const detailOpen = $derived(!!page.params.id);
 	// A bare number in the address is an incident's (links from before there were several types).
@@ -123,6 +136,10 @@
 							<time class="age" datetime={t.updated_at}>{age(t.updated_at)}</time>
 							<span class="sub">
 								<Status status={t.status} category={t.state_category} type={t.type} />
+								{#if sla(t, clock.now)}
+									{@const s = sla(t, clock.now)!}
+									<span class="sla {s.tone}">{s.text}</span>
+								{/if}
 								<span class="who"><span class="sr-only">Requested by </span>{t.requester_name}</span>
 								{#if t.assignment_group_name}
 									<span class="group"><span class="sr-only">Group </span>{t.assignment_group_name}</span>
@@ -201,6 +218,15 @@
 		background: var(--ink);
 		color: var(--surface);
 	}
+	/* Six views must fit a phone without scrolling. */
+	@media (max-width: 26rem) {
+		.filters {
+			gap: 0.1rem;
+		}
+		.filters button {
+			padding: 0.25rem 0.4rem;
+		}
+	}
 
 	.list {
 		flex: 1;
@@ -274,6 +300,21 @@
 		font-size: 0.8125rem;
 		color: var(--ink-2);
 		min-width: 0;
+	}
+	.sla {
+		white-space: nowrap;
+	}
+	/* Yellow: due within the hour. Red: missed. */
+	.sla.soon {
+		padding: 0 0.3rem;
+		background: var(--marker);
+		color: var(--on-marker);
+		font-weight: 600;
+		border-radius: 2px;
+	}
+	.sla.bad {
+		color: var(--red);
+		font-weight: 600;
 	}
 	.who {
 		overflow: hidden;

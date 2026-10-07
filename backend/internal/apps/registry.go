@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ type snapshot struct {
 	rules      map[string][]*Rule       // by record type, in run order
 	workflows  map[string]*Workflow     // by "app/name"
 	templates  map[string]*Notification // by "app/name"
+	slas       map[string][]*SLA        // by record type, by app then name
 	apps       []Installed
 }
 
@@ -38,7 +40,7 @@ type Registry struct {
 // ever does (useful in tests and before any app is installed).
 func NewRegistry(pool *pgxpool.Pool) *Registry {
 	r := &Registry{pool: pool}
-	r.snap.Store(&snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}})
+	r.snap.Store(&snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}, slas: map[string][]*SLA{}})
 	return r
 }
 
@@ -47,7 +49,7 @@ func (r *Registry) Load(ctx context.Context) error {
 	if r.pool == nil {
 		return nil
 	}
-	next := &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}}
+	next := &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}, slas: map[string][]*SLA{}}
 	err := db.WithSystem(ctx, r.pool, func(tx pgx.Tx) error {
 		q := dbgen.New(tx)
 		apps, err := q.ListApps(ctx)
@@ -120,6 +122,23 @@ func (r *Registry) Load(ctx context.Context) error {
 				next.templates[n.App+"/"+n.Name] = &n
 				continue
 			}
+			if d.Kind == "sla" {
+				var sla SLA
+				if err := json.Unmarshal(d.Body, &sla); err != nil {
+					slog.Error("skipping unreadable SLA", "app", d.AppName, "sla", d.Name, "err", err)
+					continue
+				}
+				var p Problems
+				if sla.validateStructure(d.AppName, &p); len(p) > 0 {
+					slog.Error("skipping invalid SLA", "app", d.AppName, "sla", d.Name, "problems", p.Error())
+					continue
+				}
+				// An SLA whose expressions no longer compile still starts clocks, which show the problem.
+				sla.App, sla.Version, sla.Checksum, sla.Body = d.AppName, versions[d.AppName], d.Checksum, json.RawMessage(d.Body)
+				sla.compile()
+				next.slas[sla.RecordType] = append(next.slas[sla.RecordType], &sla)
+				continue
+			}
 			if d.Kind != "lifecycle" {
 				continue
 			}
@@ -169,6 +188,9 @@ func (r *Registry) Load(ctx context.Context) error {
 			return a.Name < b.Name
 		})
 	}
+	for _, list := range next.slas {
+		sort.Slice(list, func(i, j int) bool { return list[i].App+"/"+list[i].Name < list[j].App+"/"+list[j].Name })
+	}
 	r.snap.Store(next)
 	return nil
 }
@@ -187,6 +209,16 @@ func (r *Registry) Rules(recordType, timing, event string) []*Rule {
 				out = append(out, rule)
 			}
 		}
+	}
+	return out
+}
+
+// SLAs returns the SLAs that apply to a record type: those for `task`, then the type's own, each by app and name.
+func (r *Registry) SLAs(recordType string) []*SLA {
+	s := r.snap.Load()
+	out := slices.Clone(s.slas["task"])
+	if recordType != "task" {
+		out = append(out, s.slas[recordType]...)
 	}
 	return out
 }

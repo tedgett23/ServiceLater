@@ -274,6 +274,7 @@ var (
 	Int        = cel.IntType
 	String     = cel.StringType
 	StringList = cel.ListType(cel.StringType)
+	Duration   = cel.DurationType
 )
 
 func describe(t *cel.Type) string {
@@ -286,6 +287,8 @@ func describe(t *cel.Type) string {
 		return "text"
 	case t.IsExactType(StringList):
 		return "a list of text"
+	case t.IsExactType(cel.DurationType):
+		return `a duration, such as duration("4h")`
 	}
 	return t.String()
 }
@@ -478,7 +481,8 @@ func (p *Program) eval(ctx context.Context, in Input) (ref.Val, error) {
 	return out, err
 }
 
-// EvalValue runs an expression compiled with CompileAs and returns its value: a bool, an int64 or a string.
+// EvalValue runs an expression compiled with CompileAs and returns its value: a bool, an int64, a string or a
+// time.Duration.
 func (p *Program) EvalValue(ctx context.Context, in Input) (any, error) {
 	out, err := p.eval(ctx, in)
 	if err != nil {

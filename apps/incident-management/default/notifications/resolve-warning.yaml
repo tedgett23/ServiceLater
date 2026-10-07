@@ -1,0 +1,5 @@
+kind: notification
+name: resolve-warning
+title: "{{record.reference}} is close to its resolution target"
+body: "{{record.title}}"
+channels: [in_app]

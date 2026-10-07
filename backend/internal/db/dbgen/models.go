@@ -46,6 +46,18 @@ type AppDefinition struct {
 	Source    string             `json:"source"`
 }
 
+type BusinessCalendar struct {
+	ID        uuid.UUID          `json:"id"`
+	Name      string             `json:"name"`
+	Label     string             `json:"label"`
+	TimeZone  string             `json:"time_zone"`
+	Hours     []byte             `json:"hours"`
+	Holidays  []pgtype.Date      `json:"holidays"`
+	CreatedBy uuid.NullUUID      `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Change struct {
 	TaskID             uuid.UUID          `json:"task_id"`
 	Type               string             `json:"type"`
@@ -178,6 +190,27 @@ type TaskComment struct {
 	Internal   bool               `json:"internal"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	OnBehalfOf uuid.NullUUID      `json:"on_behalf_of"`
+}
+
+type TaskSla struct {
+	ID           uuid.UUID          `json:"id"`
+	TaskID       uuid.UUID          `json:"task_id"`
+	App          string             `json:"app"`
+	Sla          string             `json:"sla"`
+	Definition   []byte             `json:"definition"`
+	Checksum     string             `json:"checksum"`
+	Stage        string             `json:"stage"`
+	TargetMs     int64              `json:"target_ms"`
+	ElapsedMs    int64              `json:"elapsed_ms"`
+	RunningSince pgtype.Timestamptz `json:"running_since"`
+	DueAt        pgtype.Timestamptz `json:"due_at"`
+	BreachedAt   pgtype.Timestamptz `json:"breached_at"`
+	WarningsSent int32              `json:"warnings_sent"`
+	NextAlertAt  pgtype.Timestamptz `json:"next_alert_at"`
+	Problem      string             `json:"problem"`
+	StartedAt    pgtype.Timestamptz `json:"started_at"`
+	StoppedAt    pgtype.Timestamptz `json:"stopped_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
 }
 
 type TaskType struct {

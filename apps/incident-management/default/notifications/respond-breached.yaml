@@ -1,0 +1,5 @@
+kind: notification
+name: respond-breached
+title: "{{record.reference}} was not picked up in time"
+body: "{{record.title}}"
+channels: [in_app]

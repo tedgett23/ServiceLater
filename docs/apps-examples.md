@@ -373,7 +373,7 @@ steps:
     type: end
 ```
 
-**W4. SLA warning at 80%** (hand-rolled; does not pause while on hold, see finding F7)
+**W4. SLA warning at 80%** (hand-rolled; does not pause while on hold, see finding F7, now replaced by `kind: sla`)
 
 ```yaml
 kind: workflow
@@ -859,7 +859,7 @@ These are the places where writing real definitions disagreed with the design do
 | F4 | I9 (a customer reply reopens a ticket) needs **comment events** with access to the parent record. | Allow `record_type: comment` rules. Provide `record.parent`. This is the same polymorphic parent the comments table needs anyway. |
 | F5 | After rules cannot loop, so cascading to many records (W3) must be a workflow. | Intended. Confirms `foreach` and subflows are v1 requirements. |
 | F6 | `freeze_window` is runtime-editable reference data. A data-only app cannot create a table for it. | Built as a **core table** (`freeze_windows`, migration 00024), not a record type, managed with `freezes:manage`. Still a concrete case for open question 1 (generic custom records). |
-| F7 | W4 is a hand-rolled SLA and is wrong: it does not pause while the incident is on hold, and it ignores business hours. | SLA is a **first-class concept** (`kind: sla` with start, stop and pause conditions, and a business calendar), not something built from waits. Add it to the roadmap. |
+| F7 | W4 is a hand-rolled SLA and is wrong: it does not pause while the incident is on hold, and it ignores business hours. | SLA is a **first-class concept** (`kind: sla` with start, stop and pause conditions, and a business calendar), not something built from waits. **Built** (docs/apps-platform.md §6.6): `incident-management/default/slas/resolve.yaml` is W4 done properly. |
 | F8 | The examples need CEL helpers beyond the standard library: `scale(duration, double)`, `group("name")`, `has()`, and date arithmetic. | Ship a small documented function library on top of CEL. `group()` is a lookup and is only allowed where the design permits lookups. |
 | F9 | `state_category` appears in most lookups and workflows. | Core keeps a denormalised, indexed `state_category` column, updated when the status changes. It also fixes the queue's hardcoded "Open" filter. |
 | F10 | Guards (in a lifecycle) and rules overlap. | Convention used above: a guard is a pure single-transition check on the record; a rule is for lookups, several transitions, or side effects. Say so in the design doc. |

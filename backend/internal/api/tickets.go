@@ -54,11 +54,26 @@ func (c *changeFields) patch() *records.ChangePatch {
 		ImplementationPlan: c.ImplementationPlan, BackoutPlan: c.BackoutPlan, Test: c.TestPlan}
 }
 
-// ticketDTO is a ticket plus, on single-ticket responses (not lists), what the person may do next.
+// ticketDTO is a ticket plus, on single-ticket responses (not lists), what the person may do next and its SLA clocks,
+// and on lists a summary of its clocks.
 type ticketDTO struct {
 	records.Ticket
 	// Moves says what the person may do next, and why anything is blocked.
 	Moves []moveDTO `json:"moves,omitempty"`
+	// SLAs are the ticket's SLA clocks (single-ticket responses).
+	SLAs []records.SLAClock `json:"slas,omitempty"`
+	// SLADueAt is when the ticket's soonest running SLA clock falls due, and SLABreached whether any of its clocks
+	// has breached (lists).
+	SLADueAt    *time.Time `json:"sla_due_at,omitempty"`
+	SLABreached bool       `json:"sla_breached,omitempty"`
+}
+
+// detail adds what a single-ticket response carries beyond the ticket: the moves and the SLA clocks.
+func (h *handlers) detail(ctx context.Context, q *dbgen.Queries, p auth.Principal, out *ticketDTO) error {
+	out.Moves = h.movesFor(ctx, q, p, *out)
+	var err error
+	out.SLAs, err = records.LoadSLAs(ctx, q, out.ID)
+	return err
 }
 
 func toTicket(t dbgen.Task, prefix, requesterName string, assigneeName, groupName pgtype.Text, resolution string) ticketDTO {
@@ -127,9 +142,10 @@ func intParam(w http.ResponseWriter, raw, name string, lo, hi int, into *int) bo
 	return true
 }
 
-// GET /tickets?type=&status=&priority=&assignee=&requester=&assignment_group=&q=&limit=&offset=
+// GET /tickets?type=&status=&priority=&assignee=&requester=&assignment_group=&q=&breached=&sort=&limit=&offset=
 // assignee and requester accept a user id or "me"; assignee also accepts "none". assignment_group accepts a group id,
-// "mine" (any group the caller is in) or "none". open=true hides resolved and closed.
+// "mine" (any group the caller is in) or "none". open=true hides resolved and closed. breached=true keeps tickets with
+// a breached SLA; sort=due lists those first, then the soonest SLA due time (newest first otherwise).
 func (h *handlers) listTickets(w http.ResponseWriter, r *http.Request) {
 	qs := r.URL.Query()
 	var args dbgen.ListTicketsParams
@@ -177,6 +193,15 @@ func (h *handlers) listTickets(w http.ResponseWriter, r *http.Request) {
 		args.Search = pgtype.Text{String: likeEscape(s), Valid: true}
 	}
 	args.OpenOnly = qs.Get("open") == "true"
+	args.Breached = qs.Get("breached") == "true"
+	switch qs.Get("sort") {
+	case "", "created":
+	case "due":
+		args.ByDue = true
+	default:
+		writeError(w, http.StatusBadRequest, `sort must be "due" or "created"`)
+		return
+	}
 	p, _ := auth.PrincipalFrom(r.Context())
 	if qs.Get("assignee") == "none" {
 		args.Unassigned = true
@@ -229,6 +254,11 @@ func (h *handlers) listTickets(w http.ResponseWriter, r *http.Request) {
 	items := make([]ticketDTO, len(rows))
 	for i, t := range rows {
 		items[i] = toTicket(t.Task, t.TypePrefix, t.RequesterName, t.AssigneeName, t.AssignmentGroupName, "")
+		if t.SlaDueAt.Valid {
+			due := t.SlaDueAt.Time
+			items[i].SLADueAt = &due
+		}
+		items[i].SLABreached = t.SlaBreached
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "limit": limit, "offset": args.Offset, "has_more": more})
 }
@@ -261,8 +291,7 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		out = ticketDTO{Ticket: saved}
-		out.Moves = h.movesFor(r.Context(), q, p, out)
-		return nil
+		return h.detail(r.Context(), q, p, &out)
 	}) {
 		return
 	}
@@ -280,8 +309,7 @@ func (h *handlers) getTicket(w http.ResponseWriter, r *http.Request) {
 		if out, err = loadTicketView(r, q); err != nil {
 			return err
 		}
-		out.Moves = h.movesFor(r.Context(), q, p, out)
-		return nil
+		return h.detail(r.Context(), q, p, &out)
 	}) {
 		return
 	}
@@ -320,8 +348,7 @@ func (h *handlers) updateTicket(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		out = ticketDTO{Ticket: saved}
-		out.Moves = h.movesFor(r.Context(), q, p, out) // an edit can change which moves are allowed
-		return nil
+		return h.detail(r.Context(), q, p, &out) // an edit can change which moves are allowed
 	}) {
 		return
 	}
@@ -347,8 +374,7 @@ func (h *handlers) transitionTicket(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		out = ticketDTO{Ticket: saved}
-		out.Moves = h.movesFor(r.Context(), q, p, out)
-		return nil
+		return h.detail(r.Context(), q, p, &out)
 	}) {
 		return
 	}

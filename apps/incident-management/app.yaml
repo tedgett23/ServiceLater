@@ -1,8 +1,12 @@
 apiVersion: 1
 name: incident-management
-version: 0.1.0
+version: 0.2.0
 author: ServiceLater
-description: "Incident lifecycle, forms and SLA workflows."
+description: "Incident lifecycle and response and resolution SLAs."
 ServiceLater_min_version: 0.1.0
 dependencies:
   - core-itsm: ">=0.1.0"
+# What the app itself may do when an SLA warns or breaches, which no person's change set off: read the incident it
+# tells people about.
+permissions:
+  - records:read:incident

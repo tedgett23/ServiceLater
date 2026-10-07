@@ -73,6 +73,7 @@ my-app/
     knowledge/        knowledge articles (Markdown)
     notifications/    email / SMS / in-app templates
     roles/            custom roles and permission sets
+    slas/             service level agreements: clocks with start, pause and stop conditions, targets and alerts
     ui/               declarative list views and dashboards
   local/              optional: this instance's own changes; upgrades never touch this
     lifecycles/ ...   the same folders, holding only what differs
@@ -568,6 +569,80 @@ and never blocks the save.
   one is a platform change, not an app change.
 - Per-person preferences (mute a kind, choose a channel) do not exist yet; they belong in config, not in each rule.
 
+### 6.6 SLAs (built)
+
+A service level agreement is a definition kind of its own (`slas/*.yaml`), not something built from waits: a
+hand-rolled timer cannot pause while a record waits on someone else, or count only working hours (F7 in
+apps-examples.md).
+
+```yaml
+# apps/incident-management/default/slas/resolve.yaml
+kind: sla
+name: resolve
+label: Resolve                  # what people see next to the clock
+record_type: incident           # or task, for every type
+# start, pause and stop are conditions on the record (the rule environment: record, old, user, now, event).
+# Left out, they are: start true; pause record.state_category == "waiting"; stop state_category in done/closed.
+target: '=record.priority == 1 ? duration("4h") : record.priority == 2 ? duration("8h") : duration("24h")'
+calendar: business-hours        # a business calendar; left out, every hour counts
+warnings:                       # at most 3, lowest first
+  - at: 75                      # percent of the target used
+    run:
+      - action: notify
+        template: resolve-warning
+        to: [assignee]
+on_breach:
+  - action: notify
+    template: resolve-breached
+    to: [assignee, assignment_group]
+```
+
+`target` is a literal (`4h`, `90m`, `2d`, `1d12h`) or an `=expression` giving a CEL duration (write `duration("48h")`:
+CEL durations have no days). Warning and breach actions are `notify`, `workflow.start` and `comment.add`, checked at
+install exactly as an async rule's are (templates and workflows must be in the same app); a workflow they start can
+reassign or escalate. `record.update`, `set` and `abort` are refused: nobody is saving.
+
+**Clocks are rows** (`task_slas`, migration 00025): one per record per SLA, holding its stage (running, paused,
+stopped, cancelled), target, the working time used before it last started running, the due time, when it breached,
+how many warnings were sent, and when the timer must next look at it. A clock keeps a copy of the definition it
+started with (as a workflow execution does), so editing an SLA changes new clocks, not running ones. RLS shows and
+lets a save write a clock exactly when its record is visible.
+
+- **A save moves the clocks** (`internal/records/slas.go`, in the save's transaction, as the person saving, after the
+  write and before the after rules). A clock attaches the first time its `start` holds; then on every save `stop` is
+  checked, then `pause`, and the clock runs if neither holds. So a pause begins the moment the record changes, with no
+  queue in between. The target is worked out again on every save, keeping the time used: raising the priority
+  shortens the time left. A stopped clock (met, or breached if it breached on the way) runs again if `stop` stops
+  holding: a reopened incident picks up where it stopped. A clock whose app no longer defines it is cancelled.
+- **The timer** (`internal/slatimer`, in the worker role, every second) claims running clocks whose next warning or
+  breach is due (`FOR UPDATE SKIP LOCKED`, so several workers can run it), records them and queues an `sla.alert` job,
+  once per alert (a dedupe key). A save that finds a clock past its target records the breach itself, so nothing
+  waits on the timer. A breach found by the timer notifies `ticket_changes`, so open pages update at once.
+- **The alert job** runs the actions as the app's principal acting for nobody (no person's change set it off), through
+  the same runner as async rules. The app needs `records:read:<type>` in its manifest to see the record. Each run is
+  audited in `action_runs` with timing `sla`.
+- **Failing safe.** An SLA that cannot be worked out never blocks the save: a clock that cannot tell whether it starts
+  is not started, one already running keeps its stage and shows the problem, and both are audited (`timing: sla`,
+  event `evaluate`).
+
+**Business calendars** are core reference data (`business_calendars`, like freeze windows; open question 11): a name
+(what `calendar:` writes), a label, an IANA time zone, the working week (stretches per weekday, `HH:MM` to `HH:MM`,
+end may be `24:00`) and holiday dates. Everyone signed in reads them; `calendars:manage` (admins) writes them, in
+Admin > Calendars or at `/api/v1/business-calendars`. Hours are wall-clock hours in the zone, so daylight saving
+moves UTC, not the office day. Editing a calendar asks the timer to reschedule every running clock that counts by it;
+one that running or paused clocks count by cannot be deleted. A calendar that is missing or broken counts every hour,
+and the clock says so. `internal/businesstime` does the arithmetic (`Elapsed`, `Add`); a nil calendar is 24x7.
+
+`incident-management` ships `respond` (met by an assignee; 30m to 8h by priority) and `resolve` (4h to 40h by
+priority), both counted by the `business-hours` calendar (Monday to Friday, 09:00 to 17:00 UTC, created by the
+migration, which operators edit), with warnings at 75% and breach notifications. The ticket page shows each clock
+(time left, paused, met, overdue, missed); the queue shows the soonest due time or "SLA breached", and its Due view
+(`GET /tickets?sort=due`) lists breached work first, then by due time. `?breached=true` filters to breached tickets.
+
+Not built yet: SLA reporting (met and missed rates), a reset condition (a new clock when, say, the record is
+reassigned to another team), pause reasons, per-SLA schedules chosen by expression, and SLAs on records other than
+tasks.
+
 ## 7. Workflows
 
 Workflows are the advanced tier: anything that waits, branches, loops, asks a person, or calls another system.
@@ -1031,9 +1106,8 @@ save, not built yet). `app install` takes several paths and installs dependencie
 11. **Reference data.** Runtime-editable data such as freeze windows and business calendars cannot be app-defined
     tables in v1. Freeze windows are now a core table (`freeze_windows`, not a record type: they have no lifecycle,
     number or comments), managed with `freezes:manage` and counted by lookups (§5); what a freeze stops is app content.
-    Business calendars will need the same until question 1 is answered.
-12. **SLAs.** Hand-built SLA timers are wrong (they ignore pausing and business hours). SLAs should be a first-class
-    definition kind with start, stop and pause conditions and a business calendar.
+    Business calendars are the same (`business_calendars`, `calendars:manage`, §6.6).
+12. **SLAs.** Built as a definition kind (§6.6). Still open: reporting, reset conditions and pause reasons.
 13. **Comment events.** Rules on comments ("a reply reopens the ticket") need `record_type: comment` and access to
     the parent record.
 14. ~~Bundled first-party apps.~~ **Resolved (D16).** They are embedded and installed at startup; local changes live
@@ -1052,7 +1126,7 @@ Each slice is shippable and leaves the product working.
 | **4. Forms** | Field definitions, `fields jsonb`, form rendering. | Slices 2 and 3 |
 | **5. Rules** (done: job queue and worker, before/after/async rules, `action_runs` audit, one shared save path, `record.update` and loop protection) | Before, after and async rules with the built-in actions; job queue and worker role; transactional outbox; `action_runs` audit; loop protection. | Slices 2 and 3 |
 | **6. Workflow engine** (done: durable engine, `set` / `condition` / `wait` / `record.update` / `comment.add` / `end`, rule and manual triggers, run history API and viewer, load harness; the rest of the step library follows, see §7.6) | Durable execution, the v1 step library, workflows as YAML, run history API and a read-only run viewer. | Slice 5 |
-| **6b. SLAs** | First-class SLA definitions with pause and resume, business calendars and breach actions. | Slice 6 |
+| **6b. SLAs** (done, §6.6) | First-class SLA definitions with pause and resume, business calendars and breach actions. | Slice 6 |
 | **7. Roles and permissions** (done, §11.1) | Custom RBAC and app service principals (open question 3). | Slice 5 |
 | **8. Content kinds** | Catalog, knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
 | **9. Visual builder** | The Svelte Flow builder editing the same workflow files, with live execution highlighting. | Slice 6 |

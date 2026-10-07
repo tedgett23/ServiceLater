@@ -146,22 +146,25 @@ func checkNotifyTemplates(defs []Definition, p *Problems) {
 		}
 	}
 	for _, d := range defs {
-		if d.Rule == nil {
-			continue
+		for _, lr := range d.actionRules() {
+			checkRuleTemplates(d.File, lr, templates, p)
 		}
-		for i, a := range d.Rule.Run {
-			if a.Action == "notify" && a.Template != "" && !templates[a.Template] {
-				names := make([]string, 0, len(templates))
-				for n := range templates {
-					names = append(names, n)
-				}
-				slices.Sort(names)
-				list := strings.Join(names, ", ")
-				if list == "" {
-					list = "none"
-				}
-				p.add(d.File, "run[%d]: there is no notification template %q in this app (templates: %s)", i, a.Template, list)
+	}
+}
+
+func checkRuleTemplates(file string, lr locatedRule, templates map[string]bool, p *Problems) {
+	for i, a := range lr.rule.Run {
+		if a.Action == "notify" && a.Template != "" && !templates[a.Template] {
+			names := make([]string, 0, len(templates))
+			for n := range templates {
+				names = append(names, n)
 			}
+			slices.Sort(names)
+			list := strings.Join(names, ", ")
+			if list == "" {
+				list = "none"
+			}
+			p.add(file, "%srun[%d]: there is no notification template %q in this app (templates: %s)", lr.at, i, a.Template, list)
 		}
 	}
 }

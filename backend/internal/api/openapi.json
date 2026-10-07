@@ -38,6 +38,67 @@
         ],
         "type": "object"
       },
+      "Calendar": {
+        "description": "A business calendar: the working hours an SLA counts, in a time zone, less holidays. An SLA definition names one by name.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_name": {
+            "description": "Who added it; null for the built-in one or once that person is deleted.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "holidays": {
+            "description": "Dates (YYYY-MM-DD) with no working time.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "hours": {
+            "description": "The working week: day 0 is Sunday, start and end are HH:MM (end may be 24:00).",
+            "items": {
+              "$ref": "#/components/schemas/Hours"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "description": "What an SLA definition writes after calendar: (lowercase letters, digits and hyphens).",
+            "type": "string"
+          },
+          "time_zone": {
+            "description": "An IANA zone such as Europe/London; hours and holidays are in it.",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "created_by_name",
+          "holidays",
+          "hours",
+          "id",
+          "label",
+          "name",
+          "time_zone",
+          "updated_at"
+        ],
+        "type": "object"
+      },
       "CalendarEntry": {
         "description": "One record's planned window on the calendar.",
         "properties": {
@@ -122,6 +183,48 @@
           "title",
           "type"
         ],
+        "type": "object"
+      },
+      "CalendarRequest": {
+        "description": "A calendar as it is added or changed. On PATCH, a field left out keeps its value.",
+        "properties": {
+          "holidays": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "hours": {
+            "items": {
+              "$ref": "#/components/schemas/Hours"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "time_zone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "Change": {
@@ -585,6 +688,26 @@
         ],
         "type": "object"
       },
+      "Hours": {
+        "properties": {
+          "day": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "end": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "day",
+          "end",
+          "start"
+        ],
+        "type": "object"
+      },
       "Lifecycle": {
         "properties": {
           "app": {
@@ -1021,6 +1144,81 @@
         ],
         "type": "object"
       },
+      "SLAClock": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "breached_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "calendar": {
+            "type": "string"
+          },
+          "due_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "problem": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "stopped_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "used_ms": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "app",
+          "breached_at",
+          "calendar",
+          "due_at",
+          "id",
+          "label",
+          "name",
+          "problem",
+          "stage",
+          "started_at",
+          "stopped_at",
+          "target_ms",
+          "used_ms"
+        ],
+        "type": "object"
+      },
       "State": {
         "properties": {
           "category": {
@@ -1084,7 +1282,7 @@
         "type": "object"
       },
       "Ticket": {
-        "description": "A ticket plus, on single-ticket responses (not lists), what the person may do next.",
+        "description": "A ticket plus, on single-ticket responses (not lists), what the person may do next and its SLA clocks, and on lists a summary of its clocks.",
         "properties": {
           "assignee_id": {
             "format": "uuid",
@@ -1160,6 +1358,24 @@
           },
           "resolution": {
             "type": "string"
+          },
+          "sla_breached": {
+            "type": "boolean"
+          },
+          "sla_due_at": {
+            "description": "When the ticket's soonest running SLA clock falls due, and SLABreached whether any of its clocks has breached (lists).",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slas": {
+            "description": "The ticket's SLA clocks (single-ticket responses).",
+            "items": {
+              "$ref": "#/components/schemas/SLAClock"
+            },
+            "type": "array"
           },
           "state_category": {
             "type": "string"
@@ -1779,6 +1995,551 @@
         "summary": "Refresh",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/business-calendars": {
+      "get": {
+        "description": "Every business calendar, by label. Anyone signed in may read them.",
+        "operationId": "listBusinessCalendars",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/Calendar"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List business calendars",
+        "tags": [
+          "business-calendars"
+        ]
+      },
+      "post": {
+        "description": "(calendars:manage) with {\"name\", \"label\", \"time_zone\", \"hours\", \"holidays\"?}.\n\nRequires the `calendars:manage` permission.",
+        "operationId": "createBusinessCalendar",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Calendar"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create business calendar",
+        "tags": [
+          "business-calendars"
+        ],
+        "x-permissions": [
+          "calendars:manage"
+        ]
+      }
+    },
+    "/api/v1/business-calendars/{id}": {
+      "delete": {
+        "description": "(calendars:manage): remove a calendar no running or paused SLA clock counts by (409 otherwise).\n\nRequires the `calendars:manage` permission.",
+        "operationId": "deleteBusinessCalendar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete business calendar",
+        "tags": [
+          "business-calendars"
+        ],
+        "x-permissions": [
+          "calendars:manage"
+        ]
+      },
+      "get": {
+        "description": "One business calendar.",
+        "operationId": "getBusinessCalendar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Calendar"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get business calendar",
+        "tags": [
+          "business-calendars"
+        ]
+      },
+      "patch": {
+        "description": "(calendars:manage) with any of {\"name\", \"label\", \"time_zone\", \"hours\", \"holidays\"}. Running SLA clocks that count by it are rescheduled at once. Renaming it leaves the SLAs that name it without it (they then count every hour) until their definitions are changed too.\n\nRequires the `calendars:manage` permission.",
+        "operationId": "updateBusinessCalendar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Calendar"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Update business calendar",
+        "tags": [
+          "business-calendars"
+        ],
+        "x-permissions": [
+          "calendars:manage"
         ]
       }
     },
@@ -4477,7 +5238,7 @@
     },
     "/api/v1/tickets": {
       "get": {
-        "description": "Assignee and requester accept a user id or \"me\"; assignee also accepts \"none\". assignment_group accepts a group id, \"mine\" (any group the caller is in) or \"none\". open=true hides resolved and closed.",
+        "description": "Assignee and requester accept a user id or \"me\"; assignee also accepts \"none\". assignment_group accepts a group id, \"mine\" (any group the caller is in) or \"none\". open=true hides resolved and closed. breached=true keeps tickets with a breached SLA; sort=due lists those first, then the soonest SLA due time (newest first otherwise).",
         "operationId": "listTickets",
         "parameters": [
           {
@@ -4525,6 +5286,20 @@
           {
             "in": "query",
             "name": "open",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "breached",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
             "schema": {
               "type": "string"
             }
@@ -6893,6 +7668,9 @@
     },
     {
       "name": "auth"
+    },
+    {
+      "name": "business-calendars"
     },
     {
       "name": "calendar"
