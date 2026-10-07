@@ -405,6 +405,7 @@ from a connection of their own: an aborted save rolls its transaction back, and 
 | `record.create` | no | yes, in the transaction | yes |
 | `record.delete` | no | yes, in the transaction | yes |
 | `workflow.start` | no | yes (queued) | yes |
+| `notify` (template, to) — in-app built (§6.5) | no | yes, in the transaction | yes |
 | `notify.email` / `notify.sms` / `notify.slack` | no | yes (queued) | yes |
 | `http.request` | no | no | yes |
 
@@ -471,6 +472,63 @@ now). The engine is `internal/rules`; it does no database work, so the API appli
   Before and after rules cannot loop (they write nothing that raises events).
 - **Layers:** a rule is a definition like any other, so `local/` can change one field of a shipped rule (`order`,
   `on_error`, an action) without copying it.
+
+### 6.5 Notifications (built: in-app)
+
+Who hears about what is app content, not code. It is split in two, so the wording and the policy change separately:
+
+- **What it says** is a `notification` definition in `notifications/*.yaml`: a `title`, an optional `body`, and
+  `channels` (`in_app` only; `email`, `sms` and `slack` are rejected as not supported yet). Placeholders come from a
+  fixed list checked at install: `{{record.reference}}`, `record.title`, `record.type`, `record.status` (its label),
+  `record.priority`, `record.requester_name`, `record.assignee_name`, `record.assignment_group`, `{{actor.name}}`.
+- **When, and to whom** is a rule (after or async) with a `notify` action: `template` (a template in the same app,
+  checked at install) and `to`, a list of `assignee`, `requester`, `assignment_group` (its active members) or an
+  `=expression` giving user ids.
+
+```yaml
+# apps/core-itsm/default/notifications/ticket-assigned.yaml
+kind: notification
+name: ticket-assigned
+title: "{{record.reference}} was assigned to you"
+body: "{{record.title}}"
+
+# apps/core-itsm/default/rules/notify-assignee.yaml
+kind: rule
+name: notify-assignee
+record_type: task
+timing: after
+on: [create, update]
+when: has(record.assignee_id) && (!has(old.assignee_id) || record.assignee_id != old.assignee_id)
+on_error: skip
+run:
+  - action: notify
+    template: ticket-assigned
+    to: [assignee]
+```
+
+`core-itsm` ships two: `notify-assignee` (the new assignee) and `notify-group` (the assignment group's members, when a
+ticket lands there with nobody on it). An operator rewords a template or changes who is told in `local/`, like any
+other definition.
+
+What the platform enforces whatever a rule says (`app_notify`, migration 00018): nobody is told about their own change,
+nobody deactivated, and nobody who cannot see the record (staff, or its requester), so an end user in a group never
+learns of someone else's ticket. At most 1000 recipients per action. The row stores the app, template, record and
+actor, never the text: the template is filled in when the recipient lists their notifications, from the record as
+*they* may see it, so a notification never says more than its reader could look up (and a record they can no longer
+see drops out of their list). A template whose app was removed shows "Update on INC42". Delivery happens in the
+save's transaction, so a rolled-back save tells nobody; a template missing at run time is recorded in `action_runs`
+and never blocks the save.
+
+**Still hard-coded, and must move to templates or config:**
+
+- The `approval_pending` notification (title "Something needs your approval", link `/approvals`) is created by a
+  database trigger and worded in Go (`internal/api/notifications.go`). It should become a template that the approval
+  step names, so an app can word it and decide who else hears about it.
+- Opening a ticket marks every notification about it read. Whether a kind clears on view, on action, or only when
+  dismissed should be part of the template.
+- The placeholder list and the fixed recipient kinds (`assignee`, `requester`, `assignment_group`) are code. Adding
+  one is a platform change, not an app change.
+- Per-person preferences (mute a kind, choose a channel) do not exist yet; they belong in config, not in each rule.
 
 ## 7. Workflows
 
@@ -904,7 +962,7 @@ Each slice is shippable and leaves the product working.
 | **6. Workflow engine** (done: durable engine, `set` / `condition` / `wait` / `record.update` / `comment.add` / `end`, rule and manual triggers, run history API and viewer, load harness; the rest of the step library follows, see §7.6) | Durable execution, the v1 step library, workflows as YAML, run history API and a read-only run viewer. | Slice 5 |
 | **6b. SLAs** | First-class SLA definitions with pause and resume, business calendars and breach actions. | Slice 6 |
 | **7. Roles and permissions** | Custom RBAC and app service principals (open question 3). | Slice 5 |
-| **8. Content kinds** | Catalog, knowledge, notification templates, declarative list views and dashboards. | Slice 4 |
+| **8. Content kinds** | Catalog, knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
 | **9. Visual builder** | The Svelte Flow builder editing the same workflow files, with live execution highlighting. | Slice 6 |
 
 Later: script steps (Starlark, Lua or WASM), app-defined tables and migrations, custom UI components, signing and

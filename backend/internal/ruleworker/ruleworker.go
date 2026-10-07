@@ -95,6 +95,11 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 					return err
 				}
 			}
+			for _, n := range fx.Notifies {
+				if err := svc.NotifyFromAsyncRule(ctx, q, t, n); err != nil {
+					return err
+				}
+			}
 			patch, err := patchFrom(ctx, q, t, res)
 			if err != nil || patch.Empty() {
 				return err

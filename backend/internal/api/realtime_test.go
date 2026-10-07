@@ -193,6 +193,33 @@ func TestRealtimeNotifiesTheApprover(t *testing.T) {
 	cs.none(t, "a stranger must not learn about someone else's decision")
 }
 
+// An app's notify rule pings the person it tells, and nobody else, on the same channel as approvals.
+func TestRealtimeNotifiesTheAssignee(t *testing.T) {
+	hub := startHub(t)
+	h, pool, _ := setupWith(t, time.Minute, hub)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	priya := newActor(t, h, pool, "priya@x.test", "agent")
+	tomas := newActor(t, h, pool, "tomas@x.test", "agent")
+	lena := newActor(t, h, pool, "lena@x.test", "end_user")
+	ct, cl := mustDial(t, srv, tomas), mustDial(t, srv, lena)
+
+	tk := decodeBody[ticket](t, priya.do(h, "POST", "/api/v1/tickets", `{"title":"Wi-Fi"}`))
+	expect(t, priya.do(h, "PATCH", "/api/v1/tickets/"+tk.ID, `{"assignee_id":"`+tomas.id+`"}`), 200, "assigning")
+	// Tomás also sees the ticket itself change; the notification is among those events.
+	deadline := time.After(3 * time.Second)
+	for got := false; !got; {
+		select {
+		case e := <-ct.events:
+			got = e["type"] == "notification.changed"
+		case <-deadline:
+			t.Fatal("Tomás was not pinged")
+		}
+	}
+	cl.none(t, "Lena must not hear about Tomás's notification or a ticket that is not hers")
+}
+
 func TestRealtimeHandshakeRules(t *testing.T) {
 	hub := startHub(t)
 	h, pool, _ := setupWith(t, time.Minute, hub)

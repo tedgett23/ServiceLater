@@ -318,7 +318,7 @@
         "type": "object"
       },
       "Notification": {
-        "description": "One hint that something needs this person's attention. Like a realtime event it names what happened and lets the ids resolve through their own endpoint (here, /approvals): the row never carries ticket or approval content, so RLS on those stays the single authority.",
+        "description": "One hint that something needs this person's attention. The stored row names what happened and which record; the text is filled in now, from the record as this person may see it, so a notification never carries more than its recipient could read for themselves.",
         "properties": {
           "approval_id": {
             "format": "uuid",
@@ -326,6 +326,10 @@
               "string",
               "null"
             ]
+          },
+          "body": {
+            "description": "More detail, when the template has any.",
+            "type": "string"
           },
           "created_at": {
             "format": "date-time",
@@ -336,6 +340,11 @@
             "type": "string"
           },
           "kind": {
+            "description": "Approval_pending (a workflow asks this person to decide) or template (an app's notify rule).",
+            "type": "string"
+          },
+          "link": {
+            "description": "Where the notification leads in the web app.",
             "type": "string"
           },
           "read_at": {
@@ -344,12 +353,30 @@
               "string",
               "null"
             ]
+          },
+          "reference": {
+            "description": "That ticket's reference, such as INC42.",
+            "type": "string"
+          },
+          "task_id": {
+            "description": "The ticket a template notification is about.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The line to show.",
+            "type": "string"
           }
         },
         "required": [
           "created_at",
           "id",
-          "kind"
+          "kind",
+          "link",
+          "title"
         ],
         "type": "object"
       },
@@ -2201,7 +2228,7 @@
     },
     "/api/v1/notifications": {
       "get": {
-        "description": "The signed-in person's own, newest first. Anyone can have one (a workflow can ask anyone to approve something), so this is not staff-only.",
+        "description": "The signed-in person's own, newest first, with unread_count. Anyone can have one (a workflow can ask anyone to approve something, and a requester hears about their own tickets), so this is not staff-only.",
         "operationId": "listMyNotifications",
         "responses": {
           "200": {
@@ -2307,6 +2334,128 @@
           }
         ],
         "summary": "List my notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/read": {
+      "post": {
+        "description": "With {\"task_id\"}: mark everything this person was told about a ticket as read, which is what opening the ticket means. It answers with how many were marked.",
+        "operationId": "markTaskNotificationsRead",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "task_id": {
+                    "format": "uuid",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "marked": {
+                      "format": "int64",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "marked"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Mark task notifications read",
         "tags": [
           "notifications"
         ]

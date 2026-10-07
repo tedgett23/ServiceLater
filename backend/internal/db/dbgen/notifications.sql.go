@@ -23,7 +23,7 @@ func (q *Queries) CountMyUnreadNotifications(ctx context.Context, userID uuid.UU
 }
 
 const listMyNotifications = `-- name: ListMyNotifications :many
-SELECT id, user_id, kind, approval_id, created_at, read_at FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2
+SELECT id, user_id, kind, approval_id, created_at, read_at, task_id, app, template, actor_id FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2
 `
 
 type ListMyNotificationsParams struct {
@@ -47,6 +47,10 @@ func (q *Queries) ListMyNotifications(ctx context.Context, arg ListMyNotificatio
 			&i.ApprovalID,
 			&i.CreatedAt,
 			&i.ReadAt,
+			&i.TaskID,
+			&i.App,
+			&i.Template,
+			&i.ActorID,
 		); err != nil {
 			return nil, err
 		}
@@ -59,7 +63,7 @@ func (q *Queries) ListMyNotifications(ctx context.Context, arg ListMyNotificatio
 }
 
 const markNotificationRead = `-- name: MarkNotificationRead :one
-UPDATE notifications SET read_at = now() WHERE id = $1 AND read_at IS NULL RETURNING id, user_id, kind, approval_id, created_at, read_at
+UPDATE notifications SET read_at = now() WHERE id = $1 AND read_at IS NULL RETURNING id, user_id, kind, approval_id, created_at, read_at, task_id, app, template, actor_id
 `
 
 // Only an unread row of this person's own matches, so marking someone else's, or marking twice, finds nothing (RLS
@@ -74,6 +78,53 @@ func (q *Queries) MarkNotificationRead(ctx context.Context, id uuid.UUID) (Notif
 		&i.ApprovalID,
 		&i.CreatedAt,
 		&i.ReadAt,
+		&i.TaskID,
+		&i.App,
+		&i.Template,
+		&i.ActorID,
 	)
 	return i, err
+}
+
+const markTaskNotificationsRead = `-- name: MarkTaskNotificationsRead :execrows
+UPDATE notifications SET read_at = now()
+WHERE user_id = $1 AND task_id = $2 AND read_at IS NULL
+`
+
+type MarkTaskNotificationsReadParams struct {
+	UserID uuid.UUID     `json:"user_id"`
+	TaskID uuid.NullUUID `json:"task_id"`
+}
+
+// Opening a ticket answers what this person was told about it.
+func (q *Queries) MarkTaskNotificationsRead(ctx context.Context, arg MarkTaskNotificationsReadParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markTaskNotificationsRead, arg.UserID, arg.TaskID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const sendNotification = `-- name: SendNotification :one
+SELECT app_notify($1::uuid[], $2::uuid, $3::text, $4::text)::int AS sent
+`
+
+type SendNotificationParams struct {
+	UserIds  []uuid.UUID `json:"user_ids"`
+	TaskID   uuid.UUID   `json:"task_id"`
+	App      string      `json:"app"`
+	Template string      `json:"template"`
+}
+
+// Deliver a template notification about a ticket; app_notify (00018) decides who actually gets one.
+func (q *Queries) SendNotification(ctx context.Context, arg SendNotificationParams) (int32, error) {
+	row := q.db.QueryRow(ctx, sendNotification,
+		arg.UserIds,
+		arg.TaskID,
+		arg.App,
+		arg.Template,
+	)
+	var sent int32
+	err := row.Scan(&sent)
+	return sent, err
 }

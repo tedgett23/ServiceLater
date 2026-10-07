@@ -1,0 +1,15 @@
+# Tell a team when a ticket lands in its queue with nobody on it yet. A ticket routed straight to a person tells only
+# that person (notify-assignee). To tell the team every time, drop the !has(record.assignee_id) part in local/.
+kind: rule
+name: notify-group
+record_type: task
+timing: after
+on: [create, update]
+when: >-
+  has(record.assignment_group_id) && !has(record.assignee_id) &&
+  (!has(old.assignment_group_id) || record.assignment_group_id != old.assignment_group_id)
+on_error: skip
+run:
+  - action: notify
+    template: ticket-routed
+    to: [assignment_group]

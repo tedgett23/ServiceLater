@@ -33,7 +33,7 @@
 			// An app was installed or removed somewhere: pick up new labels and flows without a reload.
 			if (e.type === 'definitions.changed' || e.type === 'resync') void lifecycle.reload();
 			if (e.type === 'definitions.changed') queue.scheduleRefresh();
-			// A pending approval is a notification too, and the only thing behind the badge today.
+			// Pending approvals and app notifications (an assignment, say) both arrive as this.
 			if (e.type === 'notification.changed' || e.type === 'resync') {
 				void notifications.load();
 				void approvals.load();
@@ -93,8 +93,11 @@
 						<ul>
 							{#each notifications.items as n (n.id)}
 								<li>
-									<a class:unread={!n.read_at} href="/approvals" onclick={() => openNotification(n.id)}>
-										<span>Something needs your approval</span>
+									<a class:unread={!n.read_at} href={n.link} onclick={() => openNotification(n.id)}>
+										<span class="what">
+											<span>{n.title}</span>
+											{#if n.body}<span class="detail">{n.body}</span>{/if}
+										</span>
 										<time datetime={n.created_at}>{age(n.created_at)}</time>
 									</a>
 								</li>
@@ -280,6 +283,20 @@
 	.bell a.unread {
 		box-shadow: inset 3px 0 0 var(--marker);
 		font-weight: 600;
+	}
+	.bell .what {
+		display: grid;
+		gap: 0.1rem;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.bell .detail {
+		color: var(--ink-2);
+		font-weight: 400;
+		font-size: 0.8125rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.bell time {
 		color: var(--ink-2);

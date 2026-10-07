@@ -127,7 +127,7 @@ func TestInstallNeedsItsDependencies(t *testing.T) {
 func TestDryRun(t *testing.T) {
 	scratch(t)
 	out, err := cli(t, "install", "-dry-run", firstParty("core-itsm"))
-	if err != nil || !strings.Contains(out, "dry run: nothing was changed") || !strings.Contains(out, "core-itsm 0.1.0 (new)") {
+	if err != nil || !strings.Contains(out, "dry run: nothing was changed") || !strings.Contains(out, "core-itsm 0.2.0 (new)") {
 		t.Fatalf("dry run: %v\n%s", err, out)
 	}
 	if out, _ := cli(t, "list"); !strings.Contains(out, "no apps installed") {
@@ -183,7 +183,7 @@ func TestOrderByDependenciesRejectsLoopsAndDuplicates(t *testing.T) {
 func TestSyncInstallsTheBundledApps(t *testing.T) {
 	scratch(t)
 	out, err := cli(t, "sync")
-	if err != nil || !strings.Contains(out, "core-itsm 0.1.0 (new)") || !strings.Contains(out, "incident-management 0.1.0 (new)") {
+	if err != nil || !strings.Contains(out, "core-itsm 0.2.0 (new)") || !strings.Contains(out, "incident-management 0.1.0 (new)") {
 		t.Fatalf("sync: %v\n%s", err, out)
 	}
 	out, _ = cli(t, "sync")
@@ -204,7 +204,7 @@ func TestSyncInstallsTheBundledApps(t *testing.T) {
 func TestSyncDryRunWritesNothing(t *testing.T) {
 	scratch(t)
 	out, err := cli(t, "sync", "-dry-run")
-	if err != nil || !strings.Contains(out, "dry run: nothing was changed") || !strings.Contains(out, "core-itsm 0.1.0 (new)") {
+	if err != nil || !strings.Contains(out, "dry run: nothing was changed") || !strings.Contains(out, "core-itsm 0.2.0 (new)") {
 		t.Fatalf("dry run: %v\n%s", err, out)
 	}
 	if out, _ := cli(t, "list"); !strings.Contains(out, "no apps installed") {

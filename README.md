@@ -51,6 +51,8 @@ Tickets have a `type` (`incident`, `change` ...) and a `reference` (`INC42`): nu
 
 Groups are teams: a ticket's `assignment_group_id` routes it to one, and its assignee must be a member. Admins manage them in the UI (Admin, then Groups), through the API, or with `servicelater group list|create|members|add|remove`.
 
+People are notified in the app (the bell) when a ticket is assigned to them, and a team when a ticket lands in its queue with nobody on it. Both are ordinary app content in `core-itsm` (a rule plus a template in `notifications/`), so their wording and who hears about what can be changed in a local layer; see `docs/apps-platform.md` §6.5.
+
 Admins also manage people under Admin, then Users: add someone with a password, change their name, email or role, reset a password, add them to groups, and deactivate them. A deactivated person cannot sign in, is signed out everywhere, and is no longer offered as an assignee or asked to approve; their tickets and comments keep their name. Only someone with no history can be deleted. There is always at least one active admin, and an admin cannot demote, deactivate or delete themselves.
 
 ## UI

@@ -574,6 +574,11 @@ func (s *Service) runAfterRules(ctx context.Context, q *dbgen.Queries, a Actor, 
 			return err
 		}
 	}
+	for _, n := range fx.Notifies {
+		if err := s.notifyFromRule(ctx, q, apps.TimingAfter, saved, n); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

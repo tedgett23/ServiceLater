@@ -109,9 +109,16 @@ type Action struct {
 	Body     *Value `json:"body,omitempty"`    // comment.add: the text
 	Internal bool   `json:"internal,omitempty"`
 	Workflow string `json:"workflow,omitempty"` // workflow.start: the name of a workflow in the same app
+	Template string `json:"template,omitempty"` // notify: the name of a notification template in the same app
+	// To is who notify tells: assignee, requester, assignment_group (its active members), or an =expression giving
+	// a list of user ids. The engine still drops the person who made the change, anyone deactivated, and anyone
+	// who cannot see the record.
+	To []string `json:"to,omitempty"`
 
 	when    *expr.Program
 	whenErr error
+	to      []*expr.Program // per To entry: the compiled =expression, nil for a named recipient
+	toErr   []error
 }
 
 // Rule is "on this event, if this is true, do these things", at a point in the save.
@@ -148,14 +155,16 @@ type ruleFile struct {
 }
 
 type actionFile struct {
-	Action   string `yaml:"action"`
-	When     string `yaml:"when"`
-	Field    string `yaml:"field"`
-	Value    *Value `yaml:"value"`
-	Message  *Value `yaml:"message"`
-	Body     *Value `yaml:"body"`
-	Internal bool   `yaml:"internal"`
-	Workflow string `yaml:"workflow"`
+	Action   string   `yaml:"action"`
+	When     string   `yaml:"when"`
+	Field    string   `yaml:"field"`
+	Value    *Value   `yaml:"value"`
+	Message  *Value   `yaml:"message"`
+	Body     *Value   `yaml:"body"`
+	Internal bool     `yaml:"internal"`
+	Workflow string   `yaml:"workflow"`
+	Template string   `yaml:"template"`
+	To       []string `yaml:"to"`
 }
 
 func parseRule(file string, data []byte, p *Problems) *Rule {
@@ -176,7 +185,7 @@ func parseRule(file string, data []byte, p *Problems) *Rule {
 		r.OnError = OnErrorBlock
 	}
 	for _, a := range f.Run {
-		r.Run = append(r.Run, Action{Action: a.Action, When: a.When, Field: a.Field, Value: a.Value, Message: a.Message, Body: a.Body, Internal: a.Internal, Workflow: a.Workflow})
+		r.Run = append(r.Run, Action{Action: a.Action, When: a.When, Field: a.Field, Value: a.Value, Message: a.Message, Body: a.Body, Internal: a.Internal, Workflow: a.Workflow, Template: a.Template, To: a.To})
 	}
 	before := len(*p)
 	r.validate(file, p)
@@ -200,6 +209,11 @@ func (r *Rule) validate(file string, p *Problems) {
 		a := &r.Run[i]
 		if a.whenErr != nil {
 			p.add(file, "run[%d]: when: %v", i, a.whenErr)
+		}
+		for j, err := range a.toErr {
+			if err != nil {
+				p.add(file, "run[%d]: to[%d]: %v", i, j, err)
+			}
 		}
 		for _, v := range []struct {
 			name string
@@ -332,10 +346,37 @@ func (a *Action) structureProblems(r *Rule, _ int) (out []string) {
 		extra("value", a.Value != nil)
 		extra("message", a.Message != nil)
 		extra("body", a.Body != nil)
+	case "notify":
+		if r.Timing == TimingBefore {
+			add("notify is only allowed in an after or async rule, because the ticket must be saved first")
+		}
+		switch {
+		case a.Template == "":
+			add("notify needs template: the name of a notification template in this app")
+		case !ruleNameRE.MatchString(a.Template):
+			add("template %q is not a template name", a.Template)
+		}
+		if len(a.To) == 0 {
+			add("notify needs to: who to tell (%s, or an =expression giving user ids)", strings.Join(Recipients, ", "))
+		}
+		for j, to := range a.To {
+			if !strings.HasPrefix(to, "=") && !slices.Contains(Recipients, to) {
+				add("to[%d]: %q is not a recipient (%s, or an =expression giving user ids)", j, to, strings.Join(Recipients, ", "))
+			}
+		}
+		extra("field", a.Field != "")
+		extra("value", a.Value != nil)
+		extra("message", a.Message != nil)
+		extra("body", a.Body != nil)
+		extra("workflow", a.Workflow != "")
 	case "":
-		add("an action needs a name: abort, set, comment.add, record.update or workflow.start")
+		add("an action needs a name: abort, set, comment.add, record.update, workflow.start or notify")
 	default:
-		add("unknown action %q (available: abort, set, comment.add, record.update, workflow.start)", a.Action)
+		add("unknown action %q (available: abort, set, comment.add, record.update, workflow.start, notify)", a.Action)
+	}
+	if a.Action != "notify" {
+		extra("template", a.Template != "")
+		extra("to", len(a.To) > 0)
 	}
 	return out
 }
@@ -394,8 +435,24 @@ func (r *Rule) compile() {
 		a.Value.compile(env, err, want)
 		a.Message.compile(env, err, expr.String)
 		a.Body.compile(env, err, expr.String)
+		a.to, a.toErr = make([]*expr.Program, len(a.To)), make([]error, len(a.To))
+		for j, to := range a.To {
+			if src, ok := strings.CutPrefix(to, "="); ok {
+				a.toErr[j] = err
+				if err == nil {
+					a.to[j], a.toErr[j] = env.CompileAs(strings.TrimSpace(src), expr.StringList)
+				}
+			}
+		}
 	}
 }
+
+// Recipients are the people a notify action can name without an expression.
+var Recipients = []string{"assignee", "requester", "assignment_group"}
+
+// Recipient returns the To entry's compiled expression (nil for a named recipient) and any reason it cannot be
+// evaluated.
+func (a *Action) Recipient(i int) (*expr.Program, error) { return a.to[i], a.toErr[i] }
 
 func (v *Value) compile(env *expr.Env, envErr error, want *cel.Type) {
 	if v == nil {

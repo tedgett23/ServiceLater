@@ -89,6 +89,10 @@ type Notification struct {
 	ApprovalID uuid.NullUUID      `json:"approval_id"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	ReadAt     pgtype.Timestamptz `json:"read_at"`
+	TaskID     uuid.NullUUID      `json:"task_id"`
+	App        pgtype.Text        `json:"app"`
+	Template   pgtype.Text        `json:"template"`
+	ActorID    uuid.NullUUID      `json:"actor_id"`
 }
 
 type RateLimit struct {

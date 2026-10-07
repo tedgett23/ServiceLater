@@ -51,6 +51,8 @@ type Definition struct {
 	Lifecycle *Lifecycle
 	Rule      *Rule
 	Workflow  *Workflow
+	// Notification is a message template (notifications/).
+	Notification *Notification
 }
 
 // Source is the layers joined for storage and display, for example "default+local".
@@ -70,7 +72,7 @@ var definitionDirs = map[string]struct{ kind, unsupported string }{
 	"forms":         {unsupported: "forms are not supported yet"},
 	"catalog":       {unsupported: "catalog items are not supported yet"},
 	"knowledge":     {unsupported: "knowledge articles are not supported yet"},
-	"notifications": {unsupported: "notification templates are not supported yet"},
+	"notifications": {kind: "notification"},
 	"roles":         {unsupported: "roles are not supported yet"},
 	"ui":            {unsupported: "declarative views are not supported yet"},
 }
@@ -315,6 +317,7 @@ func (b *Bundle) Compile() (*Compiled, error) {
 		}
 	}
 	checkWorkflowStarts(defs, &p)
+	checkNotifyTemplates(defs, &p)
 	if err := p.orNil(); err != nil || m == nil {
 		return nil, p
 	}
@@ -376,6 +379,14 @@ func compileDefinition(kind, file string, data []byte, p *Problems) *Definition 
 		body, _ := json.Marshal(w)
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: w.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Workflow: w}
+	case "notification":
+		n := parseNotification(file, data, p)
+		if n == nil {
+			return nil
+		}
+		body, _ := json.Marshal(n)
+		sum := sha256.Sum256(body)
+		return &Definition{Kind: kind, Name: n.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Notification: n}
 	}
 	return nil
 }

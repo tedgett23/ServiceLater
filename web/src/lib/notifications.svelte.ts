@@ -47,6 +47,23 @@ class Notifications {
 			this.unreadCount = before;
 		}
 	}
+
+	/** Opening a ticket answers what this person was told about it. Asks the server only when there is something
+	 * unread about it here, so opening tickets costs nothing otherwise. */
+	async readTask(taskId: string) {
+		const unread = this.items.filter((n) => n.task_id === taskId && !n.read_at);
+		if (unread.length === 0) return;
+		const before = this.unreadCount;
+		const now = new Date().toISOString();
+		for (const n of unread) n.read_at = now;
+		this.unreadCount = Math.max(0, this.unreadCount - unread.length);
+		try {
+			await api('/api/v1/notifications/read', { method: 'POST', body: { task_id: taskId } });
+		} catch {
+			for (const n of unread) n.read_at = undefined;
+			this.unreadCount = before;
+		}
+	}
 }
 
 export const notifications = new Notifications();

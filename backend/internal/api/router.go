@@ -110,6 +110,7 @@ func NewRouter(d Deps) http.Handler {
 			})
 			r.Route("/notifications", func(r chi.Router) {
 				r.Get("/", h.listMyNotifications)
+				r.Post("/read", h.markTaskNotificationsRead)
 				r.Post("/{id}/read", h.markNotificationRead)
 			})
 			r.Route("/workflow-runs", func(r chi.Router) {

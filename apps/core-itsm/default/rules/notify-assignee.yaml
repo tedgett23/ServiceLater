@@ -1,0 +1,13 @@
+# Tell someone when a ticket becomes theirs. Nobody is told about their own change (taking a ticket yourself is
+# silent), and the platform drops anyone deactivated or who cannot see the ticket.
+kind: rule
+name: notify-assignee
+record_type: task
+timing: after
+on: [create, update]
+when: has(record.assignee_id) && (!has(old.assignee_id) || record.assignee_id != old.assignee_id)
+on_error: skip
+run:
+  - action: notify
+    template: ticket-assigned
+    to: [assignee]

@@ -51,3 +51,9 @@ ORDER BY m.user_id;
 SELECT g.* FROM groups g JOIN group_members m ON m.group_id = g.id
 WHERE m.user_id = $1
 ORDER BY lower(g.name);
+
+-- Who a notify action's assignment_group reaches: the group's members who can still sign in.
+-- name: ListActiveGroupMemberIDs :many
+SELECT m.user_id FROM group_members m JOIN users u ON u.id = m.user_id
+WHERE m.group_id = $1 AND u.deactivated_at IS NULL
+ORDER BY m.user_id;

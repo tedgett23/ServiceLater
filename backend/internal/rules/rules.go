@@ -58,10 +58,23 @@ type Start struct {
 	Rule     string
 }
 
-// Effects are what rules asked for besides changing the record: comments to write and workflows to start.
+// Notify is a notification an after or async rule asked to send about the record. The engine has no database, so
+// it hands back the people it could name (UserIDs) and the groups whose members to add (GroupIDs); the caller
+// expands those and delivers it, and delivery drops anyone who must not get it.
+type Notify struct {
+	App      string
+	Rule     string
+	Template string
+	UserIDs  []string
+	GroupIDs []string
+}
+
+// Effects are what rules asked for besides changing the record: comments to write, workflows to start and
+// notifications to send.
 type Effects struct {
 	Comments []Comment
 	Starts   []Start
+	Notifies []Notify
 }
 
 // Before runs before rules in order against in.Record, which it never changes: the record as the rules left it is
@@ -191,6 +204,35 @@ func perform(ctx context.Context, r *apps.Rule, a *apps.Action, in expr.Input, f
 		return nil
 	case "workflow.start":
 		fx.Starts = append(fx.Starts, Start{App: r.App, Workflow: a.Workflow, Rule: r.Name})
+		return nil
+	case "notify":
+		n := Notify{App: r.App, Rule: r.Name, Template: a.Template}
+		rec := in.Record
+		for i, to := range a.To {
+			switch to {
+			case "assignee":
+				if rec.AssigneeID != nil {
+					n.UserIDs = append(n.UserIDs, *rec.AssigneeID)
+				}
+			case "requester":
+				n.UserIDs = append(n.UserIDs, rec.RequesterID)
+			case "assignment_group":
+				if rec.AssignmentGroupID != nil {
+					n.GroupIDs = append(n.GroupIDs, *rec.AssignmentGroupID)
+				}
+			default:
+				p, err := a.Recipient(i)
+				if err != nil {
+					return err
+				}
+				ids, err := p.EvalStringList(ctx, in)
+				if err != nil {
+					return err
+				}
+				n.UserIDs = append(n.UserIDs, ids...)
+			}
+		}
+		fx.Notifies = append(fx.Notifies, n)
 		return nil
 	case "set", "record.update":
 		// Both change the record in memory. In a before rule that is the save itself; in an async rule the caller

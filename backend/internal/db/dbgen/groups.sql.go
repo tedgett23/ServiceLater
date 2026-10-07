@@ -122,6 +122,33 @@ func (q *Queries) IsGroupMember(ctx context.Context, arg IsGroupMemberParams) (b
 	return exists, err
 }
 
+const listActiveGroupMemberIDs = `-- name: ListActiveGroupMemberIDs :many
+SELECT m.user_id FROM group_members m JOIN users u ON u.id = m.user_id
+WHERE m.group_id = $1 AND u.deactivated_at IS NULL
+ORDER BY m.user_id
+`
+
+// Who a notify action's assignment_group reaches: the group's members who can still sign in.
+func (q *Queries) ListActiveGroupMemberIDs(ctx context.Context, groupID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listActiveGroupMemberIDs, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var user_id uuid.UUID
+		if err := rows.Scan(&user_id); err != nil {
+			return nil, err
+		}
+		items = append(items, user_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGroupMemberIDsByName = `-- name: ListGroupMemberIDsByName :many
 SELECT m.user_id FROM group_members m JOIN groups g ON g.id = m.group_id JOIN users u ON u.id = m.user_id
 WHERE lower(g.name) = lower($1::text) AND u.deactivated_at IS NULL

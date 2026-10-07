@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { as, createTicket, details, openTicket, uid } from './helpers';
+import { api, as, createTicket, details, openTicket, uid } from './helpers';
 import { servicelater, tempApp } from './apps';
 
 const startRule = (tag: string, workflow: string) => `kind: rule
@@ -68,4 +68,40 @@ test('a pending approval shows up as a live notification, and reading it clears 
 		servicelater('uninstall', `e2e-notify-${tag}`);
 		app.cleanup();
 	}
+});
+
+// core-itsm's notify-assignee rule and ticket-assigned template, end to end.
+test('being assigned a ticket lights the bell with what it is, and opening the ticket clears it', async ({ browser }) => {
+	const agent = await as(browser, 'agent');
+	const tomas = await as(browser, 'agent2');
+	const tag = uid();
+	const tomasID = (await (await tomas.context.request.get('/api/v1/auth/me')).json()).id as string;
+	await tomas.page.goto('/tickets');
+	await expect(bell(tomas.page)).toBeVisible();
+
+	// Assigned while he is looking: it arrives live, says which ticket, and leads to it.
+	const first = await createTicket(agent.context, { title: `Router reboot ${tag}` });
+	await api(agent.context, 'patch', `/api/v1/tickets/${first.id}`, { assignee_id: tomasID });
+	await bell(tomas.page).click();
+	const item = tomas.page.locator('.bell li a', { hasText: `${first.reference} was assigned to you` });
+	await expect(item).toHaveClass(/unread/, { timeout: 15_000 });
+	await expect(item).toContainText(`Router reboot ${tag}`);
+	await item.click();
+	await expect(tomas.page).toHaveURL(new RegExp(`/tickets/${first.reference}$`));
+	await expect(tomas.page).toHaveTitle(new RegExp(`Router reboot ${tag}`));
+
+	// Opening the ticket some other way answers its notification too.
+	const second = await createTicket(agent.context, { title: `Badge reader ${tag}` });
+	await api(agent.context, 'patch', `/api/v1/tickets/${second.id}`, { assignee_id: tomasID });
+	const other = tomas.page.locator('.bell li a', { hasText: `${second.reference} was assigned to you` });
+	await bell(tomas.page).click();
+	await expect(other).toHaveClass(/unread/, { timeout: 15_000 });
+	await bell(tomas.page).click();
+	await openTicket(tomas.page, second.number);
+	await bell(tomas.page).click();
+	await expect(other).not.toHaveClass(/unread/);
+
+	// Priya, who did the assigning, was told nothing.
+	const mine = (await (await agent.context.request.get('/api/v1/notifications')).json()).items as { task_id?: string }[];
+	expect(mine.filter((n) => n.task_id === first.id || n.task_id === second.id)).toEqual([]);
 });

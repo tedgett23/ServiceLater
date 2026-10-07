@@ -17,8 +17,9 @@ import (
 
 type snapshot struct {
 	lifecycles map[string]*Lifecycle
-	rules      map[string][]*Rule   // by record type, in run order
-	workflows  map[string]*Workflow // by "app/name"
+	rules      map[string][]*Rule       // by record type, in run order
+	workflows  map[string]*Workflow     // by "app/name"
+	templates  map[string]*Notification // by "app/name"
 	apps       []Installed
 }
 
@@ -37,7 +38,7 @@ type Registry struct {
 // ever does (useful in tests and before any app is installed).
 func NewRegistry(pool *pgxpool.Pool) *Registry {
 	r := &Registry{pool: pool}
-	r.snap.Store(&snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}})
+	r.snap.Store(&snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}})
 	return r
 }
 
@@ -46,7 +47,7 @@ func (r *Registry) Load(ctx context.Context) error {
 	if r.pool == nil {
 		return nil
 	}
-	next := &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}}
+	next := &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}}
 	err := db.WithSystem(ctx, r.pool, func(tx pgx.Tx) error {
 		q := dbgen.New(tx)
 		apps, err := q.ListApps(ctx)
@@ -102,6 +103,21 @@ func (r *Registry) Load(ctx context.Context) error {
 				wf.compile()
 				wf.App, wf.Version = d.AppName, versions[d.AppName]
 				next.workflows[wf.App+"/"+wf.Name] = &wf
+				continue
+			}
+			if d.Kind == "notification" {
+				var n Notification
+				if err := json.Unmarshal(d.Body, &n); err != nil {
+					slog.Error("skipping unreadable notification template", "app", d.AppName, "template", d.Name, "err", err)
+					continue
+				}
+				var p Problems
+				if n.validateStructure(d.AppName, &p); len(p) > 0 {
+					slog.Error("skipping invalid notification template", "app", d.AppName, "template", d.Name, "problems", p.Error())
+					continue
+				}
+				n.App, n.Version = d.AppName, versions[d.AppName]
+				next.templates[n.App+"/"+n.Name] = &n
 				continue
 			}
 			if d.Kind != "lifecycle" {
@@ -165,6 +181,12 @@ func (r *Registry) Rules(recordType, timing, event string) []*Rule {
 		}
 	}
 	return out
+}
+
+// Notification finds a notification template by the app that defines it and its name. It is nil when there is none
+// (the app was removed since a notification was sent with it).
+func (r *Registry) Notification(app, name string) *Notification {
+	return r.snap.Load().templates[app+"/"+name]
 }
 
 // Workflow finds a workflow by the app that defines it and its name. It is nil when there is none.

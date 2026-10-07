@@ -146,12 +146,18 @@ export interface Approval {
 	created_at: string;
 }
 
-/** A hint that something needs this person's attention. Only one kind exists today (a pending approval), so
- * approval_id is always set; more kinds will add their own optional id fields the same way. */
+/** A hint that something needs this person's attention. The server fills in title, body and link (from an app's
+ * template, for kind "template"), so the UI keeps no copy of what each kind says. */
 export interface Notification {
 	id: string;
-	kind: 'approval_pending';
+	kind: 'approval_pending' | 'template';
 	approval_id?: string;
+	/** The ticket a template notification is about. */
+	task_id?: string;
+	reference?: string;
+	title: string;
+	body?: string;
+	link: string;
 	created_at: string;
 	read_at?: string;
 }
