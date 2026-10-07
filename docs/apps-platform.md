@@ -148,6 +148,11 @@ the suggested step first, with any move a guard currently blocks marked and expl
 renders these and keeps no copy of the lifecycle's rules, so a guard, a renamed button or a stranded ticket all work
 without a frontend change. Trying a blocked move anyway is refused with the same message (HTTP 422).
 
+`automatic: true` marks a move the process makes, not a person: it is never offered, and a person asking for it is
+refused (HTTP 409, "made by the process, not by hand"). Only a workflow's `record.transition` step, running as its
+app for someone, can make it. The change lifecycle uses it for Authorize to Scheduled, so only a board's approval
+authorizes a change. An automatic move cannot be `primary`.
+
 `primary: true` marks the suggested next step from a state: the UI shows it first and emphasised. A state may set
 `renamed_from: old_id`, and installing then moves every record in the old state to it (an update is otherwise
 rejected while any record is in a state the new lifecycle lacks). A record stranded in a state its lifecycle no
@@ -459,7 +464,7 @@ now). The engine is `internal/rules`; it does no database work, so the API appli
   nothing else writes to `tasks`. The api handlers only decode, call it and map its `*records.Error` to a status.
 - **`record.update`** (async only; `set` is its before-rule counterpart) takes the same fields as `set`. The run's
   actions change the record in memory, each seeing the earlier ones, and the difference is then saved as **one edit**
-  through `Service.Update`, as the app (for the person whose change set the rule off): the app must hold `tickets:update`, the row is locked before
+  through `Service.Update`, as the app (for the person whose change set the rule off): the app must hold `records:update` for the type, the row is locked before
   the rule reads it, and every before and after rule judges the change. A refusal (a before rule aborts, a value is
   not allowed) is recorded as failed and not retried, and undoes the run's comments too. It updates the triggering
   record only; other records arrive with `record.create` and friends.
@@ -662,7 +667,10 @@ workflow of the same app and record type.
 **Steps in this version:** `set` (variables, one `=expression` or literal each, in order, so a later one can use an
 earlier one), `condition` (`if`, `then`, `else`), `wait` (`for: 15m`, or `until: <expression>` with a `timeout` and an
 optional `on_timeout` step; without one a timeout fails the run), `record.update` (the same fields and checks as a
-rule's), `comment.add`, `approval` and `end`. Expressions see `record` (as it is *now*, re-read for every step),
+rule's), `record.transition` (`to: <status>`: moves the record through `records.Service.Transition`, so the move
+must exist and its guard must agree, exactly as for a person; it may also make `automatic` moves; a refused move
+fails the run with the reason; if the workflow's app defines the type's lifecycle, `to` is checked at install),
+`comment.add`, `approval` and `end`. Expressions see `record` (as it is *now*, re-read for every step),
 `user`, `now` and `vars`. Variables hold text, numbers or true/false, and are stored with the execution.
 
 **Approval.** `approvers` is an expression producing a list of user ids: `group('CAB')` is the ids of a group's
@@ -793,10 +801,16 @@ In expressions a record is flat: `record.priority` and `record.resolution` both 
   foreign key `(task_id, type) → tasks(id, type)` with `CHECK (type = 'incident')`, so an incident row can never
   hang off a change. Its RLS is "visible when its task is; only staff write". Changing it also bumps the task's
   `updated_at`, which notifies live screens.
-- Only `incidents` exists as an extension table. The design listed change, request and problem too, but their columns
-  belong with the apps that own them, and a migration is hard to change once released. Their types **are registered**
-  (so their prefixes are reserved and lifecycles can be written for them), and until they gain a table they behave as
-  lightweight types: a `tasks` row, listed, commented on and moved like any other.
+- `changes` is the second (migration 00023, for change management): `change_type` (standard, normal, emergency),
+  `risk` and `impact` (low, medium, high, or empty: not assessed), `planned_start`/`planned_end` (end after start),
+  and the implementation, back-out and test plans. The API nests them as `change` on a change (absent on other
+  types) and takes them nested on create and PATCH; expressions see them flat (`record.risk`,
+  `has(record.planned_start)`: an unset time is a zero timestamp, so `has()` tells). Rules and workflows for
+  changes may set `risk` and `impact` (`apps.FieldOwners` says which settable fields belong to which type,
+  `apps.FieldValues` which values an enumerated one takes, and both are checked at install).
+- Request and problem have no extension table yet. Their types **are registered** (so their prefixes are reserved
+  and lifecycles can be written for them), and until they gain a table they behave as lightweight types: a `tasks`
+  row, listed, commented on and moved like any other.
 - **Lifecycles inherit.** A type's own lifecycle wins; else the `task` lifecycle applies; else the built-in one. An
   install checks stranded records only for the types a lifecycle governs: a `task` lifecycle governs the types
   without their own, so it is neither blocked by, nor rewrites, incidents that have theirs.
@@ -812,7 +826,11 @@ In expressions a record is flat: `record.priority` and `record.resolution` both 
 3. Read it in `GetTicketView` with one more `LEFT JOIN`, and add its columns to the ticket response and to
    `expr.Record` (and `toExprRecord`), so guards can use them as flat fields.
 4. Add the type to `apps.KnownRecordTypes`. A test keeps that list in step with the registry.
-5. Ship a lifecycle for it in an app, or let it use the `task` default.
+5. Create its extension row in `records.createExtension`, carry its fields through `records.Ticket` (load, patch,
+   `writeChanges`), and accept them in the API, as `changes` does.
+6. Ship a lifecycle for it in an app: a type is *in use*, and can be filed, only when an installed app defines
+   its own lifecycle (`Registry.Provides`). Decide whether anyone may file one (`task_types.anyone_may_file`) or
+   only those with `records:create:<type>`.
 
 What it gives us:
 
@@ -916,7 +934,7 @@ save, not built yet). `app install` takes several paths and installs dependencie
   kind: role
   name: cab-member
   label: CAB member
-  permissions: [tickets:read_all, comments:internal, workflows:read_all]
+  permissions: [records:read:change, comments:internal, workflows:read_all]
   ```
 
   Admins grant them from the admin section. Role names are global, so two apps cannot define the same one.
@@ -929,8 +947,21 @@ save, not built yet). `app install` takes several paths and installs dependencie
   writes records whom it acted for, and expressions still see that person as `user`.
 - **`role('name')`** in workflow expressions resolves to everyone holding the role, like `group('name')`, so an
   approval step can ask `approvers: "role('cab-member')"`.
-- Not yet: per-record-type permissions (`changes:approve`), a role editor in the UI (roles are YAML), `run_as: app`
-  for before rules, and the outbound capabilities (`notify:email`, `http:`) that manifests may already declare.
+- **Record permissions are scoped by type** (migration 00022): `records:<verb>:<type>`, with `*` for every type
+  (`records:update:*`). The verbs are fixed: `read` (see every record of the type, not only your own), `create`
+  (file one), `update` (edit and move them, be assigned one) and `delete`. A requester always sees their own
+  records, whatever the type. Filing for someone else needs `create` and `update` on the type. A type can be open
+  to everyone (`task_types.anyone_may_file`, true for incidents), so filing one needs no permission.
+
+  *Why by type and not by app:* a permission follows the data it protects. One app may own several types and
+  several apps may touch one type, and app names are packaging that can be split or renamed. Adding a module adds
+  a type and so catalog entries (generated from `task_types`), never a new check: Go asks
+  `Set.CanRecord(verb, type)`, SQL `app_can_record(verb, type)`, the hub routes events by type, and the web asks
+  `canRecord(user, verb, type)`. Abilities that are not one of these verbs (raising an emergency change, say)
+  will be app-namespaced names (`change-management:emergency`) declared in the manifest; not built yet. Who
+  approves is not a permission at all: it is the approval step's `approvers`.
+- Not yet: app-namespaced permissions, a role editor in the UI (roles are YAML), `run_as: app` for before rules,
+  and the outbound capabilities (`notify:email`, `http:`) that manifests may already declare.
 
 ## 12. Performance notes
 

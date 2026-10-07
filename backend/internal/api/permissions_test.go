@@ -76,7 +76,7 @@ func TestBuiltInRolesMatchTheCatalog(t *testing.T) {
 	if len(got) != 3 || len(got["end_user"]) != 0 {
 		t.Errorf("built-in roles: %v", got)
 	}
-	for _, p := range authz.Catalog {
+	for _, p := range append(authz.RecordCatalog(nil, nil), authz.Catalog...) {
 		if !slices.Contains(got["admin"], p.Name) {
 			t.Errorf("admin lacks %s", p.Name)
 		}
@@ -86,7 +86,7 @@ func TestBuiltInRolesMatchTheCatalog(t *testing.T) {
 // /auth/me lists what each base role may do, which is what the web shows and hides things by.
 func TestMeListsPermissions(t *testing.T) {
 	h, pool := setup(t)
-	for role, want := range map[string]string{"admin": authz.UsersManage, "agent": authz.TicketsUpdate} {
+	for role, want := range map[string]string{"admin": authz.UsersManage, "agent": authz.Record(authz.Update, authz.AllTypes)} {
 		a := newActor(t, h, pool, role+"@x.test", role)
 		me := decodeBody[struct{ Permissions []string }](t, a.do(h, "GET", "/api/v1/auth/me", ""))
 		if !slices.Contains(me.Permissions, want) {
@@ -109,7 +109,7 @@ func TestARoleGrantedToAGroupGivesItsMembersAccess(t *testing.T) {
 	marcus := newActor(t, h, pool, "marcus@x.test", "end_user")
 	theirs := decodeBody[ticket](t, marcus.do(h, "POST", "/api/v1/tickets", `{"title":"Marcus's laptop"}`))
 
-	if _, err := pool.Exec(ctx, `INSERT INTO roles (name, label, permissions) VALUES ('triage', 'Triage', '{tickets:read_all,tickets:update}')`); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO roles (name, label, permissions) VALUES ('triage', 'Triage', '{records:read:*,records:update:*}')`); err != nil {
 		t.Fatal(err)
 	}
 	g := decodeBody[group](t, admin.do(h, "POST", "/api/v1/groups", `{"name":"Triage desk"}`))
@@ -122,7 +122,7 @@ func TestARoleGrantedToAGroupGivesItsMembersAccess(t *testing.T) {
 	expect(t, lena.do(h, "GET", "/api/v1/tickets/"+theirs.ID, ""), 200, "seeing someone else's ticket through the role")
 	expect(t, lena.do(h, "PATCH", "/api/v1/tickets/"+theirs.ID, `{"priority":2}`), 200, "editing it through the role")
 	me := decodeBody[struct{ Permissions []string }](t, lena.do(h, "GET", "/api/v1/auth/me", ""))
-	if !slices.Contains(me.Permissions, authz.TicketsUpdate) {
+	if !slices.Contains(me.Permissions, authz.Record(authz.Update, authz.AllTypes)) {
 		t.Errorf("me: %v", me.Permissions)
 	}
 	// The role can be assigned tickets now, like any agent.

@@ -47,7 +47,7 @@ func about(t *testing.T, h http.Handler, a actor, taskID string) []sentNotificat
 // installNotifyApp installs an app with its own templates and rules on top of the first-party apps.
 func installNotifyApp(t *testing.T, pool *pgxpool.Pool, reg *apps.Registry, files map[string]string) {
 	t.Helper()
-	bundle := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-notify\nversion: 1.0.0\nauthor: t\ndescription: \"Notify.\"\npermissions: [tickets:read_all, tickets:update, comments:internal]\n")}
+	bundle := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-notify\nversion: 1.0.0\nauthor: t\ndescription: \"Notify.\"\npermissions: [records:read:*, records:update:*, comments:internal]\n")}
 	for name, src := range files {
 		bundle["default/"+name] = []byte(src)
 	}

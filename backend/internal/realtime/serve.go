@@ -26,8 +26,8 @@ const (
 
 type client struct {
 	userID   uuid.UUID
-	seesAll  bool // tickets:read_all: every ticket, as tasks_select allows
-	internal bool // comments:internal: internal notes too
+	perms    authz.Set // records:read:<type> decides which records' events, as tasks_select does
+	internal bool      // comments:internal: internal notes too
 	send     chan []byte
 
 	kicked   chan struct{}
@@ -67,7 +67,7 @@ func (h *Hub) remove(c *client) {
 // the socket so a changed role or deleted user cannot keep receiving events beyond the token's lifetime.
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, p auth.Principal) {
 	c := &client{
-		userID: p.UserID, seesAll: p.Can(authz.TicketsReadAll), internal: p.Can(authz.CommentsInternal),
+		userID: p.UserID, perms: p.Perms, internal: p.Can(authz.CommentsInternal),
 		send: make(chan []byte, sendBuffer), kicked: make(chan struct{}), down: make(chan struct{}),
 	}
 	if !h.add(c) {

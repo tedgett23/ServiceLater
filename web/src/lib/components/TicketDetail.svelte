@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { api } from '$lib/api';
+	import ChangePlan from '$lib/components/ChangePlan.svelte';
 	import Signal from '$lib/components/Signal.svelte';
 	import Status from '$lib/components/Status.svelte';
 	import { priorityLabel, when } from '$lib/format';
@@ -10,8 +11,8 @@
 	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
 	import { staff } from '$lib/staff.svelte';
-	import type { Comment, Status as StatusT, Ticket } from '$lib/types';
-	import { can, P } from '$lib/types';
+	import type { ChangeFields, Comment, Status as StatusT, Ticket } from '$lib/types';
+	import { can, canRecord, P, prefixOf } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let props: { ticket: Ticket; comments: Comment[] } = $props();
@@ -25,7 +26,7 @@
 	let inflight = $state(0); // local edits awaiting the server; live refetches wait so they can't undo them, and actions pause
 	let stale = false; // a live update arrived while an edit was in flight: refetch as soon as the edit settles
 
-	const canEdit = $derived(can(session.user, P.ticketsUpdate));
+	const canEdit = $derived(canRecord(session.user, 'update', ticket.type));
 	const canInternal = $derived(can(session.user, P.commentsInternal));
 	const path = $derived(`/api/v1/tickets/${ticket.id}`);
 	// The server says which moves to offer (the natural next step first) and which are blocked right now, and why.
@@ -46,7 +47,7 @@
 
 	$effect(() => {
 		if (canEdit) {
-			void staff.ensure();
+			void staff.ensure(ticket.type);
 			void groups.ensure();
 		}
 	});
@@ -59,9 +60,9 @@
 	// agent or admin. The current assignee stays listed so the picker never shows the wrong person.
 	const groupMembers = $derived(ticket.assignment_group_id ? groups.members[ticket.assignment_group_id] : undefined);
 	const assignable = $derived.by(() => {
-		if (!groupMembers) return staff.list;
+		if (!groupMembers) return staff.of(ticket.type);
 		const ids = new Set(groupMembers.map((m) => m.id));
-		return staff.list.filter((s) => ids.has(s.id) || s.id === ticket.assignee_id);
+		return staff.of(ticket.type).filter((s) => ids.has(s.id) || s.id === ticket.assignee_id);
 	});
 	const canTakeIt = $derived(
 		ticket.assignee_id !== session.user?.id && (!groupMembers || groupMembers.some((m) => m.id === session.user?.id))
@@ -141,13 +142,13 @@
 
 	const moveTo = (to: StatusT) =>
 		change(
-			{ status: to, state_category: lifecycle.categoryOf(to) ?? ticket.state_category },
+			{ status: to, state_category: lifecycle.categoryOf(to, ticket.type) ?? ticket.state_category },
 			() => api<Ticket>(`${path}/transitions`, { method: 'POST', body: { to } }),
-			`Ticket moved to ${lifecycle.label(to)}`
+			`Ticket moved to ${lifecycle.label(to, ticket.type)}`
 		);
 
 	function assign(id: string | null) {
-		const name = id ? (staff.list.find((s) => s.id === id)?.name ?? null) : null;
+		const name = id ? (staff.of(ticket.type).find((s) => s.id === id)?.name ?? null) : null;
 		return change(
 			{ assignee_id: id, assignee_name: name },
 			() => api<Ticket>(path, { method: 'PATCH', body: { assignee_id: id } }),
@@ -165,6 +166,11 @@
 			() => api<Ticket>(path, { method: 'PATCH', body: { assignment_group_id: id } }),
 			id ? `Routed to ${name}` : 'Removed from its group'
 		);
+	}
+
+	// A change's own fields, sent nested as the API takes them.
+	async function saveChange(fields: Partial<ChangeFields>, done: string) {
+		await change({ change: { ...ticket.change!, ...fields } }, () => api<Ticket>(path, { method: 'PATCH', body: { change: fields } }), done);
 	}
 
 	const setPriority = (p: 1 | 2 | 3 | 4) =>
@@ -219,7 +225,7 @@
 	</a>
 
 	<header class="head">
-		<div class="stub"><span class="sr-only">Ticket number </span>{ticket.number}</div>
+		<div class="stub"><span class="sr-only">{lifecycle.typeLabel(ticket.type)} </span><span class="prefix" aria-hidden="true">{prefixOf(ticket)}</span>{ticket.number}</div>
 		<div class="headtext">
 			<h1>{ticket.title}</h1>
 			<p class="byline">
@@ -255,6 +261,10 @@
 						<p>{ticket.resolution}</p>
 					</section>
 				{/if}
+			{/if}
+
+			{#if ticket.change}
+				<ChangePlan change={ticket.change} {canEdit} save={saveChange} />
 			{/if}
 		</div>
 
@@ -303,7 +313,7 @@
 			<dl>
 				<div>
 					<dt>Status</dt>
-					<dd><Status status={ticket.status} category={ticket.state_category} /></dd>
+					<dd><Status status={ticket.status} category={ticket.state_category} type={ticket.type} /></dd>
 				</div>
 
 				{#if canEdit && moves.length}
@@ -413,6 +423,13 @@
 	}
 
 	/* The take-a-number stub: the one loud thing on the screen. */
+	/* The type's prefix is the small print above the number. */
+	.stub .prefix {
+		display: block;
+		font-size: 0.2em;
+		letter-spacing: 0.16em;
+		margin-bottom: 0.15em;
+	}
 	.stub {
 		flex: none;
 		position: relative;

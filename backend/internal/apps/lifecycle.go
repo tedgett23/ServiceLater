@@ -43,6 +43,9 @@ type Transition struct {
 	To      string `json:"to"`
 	Verb    string `json:"verb"`
 	Primary bool   `json:"primary,omitempty"` // the suggested next step from From
+	// Automatic moves are made by the process (a workflow's record.transition step), never by hand: they are not
+	// offered to people, and a person asking for one is refused. An approval moving a change on is one.
+	Automatic bool `json:"automatic,omitempty"`
 
 	// When is a guard: an expression that must be true for the move to be allowed. Error is what the person sees
 	// when it is false. They are set together or not at all.
@@ -78,12 +81,13 @@ type lifecycleFile struct {
 }
 
 type transitionFile struct {
-	From    string `yaml:"from"`
-	To      string `yaml:"to"`
-	Verb    string `yaml:"verb"`
-	Primary bool   `yaml:"primary"`
-	When    string `yaml:"when"`  // an expression that must be true for the move to be allowed
-	Error   string `yaml:"error"` // the message shown when it is false
+	From      string `yaml:"from"`
+	To        string `yaml:"to"`
+	Verb      string `yaml:"verb"`
+	Primary   bool   `yaml:"primary"`
+	Automatic bool   `yaml:"automatic"` // made only by a workflow, never offered to people
+	When      string `yaml:"when"`      // an expression that must be true for the move to be allowed
+	Error     string `yaml:"error"`     // the message shown when it is false
 }
 
 // orderedStates reads a YAML map while keeping the author's order, which is the order states are shown in.
@@ -130,7 +134,7 @@ func parseLifecycle(file string, data []byte, p *Problems) *Lifecycle {
 	lc := &Lifecycle{RecordType: f.RecordType, Initial: f.Initial, States: f.States}
 	before := len(*p)
 	for _, t := range f.Transitions {
-		lc.Transitions = append(lc.Transitions, Transition{From: t.From, To: t.To, Verb: t.Verb, Primary: t.Primary, When: t.When, Error: t.Error})
+		lc.Transitions = append(lc.Transitions, Transition{From: t.From, To: t.To, Verb: t.Verb, Primary: t.Primary, Automatic: t.Automatic, When: t.When, Error: t.Error})
 	}
 	lc.validate(file, p)
 	if len(*p) > before {
@@ -219,6 +223,9 @@ func (l *Lifecycle) validateStructure(file string, p *Problems) {
 			p.add(file, "transitions[%d]: %s to %s is listed twice", i, t.From, t.To)
 		}
 		pairs[[2]string{t.From, t.To}] = true
+		if t.Primary && t.Automatic {
+			p.add(file, "transitions[%d]: %s to %s is automatic, so it is never offered and cannot be the primary move", i, t.From, t.To)
+		}
 		if t.Primary {
 			if primaries[t.From]++; primaries[t.From] > 1 {
 				p.add(file, "transitions[%d]: %q has more than one primary transition", i, t.From)
@@ -300,6 +307,11 @@ func (l *Lifecycle) StrandedTransitions() []Transition {
 		}
 	}
 	return out
+}
+
+// Automatic reports whether a move is made only by the process, never by hand.
+func (l *Lifecycle) Automatic(from, to string) bool {
+	return slices.ContainsFunc(l.Transitions, func(t Transition) bool { return t.From == from && t.To == to && t.Automatic })
 }
 
 // Guarded reports whether a move has a guard, so callers only load what a guard needs when there is one.

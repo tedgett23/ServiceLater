@@ -38,6 +38,191 @@
         ],
         "type": "object"
       },
+      "CalendarEntry": {
+        "description": "One record's planned window on the calendar.",
+        "properties": {
+          "assignee_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "change_type": {
+            "description": "And Risk are the change's own fields (standard, normal or emergency; low, medium, high or \"\").",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "number": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "overlaps": {
+            "description": "The references of the other entries whose windows overlap this one, counting only records still to be done (open or waiting): two changes in the same window are a conflict to look at.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "planned_end": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "planned_start": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "priority": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "risk": {
+            "type": "string"
+          },
+          "state_category": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignee_name",
+          "change_type",
+          "id",
+          "number",
+          "overlaps",
+          "planned_end",
+          "planned_start",
+          "priority",
+          "reference",
+          "risk",
+          "state_category",
+          "status",
+          "title",
+          "type"
+        ],
+        "type": "object"
+      },
+      "Change": {
+        "properties": {
+          "backout_plan": {
+            "type": "string"
+          },
+          "change_type": {
+            "type": "string"
+          },
+          "impact": {
+            "type": "string"
+          },
+          "implementation_plan": {
+            "type": "string"
+          },
+          "planned_end": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "planned_start": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "risk": {
+            "type": "string"
+          },
+          "test_plan": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "backout_plan",
+          "change_type",
+          "impact",
+          "implementation_plan",
+          "planned_end",
+          "planned_start",
+          "risk",
+          "test_plan"
+        ],
+        "type": "object"
+      },
+      "ChangeFields": {
+        "description": "A change's own fields in a request. Absent fields are left alone; planned_start and planned_end take null to clear them.",
+        "properties": {
+          "backout_plan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "change_type": {
+            "description": "Standard, normal or emergency.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "impact": {
+            "description": "Low, medium, high, or \"\" for not assessed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "implementation_plan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "planned_end": {
+            "description": "When the window closes, after the start.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "planned_start": {
+            "description": "When the change's window opens.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "risk": {
+            "description": "Low, medium, high, or \"\" for not assessed.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "test_plan": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "Comment": {
         "properties": {
           "author_id": {
@@ -521,6 +706,36 @@
         ],
         "type": "object"
       },
+      "RecordType": {
+        "description": "A record type in use: an installed app defines its lifecycle.",
+        "properties": {
+          "can_file": {
+            "description": "Says whether the caller may file one as themselves: the type is open to everyone, or they have records:create:\u003ctype\u003e.",
+            "type": "boolean"
+          },
+          "can_file_for_others": {
+            "description": "Says whether they may also name someone else as the requester (records:update:\u003ctype\u003e too).",
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "can_file",
+          "can_file_for_others",
+          "label",
+          "prefix",
+          "type"
+        ],
+        "type": "object"
+      },
       "Role": {
         "description": "A named set of permissions: a built-in base role, or one an app defines in roles/.",
         "properties": {
@@ -805,6 +1020,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Change"
+              },
+              {
+                "type": "null"
+              }
             ]
           },
           "created_at": {
@@ -1464,6 +1689,144 @@
         "summary": "Refresh",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/calendar": {
+      "get": {
+        "description": "The records whose planned window overlaps from..to (RFC 3339 times, at most 92 days apart), as the caller may see them, ordered by start, with the overlaps between them. Only changes have a planned window so far. truncated says more than 500 matched and only the first 500 are listed.",
+        "operationId": "listCalendar",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "from": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/CalendarEntry"
+                      },
+                      "type": "array"
+                    },
+                    "to": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "truncated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "items",
+                    "to",
+                    "truncated"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List calendar",
+        "tags": [
+          "calendar"
         ]
       }
     },
@@ -2795,7 +3158,7 @@
     },
     "/api/v1/permissions": {
       "get": {
-        "description": "Every permission the platform checks, for showing what a role allows.",
+        "description": "Every permission the platform checks, for showing what a role allows: the record permissions (records:\u003cverb\u003e:\u003ctype\u003e, for every type and for each registered one), then the rest.",
         "operationId": "listPermissions",
         "responses": {
           "200": {
@@ -2819,6 +3182,16 @@
             },
             "description": "OK"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
           "401": {
             "content": {
               "application/json": {
@@ -2828,6 +3201,56 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
           }
         },
         "security": [
@@ -2838,6 +3261,114 @@
         "summary": "List permissions",
         "tags": [
           "permissions"
+        ]
+      }
+    },
+    "/api/v1/record-types": {
+      "get": {
+        "description": "The record types in use, and which of them the caller may file, for the New ticket dialog.",
+        "operationId": "listRecordTypes",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/RecordType"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List record types",
+        "tags": [
+          "record-types"
         ]
       }
     },
@@ -3508,13 +4039,24 @@
         ]
       },
       "post": {
-        "description": "Staff may file on behalf of another requester; everyone else files as themselves.",
+        "description": "File a record of any type in use (GET /record-types says which the caller may). Anyone may file an incident; other types need records:create:\u003ctype\u003e, and naming another requester needs records:update:\u003ctype\u003e too.",
         "operationId": "createTicket",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
                 "properties": {
+                  "change": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/ChangeFields"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Fills in a change's own fields; only for type change."
+                  },
                   "description": {
                     "type": "string"
                   },
@@ -3533,6 +4075,10 @@
                     ]
                   },
                   "title": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "description": "The record type; incident when absent.",
                     "type": "string"
                   }
                 },
@@ -3742,7 +4288,7 @@
         ]
       },
       "patch": {
-        "description": "Fields that are absent are left alone; \"assignee_id\": null unassigns and \"assignment_group_id\": null takes the ticket out of its group. Moving a ticket to a group its assignee is not in also unassigns it; naming an assignee outside the group is refused.\n\nRequires the `tickets:update` permission.",
+        "description": "Fields that are absent are left alone; \"assignee_id\": null unassigns and \"assignment_group_id\": null takes the ticket out of its group. Moving a ticket to a group its assignee is not in also unassigns it; naming an assignee outside the group is refused.\n\nRequires the `records:update:\u003ctype\u003e` permission.",
         "operationId": "updateTicket",
         "parameters": [
           {
@@ -3772,6 +4318,17 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "change": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/ChangeFields"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "Edits a change's own fields; only for a change."
                   },
                   "description": {
                     "type": [
@@ -3897,7 +4454,7 @@
           "tickets"
         ],
         "x-permissions": [
-          "tickets:update"
+          "records:update:\u003ctype\u003e"
         ]
       }
     },
@@ -4144,7 +4701,7 @@
     },
     "/api/v1/tickets/{id}/transitions": {
       "post": {
-        "description": "With {\"to\": \"\u003cstatus\u003e\"}.\n\nRequires the `tickets:update` permission.",
+        "description": "With {\"to\": \"\u003cstatus\u003e\"}.\n\nRequires the `records:update:\u003ctype\u003e` permission.",
         "operationId": "transitionTicket",
         "parameters": [
           {
@@ -4263,7 +4820,7 @@
           "tickets"
         ],
         "x-permissions": [
-          "tickets:update"
+          "records:update:\u003ctype\u003e"
         ]
       }
     },
@@ -4541,8 +5098,17 @@
     },
     "/api/v1/users/staff": {
       "get": {
-        "description": "Active agents and admins, for assignee pickers.\n\nRequires the `users:read` permission.",
+        "description": "Everyone active who may be assigned a ticket of the type (records:update:\u003ctype\u003e), for assignee pickers; without a type, everyone who may work some type.\n\nRequires the `users:read` permission.",
         "operationId": "listStaff",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -5699,6 +6265,9 @@
       "name": "auth"
     },
     {
+      "name": "calendar"
+    },
+    {
       "name": "groups"
     },
     {
@@ -5712,6 +6281,9 @@
     },
     {
       "name": "permissions"
+    },
+    {
+      "name": "record-types"
     },
     {
       "name": "roles"

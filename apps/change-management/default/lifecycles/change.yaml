@@ -1,0 +1,62 @@
+# The change process. A change is drafted, assessed, authorized, scheduled into its window, implemented, reviewed and
+# closed; it can be cancelled until work starts.
+#
+# - A normal change is authorized by the change advisory board, an emergency one by the emergency board: entering
+#   Authorize starts the board's approval (rules/ask-the-board.yaml), and its decision moves the change on. That move
+#   is automatic: nobody authorizes a change by hand.
+# - A standard change is pre-approved, so it skips the board and is scheduled straight from Assess.
+#
+# Core code only understands each state's category, so states can be renamed or added, and guards changed, in local/.
+kind: lifecycle
+record_type: change
+initial: draft
+states:
+  draft:     { label: Draft,     category: open }
+  assess:    { label: Assess,    category: open }
+  authorize: { label: Authorize, category: waiting }
+  scheduled: { label: Scheduled, category: waiting }
+  implement: { label: Implement, category: open }
+  review:    { label: Review,    category: done }
+  closed:    { label: Closed,    category: closed }
+  cancelled: { label: Cancelled, category: closed }
+transitions:
+  - from: draft
+    to: assess
+    verb: Submit
+    primary: true
+    when: record.implementation_plan != "" && record.backout_plan != ""
+    error: Write the implementation and back-out plans before submitting.
+  - { from: draft, to: cancelled, verb: Cancel }
+
+  - from: assess
+    to: authorize
+    verb: Request authorization
+    primary: true
+    when: >-
+      record.change_type != "standard" && record.risk != "" && record.impact != "" &&
+      has(record.planned_start) && has(record.planned_end)
+    error: Rate the risk and impact and plan the window first. A standard change is scheduled without authorization.
+  - from: assess
+    to: scheduled
+    verb: Schedule
+    when: record.change_type == "standard" && has(record.planned_start) && has(record.planned_end)
+    error: Only a standard change is scheduled without authorization, and it needs a planned window.
+  - { from: assess, to: draft,     verb: Return to draft }
+  - { from: assess, to: cancelled, verb: Cancel }
+
+  - { from: authorize, to: scheduled, verb: Authorize, automatic: true }
+  - { from: authorize, to: assess,    verb: Withdraw }
+  - { from: authorize, to: cancelled, verb: Cancel }
+
+  - from: scheduled
+    to: implement
+    verb: Start implementing
+    primary: true
+    when: has(record.planned_start) && now >= record.planned_start
+    error: The planned window has not opened yet.
+  - { from: scheduled, to: assess,    verb: Reassess }
+  - { from: scheduled, to: cancelled, verb: Cancel }
+
+  - { from: implement, to: review,    verb: Finish, primary: true }
+  - { from: review,    to: closed,    verb: Close,  primary: true }
+  - { from: review,    to: implement, verb: Reopen }

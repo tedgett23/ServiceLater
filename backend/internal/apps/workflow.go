@@ -19,9 +19,12 @@ const (
 	StepCondition    = "condition"
 	StepWait         = "wait"
 	StepRecordUpdate = "record.update"
-	StepCommentAdd   = "comment.add"
-	StepApproval     = "approval"
-	StepEnd          = "end"
+	// StepRecordTransition moves the record to another status of its lifecycle, through the same checks as a
+	// person's move (the move must exist, its guard must agree); it may also make the moves marked automatic.
+	StepRecordTransition = "record.transition"
+	StepCommentAdd       = "comment.add"
+	StepApproval         = "approval"
+	StepEnd              = "end"
 
 	maxWorkflowSteps = 50
 	maxStepAssigns   = 20
@@ -38,7 +41,7 @@ const (
 
 var approvalRules = []string{RuleAny, RuleAll, RuleMajority}
 
-var stepTypes = []string{StepSet, StepCondition, StepWait, StepRecordUpdate, StepCommentAdd, StepApproval, StepEnd}
+var stepTypes = []string{StepSet, StepCondition, StepWait, StepRecordUpdate, StepRecordTransition, StepCommentAdd, StepApproval, StepEnd}
 
 var stepIDRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
 
@@ -68,6 +71,8 @@ type Step struct {
 	OnTimeout string `json:"on_timeout,omitempty"`
 
 	Set []NamedValue `json:"set,omitempty"` // record.update: field and value
+
+	To string `json:"to,omitempty"` // record.transition: the status to move to
 
 	Body     *Value `json:"body,omitempty"` // comment.add
 	Internal bool   `json:"internal,omitempty"`
@@ -117,6 +122,7 @@ type stepFile struct {
 	Timeout   string        `yaml:"timeout"`
 	OnTimeout string        `yaml:"on_timeout"`
 	Set       orderedValues `yaml:"set"`
+	To        string        `yaml:"to"`
 	Body      *Value        `yaml:"body"`
 	Internal  bool          `yaml:"internal"`
 	Approvers string        `yaml:"approvers"`
@@ -138,7 +144,7 @@ func (o *orderedSteps) UnmarshalYAML(n *yaml.Node) error {
 			return fmt.Errorf("step %q: %w", key.Value, err)
 		}
 		*o = append(*o, Step{ID: key.Value, Type: f.Type, Next: f.Next, Vars: f.Vars, If: f.If, Then: f.Then, Else: f.Else,
-			For: f.For, Until: f.Until, Timeout: f.Timeout, OnTimeout: f.OnTimeout, Set: f.Set, Body: f.Body, Internal: f.Internal,
+			For: f.For, Until: f.Until, Timeout: f.Timeout, OnTimeout: f.OnTimeout, Set: f.Set, To: f.To, Body: f.Body, Internal: f.Internal,
 			Approvers: f.Approvers, Rule: f.Rule})
 	}
 	return nil
@@ -286,11 +292,11 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 	unused := func(used ...string) {
 		all := map[string]bool{"next": s.Next != "", "vars": len(s.Vars) > 0, "if": s.If != "", "then": s.Then != "", "else": s.Else != "",
 			"for": s.For != "", "until": s.Until != "", "timeout": s.Timeout != "", "on_timeout": s.OnTimeout != "",
-			"set": len(s.Set) > 0, "body": s.Body != nil, "internal": s.Internal, "approvers": s.Approvers != "", "rule": s.Rule != ""}
+			"set": len(s.Set) > 0, "to": s.To != "", "body": s.Body != nil, "internal": s.Internal, "approvers": s.Approvers != "", "rule": s.Rule != ""}
 		for _, u := range used {
 			delete(all, u)
 		}
-		for _, name := range []string{"next", "vars", "if", "then", "else", "for", "until", "timeout", "on_timeout", "set", "body", "internal", "approvers", "rule"} {
+		for _, name := range []string{"next", "vars", "if", "then", "else", "for", "until", "timeout", "on_timeout", "set", "to", "body", "internal", "approvers", "rule"} {
 			forbid(name, all[name])
 		}
 	}
@@ -356,8 +362,8 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 			switch {
 			case !ok:
 				return []string{fmt.Sprintf("record.update cannot change %q (it can change: %s)", name, settableList())}
-			case name == "resolution" && w.RecordType != "incident":
-				return []string{"resolution notes belong to incidents, so a workflow that sets them must be for record_type incident"}
+			case ownerProblem(name, w.RecordType, "a workflow") != "":
+				return []string{ownerProblem(name, w.RecordType, "a workflow")}
 			}
 			return nil
 		})...)
@@ -365,6 +371,15 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 			if kind, ok := SettableFields[nv.Name]; ok && nv.Value != nil && nv.Value.Expr == "" {
 				out = append(out, literalProblems(nv.Name, kind, nv.Value.Literal)...)
 			}
+		}
+	case StepRecordTransition:
+		unused("next", "to")
+		target("next", s.Next, true)
+		switch {
+		case s.To == "":
+			add("record.transition needs to: the status to move to")
+		case !stateIDRE.MatchString(s.To):
+			add("to: %q is not a status id", s.To)
 		}
 	case StepCommentAdd:
 		unused("next", "body", "internal")
@@ -611,4 +626,30 @@ func workflowNames(m map[string]*Workflow) string {
 	}
 	slices.Sort(names)
 	return strings.Join(names, ", ")
+}
+
+// checkTransitionTargets checks what only the whole app can tell: a record.transition step in a workflow for a type
+// whose lifecycle the same app defines must name one of its states. A lifecycle from another app is checked when the
+// step runs, since it can change after this app is installed.
+func checkTransitionTargets(defs []Definition, p *Problems) {
+	lifecycles := map[string]*Lifecycle{}
+	for _, d := range defs {
+		if d.Lifecycle != nil {
+			lifecycles[d.Lifecycle.RecordType] = d.Lifecycle
+		}
+	}
+	for _, d := range defs {
+		if d.Workflow == nil {
+			continue
+		}
+		lc := lifecycles[d.Workflow.RecordType]
+		if lc == nil {
+			continue
+		}
+		for _, s := range d.Workflow.Steps {
+			if s.Type == StepRecordTransition && s.To != "" && !lc.HasState(s.To) {
+				p.add(d.File, "step %s: to: %q is not a status of this app's %s lifecycle", s.ID, s.To, lc.RecordType)
+			}
+		}
+	}
 }

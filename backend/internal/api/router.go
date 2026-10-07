@@ -101,6 +101,8 @@ func NewRouter(d Deps) http.Handler {
 				})
 			})
 			r.Get("/lifecycles/{recordType}", h.getLifecycle)
+			r.Get("/record-types", h.listRecordTypes)
+			r.Get("/calendar", h.listCalendar)
 
 			r.Route("/tickets", func(r chi.Router) {
 				r.Get("/", h.listTickets)
@@ -109,8 +111,8 @@ func NewRouter(d Deps) http.Handler {
 					r.Get("/", h.getTicket)
 					r.Get("/comments", h.listComments)
 					r.Post("/comments", h.createComment)
-					r.With(auth.RequirePermission(authz.TicketsUpdate)).Patch("/", h.updateTicket)
-					r.With(auth.RequirePermission(authz.TicketsUpdate)).Post("/transitions", h.transitionTicket)
+					r.With(auth.RequireRecordPermission(authz.Update)).Patch("/", h.updateTicket)
+					r.With(auth.RequireRecordPermission(authz.Update)).Post("/transitions", h.transitionTicket)
 				})
 			})
 			r.Route("/approvals", func(r chi.Router) {

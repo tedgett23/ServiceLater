@@ -127,7 +127,7 @@ func TestInstallNeedsItsDependencies(t *testing.T) {
 func TestDryRun(t *testing.T) {
 	scratch(t)
 	out, err := cli(t, "install", "-dry-run", firstParty("core-itsm"))
-	if err != nil || !strings.Contains(out, "dry run: nothing was changed") || !strings.Contains(out, "core-itsm 0.3.0 (new)") {
+	if err != nil || !strings.Contains(out, "dry run: nothing was changed") || !regexp.MustCompile(`core-itsm [0-9.]+ \(new\)`).MatchString(out) {
 		t.Fatalf("dry run: %v\n%s", err, out)
 	}
 	if out, _ := cli(t, "list"); !strings.Contains(out, "no apps installed") {
@@ -183,11 +183,11 @@ func TestOrderByDependenciesRejectsLoopsAndDuplicates(t *testing.T) {
 func TestSyncInstallsTheBundledApps(t *testing.T) {
 	scratch(t)
 	out, err := cli(t, "sync")
-	if err != nil || !strings.Contains(out, "core-itsm 0.3.0 (new)") || !strings.Contains(out, "incident-management 0.1.0 (new)") {
+	if err != nil || !regexp.MustCompile(`core-itsm [0-9.]+ \(new\)`).MatchString(out) || !strings.Contains(out, "incident-management 0.1.0 (new)") {
 		t.Fatalf("sync: %v\n%s", err, out)
 	}
 	out, _ = cli(t, "sync")
-	if strings.Count(out, "(no changes)") != 2 {
+	if strings.Count(out, "(no changes)") != 3 {
 		t.Errorf("a second sync should change nothing:\n%s", out)
 	}
 
@@ -204,7 +204,7 @@ func TestSyncInstallsTheBundledApps(t *testing.T) {
 func TestSyncDryRunWritesNothing(t *testing.T) {
 	scratch(t)
 	out, err := cli(t, "sync", "-dry-run")
-	if err != nil || !strings.Contains(out, "dry run: nothing was changed") || !strings.Contains(out, "core-itsm 0.3.0 (new)") {
+	if err != nil || !strings.Contains(out, "dry run: nothing was changed") || !regexp.MustCompile(`core-itsm [0-9.]+ \(new\)`).MatchString(out) {
 		t.Fatalf("dry run: %v\n%s", err, out)
 	}
 	if out, _ := cli(t, "list"); !strings.Contains(out, "no apps installed") {
@@ -254,7 +254,7 @@ func TestUninstallExplainsThatBundledAppsComeBack(t *testing.T) {
 		t.Errorf("want a note about SL_BUNDLED_APPS: %v\n%s", err, out)
 	}
 	t.Setenv("SL_BUNDLED_APPS", "none")
-	out, err = cli(t, "uninstall", "core-itsm")
+	out, err = cli(t, "uninstall", "change-management", "core-itsm")
 	if err != nil || strings.Contains(out, "installed again") {
 		t.Errorf("no note when the app is not bundled by config: %v\n%s", err, out)
 	}

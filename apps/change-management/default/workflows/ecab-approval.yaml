@@ -1,0 +1,70 @@
+# Asks the emergency change advisory board (everyone holding the ecab-member role) to authorize an emergency
+# change. One yes is enough; with no decision in four hours the change goes back to Assess. Started by
+# rules/ask-the-board.yaml.
+kind: workflow
+name: ecab-approval
+record_type: change
+start: board
+steps:
+  board:
+    type: condition
+    if: size(role('ecab-member')) > 0
+    then: ask
+    else: nobody
+  ask:
+    type: approval
+    approvers: role('ecab-member')
+    rule: any
+    timeout: 4h
+    on_timeout: expired
+    next: still_waiting
+  still_waiting:
+    type: condition
+    if: record.status == "authorize"
+    then: decided
+    else: done
+  decided:
+    type: condition
+    if: vars.ask_decision == "approved"
+    then: authorized
+    else: rejected
+  authorized:
+    type: record.transition
+    to: scheduled
+    next: say_authorized
+  say_authorized:
+    type: comment.add
+    body: '="Authorized by the emergency change advisory board." + (vars.ask_comment != "" ? " " + vars.ask_comment : "")'
+    next: done
+  rejected:
+    type: record.transition
+    to: assess
+    next: say_rejected
+  say_rejected:
+    type: comment.add
+    body: '="The emergency change advisory board did not authorize this change." + (vars.ask_comment != "" ? " " + vars.ask_comment : "")'
+    next: done
+  expired:
+    type: condition
+    if: record.status == "authorize"
+    then: send_back
+    else: done
+  send_back:
+    type: record.transition
+    to: assess
+    next: say_expired
+  say_expired:
+    type: comment.add
+    body: The emergency change advisory board did not decide within four hours, so the change is back in Assess.
+    next: done
+  nobody:
+    type: record.transition
+    to: assess
+    next: say_nobody
+  say_nobody:
+    type: comment.add
+    body: Nobody holds the emergency CAB member role, so nobody could authorize this change. Grant the role, then request authorization again.
+    internal: true
+    next: done
+  done:
+    type: end

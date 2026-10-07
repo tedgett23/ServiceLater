@@ -67,6 +67,21 @@ func RequirePermission(perms ...string) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireRecordPermission is the same pre-check for a record route, where the type is known only once the record is
+// loaded: the caller needs verb on some record type. The handler (records.Service) then checks the record's own type.
+func RequireRecordPermission(verb string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, ok := PrincipalFrom(r.Context())
+			if !ok || !p.Perms.CanRecordAny(verb) {
+				deny(w, http.StatusForbidden, "forbidden")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func deny(w http.ResponseWriter, code int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)

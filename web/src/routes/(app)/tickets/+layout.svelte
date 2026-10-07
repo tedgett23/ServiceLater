@@ -6,12 +6,12 @@
 	import Status from '$lib/components/Status.svelte';
 	import { age } from '$lib/format';
 	import { queue, type Filter } from '$lib/queue.svelte';
-	import { can, P } from '$lib/types';
+	import { canRecordAny, prefixOf, type Ticket } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let { data, children } = $props();
 
-	const staff = $derived(can(data.user, P.ticketsReadAll));
+	const staff = $derived(canRecordAny(data.user, 'read'));
 	const filters = $derived<{ id: Filter; label: string }[]>(
 		staff
 			? [
@@ -30,7 +30,11 @@
 	onMount(() => queue.start(data.user));
 
 	const detailOpen = $derived(!!page.params.id);
-	const isActive = (t: { id: string; number: number }) => page.params.id === String(t.number) || page.params.id === t.id;
+	// A bare number in the address is an incident's (links from before there were several types).
+	const isActive = (t: Ticket) =>
+		page.params.id?.toUpperCase() === t.reference ||
+		page.params.id === t.id ||
+		(t.type === 'incident' && page.params.id === String(t.number));
 
 	let searchBox: HTMLInputElement;
 	let timer: ReturnType<typeof setTimeout>;
@@ -55,7 +59,7 @@
 			if (!items.length) return;
 			const cur = items.findIndex(isActive);
 			const next = e.key === 'j' ? Math.min(items.length - 1, cur + 1) : Math.max(0, cur < 0 ? 0 : cur - 1);
-			void goto(`/tickets/${items[next].number}`, { keepFocus: true, noScroll: true });
+			void goto(`/tickets/${items[next].reference}`, { keepFocus: true, noScroll: true });
 			document.getElementById(`row-${items[next].id}`)?.scrollIntoView({ block: 'nearest' });
 		}
 	}
@@ -112,13 +116,13 @@
 			<ul>
 				{#each queue.items as t (t.id)}
 					<li>
-						<a id="row-{t.id}" class="row" class:active={isActive(t)} href="/tickets/{t.number}" aria-current={isActive(t) ? 'page' : undefined}>
+						<a id="row-{t.id}" class="row" class:active={isActive(t)} href="/tickets/{t.reference}" aria-current={isActive(t) ? 'page' : undefined}>
 							<Signal priority={t.priority} />
-							<span class="num">{t.number}</span>
+							<span class="num"><span class="prefix">{prefixOf(t)}</span>{t.number}</span>
 							<span class="title">{t.title}</span>
 							<time class="age" datetime={t.updated_at}>{age(t.updated_at)}</time>
 							<span class="sub">
-								<Status status={t.status} category={t.state_category} />
+								<Status status={t.status} category={t.state_category} type={t.type} />
 								<span class="who"><span class="sr-only">Requested by </span>{t.requester_name}</span>
 								{#if t.assignment_group_name}
 									<span class="group"><span class="sr-only">Group </span>{t.assignment_group_name}</span>
@@ -238,10 +242,17 @@
 	}
 	.num {
 		grid-area: num;
+		display: grid;
 		font: 700 1.3rem/1 var(--font-display);
 		color: var(--ink-2);
 		letter-spacing: 0.02em;
 		padding-top: 0.1rem;
+	}
+	/* The type is the small print above the number: INC over 42. */
+	.prefix {
+		font-size: 0.6rem;
+		letter-spacing: 0.08em;
+		font-weight: 800;
 	}
 	.title {
 		grid-area: title;

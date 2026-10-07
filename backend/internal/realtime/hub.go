@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db"
 )
 
@@ -46,12 +47,14 @@ type resyncEvent struct {
 // Notification payloads produced by the triggers in migrations 00003, 00005 and 00006.
 type ticketNote struct {
 	ID          uuid.UUID `json:"id"`
+	Type        string    `json:"type"`
 	Number      int64     `json:"number"`
 	RequesterID uuid.UUID `json:"requester_id"`
 }
 
 type commentNote struct {
 	TicketID    uuid.UUID  `json:"ticket_id"`
+	Type        string     `json:"type"`
 	Internal    bool       `json:"internal"`
 	RequesterID *uuid.UUID `json:"requester_id"`
 }
@@ -116,10 +119,10 @@ func (h *Hub) DefinitionsChanged() {
 	h.broadcast(mustJSON(resyncEvent{Type: "definitions.changed"}), func(*client) bool { return true })
 }
 
-// Routing mirrors the tasks_select policy: whoever has tickets:read_all sees every ticket, everyone else only their
-// own. It is only a routing hint; the data itself is always read through RLS.
-func visibleTo(c *client, requester uuid.UUID) bool {
-	return c.seesAll || c.userID == requester
+// Routing mirrors the tasks_select policy: whoever has records:read for the record's type (or every type) sees it,
+// everyone else only their own. It is only a routing hint; the data itself is always read through RLS.
+func visibleTo(c *client, recordType string, requester uuid.UUID) bool {
+	return c.perms.CanRecord(authz.Read, recordType) || c.userID == requester
 }
 
 func (h *Hub) onTicket(payload string) {
@@ -129,7 +132,7 @@ func (h *Hub) onTicket(payload string) {
 		return
 	}
 	h.broadcast(mustJSON(ticketEvent{Type: "ticket.changed", ID: n.ID, Number: n.Number}),
-		func(c *client) bool { return visibleTo(c, n.RequesterID) })
+		func(c *client) bool { return visibleTo(c, n.Type, n.RequesterID) })
 }
 
 func (h *Hub) onComment(payload string) {
@@ -142,7 +145,7 @@ func (h *Hub) onComment(payload string) {
 		if n.Internal && !c.internal {
 			return false // even the existence of an internal note is for those who may read them
 		}
-		return visibleTo(c, *n.RequesterID)
+		return visibleTo(c, n.Type, *n.RequesterID)
 	})
 }
 

@@ -10,10 +10,13 @@ SELECT id, email, name, role, created_at, deactivated_at, app_name FROM users WH
 -- name: CountUsers :one
 SELECT count(*) FROM users WHERE app_name IS NULL;
 
--- Who can be assigned a ticket: everyone active who may work tickets (tickets:update), whatever role gives it.
+-- Who can be assigned a ticket: everyone active who may work records of its type (records:update:<type>), whatever
+-- role gives it; with no type, everyone who may work some type.
 -- name: ListStaff :many
 SELECT id, email, name, role, created_at, deactivated_at, app_name FROM users
-WHERE deactivated_at IS NULL AND app_name IS NULL AND app_user_can(id, 'tickets:update')
+WHERE deactivated_at IS NULL AND app_name IS NULL
+  AND (CASE WHEN sqlc.narg('record_type')::text IS NULL THEN app_user_can_record_any(id, 'update')
+            ELSE app_user_can_record(id, 'update', sqlc.narg('record_type')) END)
 ORDER BY name;
 
 -- The directory, for pickers such as group membership. q matches a name or email. Deactivated people are left out
@@ -60,6 +63,9 @@ SELECT app_permissions_of(sqlc.arg('user_id')::uuid)::text[] AS permissions;
 -- What the transaction's own person may do, as app_begin loaded it.
 -- name: CurrentPermissions :one
 SELECT coalesce(current_setting('app.permissions', true), '')::text AS permissions;
+
+-- name: UserCanRecord :one
+SELECT app_user_can_record(sqlc.arg('user_id')::uuid, sqlc.arg('verb')::text, sqlc.arg('record_type')::text)::bool AS can;
 
 -- name: UserCan :one
 SELECT app_user_can(sqlc.arg('user_id')::uuid, sqlc.arg('permission')::text)::bool AS can;

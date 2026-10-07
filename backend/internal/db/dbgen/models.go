@@ -46,6 +46,19 @@ type AppDefinition struct {
 	Source    string             `json:"source"`
 }
 
+type Change struct {
+	TaskID             uuid.UUID          `json:"task_id"`
+	Type               string             `json:"type"`
+	ChangeType         string             `json:"change_type"`
+	Risk               string             `json:"risk"`
+	Impact             string             `json:"impact"`
+	PlannedStart       pgtype.Timestamptz `json:"planned_start"`
+	PlannedEnd         pgtype.Timestamptz `json:"planned_end"`
+	ImplementationPlan string             `json:"implementation_plan"`
+	BackoutPlan        string             `json:"backout_plan"`
+	TestPlan           string             `json:"test_plan"`
+}
+
 type Group struct {
 	ID          uuid.UUID          `json:"id"`
 	Name        string             `json:"name"`
@@ -157,9 +170,10 @@ type TaskComment struct {
 }
 
 type TaskType struct {
-	Type   string `json:"type"`
-	Prefix string `json:"prefix"`
-	Label  string `json:"label"`
+	Type          string `json:"type"`
+	Prefix        string `json:"prefix"`
+	Label         string `json:"label"`
+	AnyoneMayFile bool   `json:"anyone_may_file"`
 }
 
 type User struct {

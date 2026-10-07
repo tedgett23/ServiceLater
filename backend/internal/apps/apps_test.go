@@ -54,7 +54,7 @@ ServiceLater_min_version: 0.1.0
 dependencies:
   - core-itsm: ">=0.1.0"
 permissions:
-  - tickets:read_all
+  - records:read:*
 config:
   - { key: token, label: API token, type: secret }
 `
@@ -139,7 +139,7 @@ func TestCompileRejectsBadApps(t *testing.T) {
 		{"typo in a field", withManifest("author:", "authr:"), "field authr not found"},
 		{"bad dependency constraint", withManifest(">=0.1.0", "soon"), "dependency core-itsm"},
 		{"self dependency", withManifest("core-itsm:", "demo-app:"), "cannot depend on itself"},
-		{"bad permission", withManifest("tickets:read_all", "everything"), "permission \"everything\" is not one the platform knows"},
+		{"bad permission", withManifest("records:read:*", "everything"), "\"everything\" is not a permission"},
 		{"bad config type", withManifest("type: secret", "type: blob"), "type must be string, secret, bool or int"},
 		{"unknown record type", withLifecycle("record_type: incident", "record_type: widget"), "record_type \"widget\""},
 		{"initial is not a state", withLifecycle("initial: new", "initial: nowhere"), "initial state \"nowhere\""},
@@ -150,6 +150,7 @@ func TestCompileRejectsBadApps(t *testing.T) {
 		{"unreachable state", withLifecycle("- { from: new,    to: active, verb: Start, primary: true }\n", ""), "can never be reached"},
 		{"duplicate transition", withLifecycle("  - { from: active, to: done,   verb: Finish }", "  - { from: active, to: done,   verb: Finish }\n  - { from: active, to: done,   verb: Again }"), "listed twice"},
 		{"two primaries", withLifecycle("verb: Finish", "verb: Finish, primary: true }\n  - { from: active, to: new, verb: Back, primary: true"), "more than one primary"},
+		{"a primary move made only by the process", withLifecycle("verb: Finish", "verb: Finish, primary: true, automatic: true"), "is automatic, so it is never offered"},
 		{"a guard with a typo", withLifecycle("verb: Finish", "verb: Finish, when: 'record.prioity > 1', error: Nope"), "when: column"},
 		{"a guard that is not true or false", withLifecycle("verb: Finish", "verb: Finish, when: 'record.priority + 1', error: Nope"), "must produce true or false"},
 		{"a guard comparing with null", withLifecycle("verb: Finish", "verb: Finish, when: 'record.assignee_id != null', error: Nope"), "do not compare with null"},

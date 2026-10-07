@@ -10,14 +10,14 @@
 	import { session } from '$lib/session.svelte';
 	import { ui } from '$lib/ui.svelte';
 	import NewTicket from '$lib/components/NewTicket.svelte';
-	import { can, canAdmin, P } from '$lib/types';
+	import { can, canAdmin, canRecord, canRecordAny, P } from '$lib/types';
 
 	let { children } = $props();
 	let bell = $state<HTMLDetailsElement>();
 
 	// Anyone can be named an approver, not only staff, so this loads regardless of role; the nav link below only
 	// shows up when there is actually something for this person to do.
-	let showSections = $derived(can(session.user, P.ticketsReadAll) || canAdmin(session.user) || approvals.items.length > 0);
+	let showSections = $derived(canRecordAny(session.user, 'read') || canAdmin(session.user) || approvals.items.length > 0);
 
 	function openNotification(id: string) {
 		void notifications.markRead(id);
@@ -47,8 +47,11 @@
 </script>
 
 {#snippet sections()}
-	{#if can(session.user, P.ticketsReadAll)}
+	{#if canRecordAny(session.user, 'read')}
 		<a href="/tickets" aria-current={page.url.pathname.startsWith('/tickets') ? 'page' : undefined}>Tickets</a>
+	{/if}
+	{#if canRecord(session.user, 'read', 'change') && lifecycle.types.some((t) => t.type === 'change')}
+		<a href="/calendar" aria-current={page.url.pathname.startsWith('/calendar') ? 'page' : undefined}>Calendar</a>
 	{/if}
 	{#if can(session.user, P.workflowsReadAll)}
 		<a href="/runs" aria-current={page.url.pathname.startsWith('/runs') ? 'page' : undefined}>Runs</a>

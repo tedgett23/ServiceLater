@@ -3,7 +3,7 @@
 //
 // It reads, from internal/api:
 //   - the routes, from the chi calls in NewRouter (Route, Group, Use, With and the method calls), and who may call
-//     them, from the Authenticate and auth.RequirePermission middleware around them;
+//     them, from the Authenticate, auth.RequirePermission and auth.RequireRecordPermission middleware around them;
 //   - each handler's doc comment, as the operation's description;
 //   - the request body, from the value passed to decode(w, r, &req);
 //   - query parameters, from url.Values.Get calls, and path parameters, from the route pattern;
@@ -312,6 +312,12 @@ func (g *gen) middleware(e ast.Expr, sc *scope) {
 				if s, err := g.stringLit(a); err == nil {
 					sc.permissions = append(sc.permissions, s)
 				}
+			}
+		}
+		// A record permission depends on the record's type, which is known only once it is loaded.
+		if sel, ok := m.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "RequireRecordPermission" && len(m.Args) == 1 {
+			if verb, err := g.stringLit(m.Args[0]); err == nil {
+				sc.permissions = []string{"records:" + verb + ":<type>"}
 			}
 		}
 	}

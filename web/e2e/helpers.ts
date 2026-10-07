@@ -34,7 +34,7 @@ export async function freshLogin(browser: Browser, who: Who) {
 /** Creates a ticket through the API as the user this context is signed in as. */
 export async function createTicket(
 	context: BrowserContext,
-	data: { title: string; description?: string; priority?: number; requester_id?: string }
+	data: { type?: string; title: string; description?: string; priority?: number; requester_id?: string; change?: Record<string, unknown> }
 ): Promise<Ticket> {
 	const res = await context.request.post('/api/v1/tickets', { data });
 	expect(res.status(), 'create ticket').toBe(201);
@@ -50,10 +50,10 @@ export async function api(context: BrowserContext, method: 'post' | 'patch', pat
 /** The queue row for a ticket, found by its (unique) title. */
 export const row = (page: Page, title: string) => page.locator('a.row', { hasText: title });
 
-/** Opens a ticket and waits for it to render. */
-export async function openTicket(page: Page, number: number) {
-	await page.goto(`/tickets/${number}`);
-	await expect(page.locator('.stub')).toContainText(String(number));
+/** Opens a ticket (by number, which means an incident, or by reference) and waits for it to render. */
+export async function openTicket(page: Page, ref: number | string) {
+	await page.goto(`/tickets/${ref}`);
+	await expect(page.locator('.stub')).toContainText(String(ref).replace(/^[A-Z]+/, ''));
 }
 
 /** The comment box. Staff also have a resolution notes box on an incident, so `getByRole('textbox')` is ambiguous. */

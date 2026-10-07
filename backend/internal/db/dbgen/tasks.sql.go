@@ -12,6 +12,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createChange = `-- name: CreateChange :exec
+INSERT INTO changes (task_id) VALUES ($1)
+`
+
+// The extension row for a change, with its defaults; the save writes what was filed into it after.
+func (q *Queries) CreateChange(ctx context.Context, taskID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, createChange, taskID)
+	return err
+}
+
 const createComment = `-- name: CreateComment :one
 INSERT INTO task_comments (task_id, author_id, body, internal)
 VALUES ($1, $2, $3, $4)
@@ -248,25 +258,53 @@ func (q *Queries) GetTaskForUpdate(ctx context.Context, id uuid.UUID) (Task, err
 	return i, err
 }
 
+const getTaskType = `-- name: GetTaskType :one
+SELECT type, prefix, label, anyone_may_file FROM task_types WHERE type = $1
+`
+
+func (q *Queries) GetTaskType(ctx context.Context, type_ string) (TaskType, error) {
+	row := q.db.QueryRow(ctx, getTaskType, type_)
+	var i TaskType
+	err := row.Scan(
+		&i.Type,
+		&i.Prefix,
+		&i.Label,
+		&i.AnyoneMayFile,
+	)
+	return i, err
+}
+
 const getTicketView = `-- name: GetTicketView :one
 SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
-       g.name AS assignment_group_name, COALESCE(i.resolution, '')::text AS resolution
+       g.name AS assignment_group_name, COALESCE(i.resolution, '')::text AS resolution,
+       c.change_type, COALESCE(c.risk, '')::text AS risk, COALESCE(c.impact, '')::text AS impact,
+       c.planned_start, c.planned_end, COALESCE(c.implementation_plan, '')::text AS implementation_plan,
+       COALESCE(c.backout_plan, '')::text AS backout_plan, COALESCE(c.test_plan, '')::text AS test_plan
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 JOIN users r ON r.id = t.requester_id
 LEFT JOIN users a ON a.id = t.assignee_id
 LEFT JOIN groups g ON g.id = t.assignment_group_id
 LEFT JOIN incidents i ON i.task_id = t.id
+LEFT JOIN changes c ON c.task_id = t.id
 WHERE t.id = $1
 `
 
 type GetTicketViewRow struct {
-	Task                Task        `json:"task"`
-	TypePrefix          string      `json:"type_prefix"`
-	RequesterName       string      `json:"requester_name"`
-	AssigneeName        pgtype.Text `json:"assignee_name"`
-	AssignmentGroupName pgtype.Text `json:"assignment_group_name"`
-	Resolution          string      `json:"resolution"`
+	Task                Task               `json:"task"`
+	TypePrefix          string             `json:"type_prefix"`
+	RequesterName       string             `json:"requester_name"`
+	AssigneeName        pgtype.Text        `json:"assignee_name"`
+	AssignmentGroupName pgtype.Text        `json:"assignment_group_name"`
+	Resolution          string             `json:"resolution"`
+	ChangeType          pgtype.Text        `json:"change_type"`
+	Risk                string             `json:"risk"`
+	Impact              string             `json:"impact"`
+	PlannedStart        pgtype.Timestamptz `json:"planned_start"`
+	PlannedEnd          pgtype.Timestamptz `json:"planned_end"`
+	ImplementationPlan  string             `json:"implementation_plan"`
+	BackoutPlan         string             `json:"backout_plan"`
+	TestPlan            string             `json:"test_plan"`
 }
 
 // A ticket as clients see it: the task, display names, the type's prefix, and the type's own columns. Plain joins,
@@ -293,6 +331,14 @@ func (q *Queries) GetTicketView(ctx context.Context, id uuid.UUID) (GetTicketVie
 		&i.AssigneeName,
 		&i.AssignmentGroupName,
 		&i.Resolution,
+		&i.ChangeType,
+		&i.Risk,
+		&i.Impact,
+		&i.PlannedStart,
+		&i.PlannedEnd,
+		&i.ImplementationPlan,
+		&i.BackoutPlan,
+		&i.TestPlan,
 	)
 	return i, err
 }
@@ -340,10 +386,82 @@ func (q *Queries) ListComments(ctx context.Context, taskID uuid.UUID) ([]ListCom
 	return items, nil
 }
 
-const listTaskTypes = `-- name: ListTaskTypes :many
-SELECT type, prefix, label FROM task_types ORDER BY type
+const listPlannedWindows = `-- name: ListPlannedWindows :many
+SELECT t.id, t.type, t.number, tt.prefix AS type_prefix, t.title, t.status, t.state_category, t.priority,
+       a.name AS assignee_name, c.change_type, c.risk,
+       c.planned_start::timestamptz AS planned_start, c.planned_end::timestamptz AS planned_end
+FROM changes c
+JOIN tasks t ON t.id = c.task_id
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN users a ON a.id = t.assignee_id
+WHERE c.planned_start IS NOT NULL AND c.planned_end IS NOT NULL
+  AND c.planned_start < $1::timestamptz AND c.planned_end > $2::timestamptz
+ORDER BY c.planned_start, t.number
+LIMIT 501
 `
 
+type ListPlannedWindowsParams struct {
+	To   pgtype.Timestamptz `json:"to"`
+	From pgtype.Timestamptz `json:"from"`
+}
+
+type ListPlannedWindowsRow struct {
+	ID            uuid.UUID          `json:"id"`
+	Type          string             `json:"type"`
+	Number        int64              `json:"number"`
+	TypePrefix    string             `json:"type_prefix"`
+	Title         string             `json:"title"`
+	Status        string             `json:"status"`
+	StateCategory string             `json:"state_category"`
+	Priority      int16              `json:"priority"`
+	AssigneeName  pgtype.Text        `json:"assignee_name"`
+	ChangeType    string             `json:"change_type"`
+	Risk          string             `json:"risk"`
+	PlannedStart  pgtype.Timestamptz `json:"planned_start"`
+	PlannedEnd    pgtype.Timestamptz `json:"planned_end"`
+}
+
+// The calendar: records whose planned window overlaps [from, to), as the caller may see them (RLS on tasks). Only
+// changes have a window so far. Ordered by start, so overlaps are found in one pass.
+func (q *Queries) ListPlannedWindows(ctx context.Context, arg ListPlannedWindowsParams) ([]ListPlannedWindowsRow, error) {
+	rows, err := q.db.Query(ctx, listPlannedWindows, arg.To, arg.From)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListPlannedWindowsRow
+	for rows.Next() {
+		var i ListPlannedWindowsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Type,
+			&i.Number,
+			&i.TypePrefix,
+			&i.Title,
+			&i.Status,
+			&i.StateCategory,
+			&i.Priority,
+			&i.AssigneeName,
+			&i.ChangeType,
+			&i.Risk,
+			&i.PlannedStart,
+			&i.PlannedEnd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTaskTypes = `-- name: ListTaskTypes :many
+SELECT type, prefix, label, anyone_may_file FROM task_types ORDER BY anyone_may_file DESC, type
+`
+
+// Types open to everyone (incidents) first: the New ticket dialog starts on the first one the person may file.
 func (q *Queries) ListTaskTypes(ctx context.Context) ([]TaskType, error) {
 	rows, err := q.db.Query(ctx, listTaskTypes)
 	if err != nil {
@@ -353,7 +471,12 @@ func (q *Queries) ListTaskTypes(ctx context.Context) ([]TaskType, error) {
 	var items []TaskType
 	for rows.Next() {
 		var i TaskType
-		if err := rows.Scan(&i.Type, &i.Prefix, &i.Label); err != nil {
+		if err := rows.Scan(
+			&i.Type,
+			&i.Prefix,
+			&i.Label,
+			&i.AnyoneMayFile,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -463,6 +586,42 @@ func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]Lis
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateChange = `-- name: UpdateChange :exec
+UPDATE changes SET change_type = $1, risk = $2, impact = $3,
+    planned_start = $4, planned_end = $5,
+    implementation_plan = $6, backout_plan = $7,
+    test_plan = $8
+WHERE task_id = $9
+`
+
+type UpdateChangeParams struct {
+	ChangeType         string             `json:"change_type"`
+	Risk               string             `json:"risk"`
+	Impact             string             `json:"impact"`
+	PlannedStart       pgtype.Timestamptz `json:"planned_start"`
+	PlannedEnd         pgtype.Timestamptz `json:"planned_end"`
+	ImplementationPlan string             `json:"implementation_plan"`
+	BackoutPlan        string             `json:"backout_plan"`
+	TestPlan           string             `json:"test_plan"`
+	TaskID             uuid.UUID          `json:"task_id"`
+}
+
+// The whole change row: the save works out what changed and writes the result.
+func (q *Queries) UpdateChange(ctx context.Context, arg UpdateChangeParams) error {
+	_, err := q.db.Exec(ctx, updateChange,
+		arg.ChangeType,
+		arg.Risk,
+		arg.Impact,
+		arg.PlannedStart,
+		arg.PlannedEnd,
+		arg.ImplementationPlan,
+		arg.BackoutPlan,
+		arg.TestPlan,
+		arg.TaskID,
+	)
+	return err
 }
 
 const updateIncident = `-- name: UpdateIncident :exec

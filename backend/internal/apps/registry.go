@@ -229,6 +229,13 @@ func (r *Registry) Lifecycle(recordType string) *Lifecycle {
 	return FallbackLifecycle(recordType)
 }
 
+// Provides reports whether an installed app defines this record type's own lifecycle: the type is in use, so people
+// can file records of it. A type that only inherits the task lifecycle is registered but not offered.
+func (r *Registry) Provides(recordType string) bool {
+	_, ok := r.snap.Load().lifecycles[recordType]
+	return ok && recordType != "task"
+}
+
 // Apps lists the installed apps as of the last load.
 func (r *Registry) Apps() []Installed { return r.snap.Load().apps }
 

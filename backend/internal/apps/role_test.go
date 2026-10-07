@@ -11,7 +11,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/dbtest"
 )
 
-const auditor = "kind: role\nname: auditor\nlabel: Auditor\npermissions: [tickets:read_all, users:read]\n"
+const auditor = "kind: role\nname: auditor\nlabel: Auditor\npermissions: [records:read:*, users:read]\n"
 
 func roleApp(t *testing.T, name, version string, roles map[string]string) *apps.Compiled {
 	t.Helper()
@@ -40,6 +40,9 @@ func TestRoleMistakesFailTheInstall(t *testing.T) {
 	cases := []struct{ name, src, want string }{
 		{"built-in name", "kind: role\nname: admin\nlabel: A\npermissions: [users:read]\n", "built-in role"},
 		{"unknown permission", "kind: role\nname: odd\nlabel: Odd\npermissions: [tickets:fly]\n", `"tickets:fly" is not a permission`},
+		{"unknown record type", "kind: role\nname: odd\nlabel: Odd\npermissions: [records:read:spaceship]\n", `names the record type "spaceship"`},
+		{"the base type", "kind: role\nname: odd\nlabel: Odd\npermissions: [records:read:task]\n", `names the record type "task"`},
+		{"unknown verb", "kind: role\nname: odd\nlabel: Odd\npermissions: [records:fly:change]\n", "with the verbs read, create, update, delete"},
 		{"twice", "kind: role\nname: odd\nlabel: Odd\npermissions: [users:read, users:read]\n", "listed twice"},
 		{"no label", "kind: role\nname: odd\npermissions: [users:read]\n", "label is required"},
 		{"no permissions", "kind: role\nname: odd\nlabel: Odd\n", "permissions is required"},
@@ -66,7 +69,7 @@ func TestInstallKeepsTheRolesTableInStep(t *testing.T) {
 	if _, err := apps.Install(ctx, pool, roleApp(t, "audit", "1.0.0", map[string]string{"auditor.yaml": auditor}), apps.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if app, perms, ok := roleRow(t, pool, "auditor"); !ok || app != "audit" || strings.Join(perms, ",") != "tickets:read_all,users:read" {
+	if app, perms, ok := roleRow(t, pool, "auditor"); !ok || app != "audit" || strings.Join(perms, ",") != "records:read:*,users:read" {
 		t.Fatalf("installed: %v %v %v", app, perms, ok)
 	}
 	var group string

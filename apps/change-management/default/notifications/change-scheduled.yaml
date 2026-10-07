@@ -1,0 +1,5 @@
+kind: notification
+name: change-scheduled
+title: "{{record.reference}} is scheduled"
+body: "{{record.title}}"
+channels: [in_app]

@@ -1,0 +1,13 @@
+# Tell the requester and the assignee when a change is scheduled: authorized by a board, or a standard change put in
+# its window. Nobody is told about their own move.
+kind: rule
+name: notify-scheduled
+record_type: change
+timing: after
+on: [update]
+when: record.status == "scheduled" && old.status != "scheduled"
+on_error: skip
+run:
+  - action: notify
+    template: change-scheduled
+    to: [requester, assignee]

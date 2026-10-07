@@ -1,6 +1,6 @@
 import { api } from './api';
 import type { Ticket, TicketPage, User } from './types';
-import { can, P } from './types';
+import { canRecordAny } from './types';
 
 export type Filter = 'mine' | 'groups' | 'unassigned' | 'open' | 'all';
 
@@ -31,7 +31,7 @@ class Queue {
 		if (this.started) return;
 		this.started = true;
 		const saved = remembered();
-		const staff = can(user, P.ticketsReadAll);
+		const staff = canRecordAny(user, 'read');
 		const allowed: Filter[] = staff ? ['mine', 'groups', 'unassigned', 'open', 'all'] : ['open', 'all'];
 		this.filter = saved && allowed.includes(saved) ? saved : staff ? 'mine' : 'open';
 		void this.load();

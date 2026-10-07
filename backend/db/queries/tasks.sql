@@ -13,6 +13,10 @@ RETURNING *;
 -- name: CreateIncident :exec
 INSERT INTO incidents (task_id) VALUES ($1);
 
+-- The extension row for a change, with its defaults; the save writes what was filed into it after.
+-- name: CreateChange :exec
+INSERT INTO changes (task_id) VALUES ($1);
+
 -- name: GetTask :one
 SELECT * FROM tasks WHERE id = $1;
 
@@ -26,20 +30,28 @@ SELECT * FROM tasks WHERE type = $1 AND number = $2;
 -- name: GetTaskForUpdate :one
 SELECT * FROM tasks WHERE id = $1 FOR UPDATE;
 
+-- Types open to everyone (incidents) first: the New ticket dialog starts on the first one the person may file.
 -- name: ListTaskTypes :many
-SELECT * FROM task_types ORDER BY type;
+SELECT * FROM task_types ORDER BY anyone_may_file DESC, type;
+
+-- name: GetTaskType :one
+SELECT * FROM task_types WHERE type = $1;
 
 -- A ticket as clients see it: the task, display names, the type's prefix, and the type's own columns. Plain joins,
 -- not a view: views run with their owner's rights and skip RLS. Each type with an extension table adds one LEFT JOIN.
 -- name: GetTicketView :one
 SELECT sqlc.embed(t), tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
-       g.name AS assignment_group_name, COALESCE(i.resolution, '')::text AS resolution
+       g.name AS assignment_group_name, COALESCE(i.resolution, '')::text AS resolution,
+       c.change_type, COALESCE(c.risk, '')::text AS risk, COALESCE(c.impact, '')::text AS impact,
+       c.planned_start, c.planned_end, COALESCE(c.implementation_plan, '')::text AS implementation_plan,
+       COALESCE(c.backout_plan, '')::text AS backout_plan, COALESCE(c.test_plan, '')::text AS test_plan
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 JOIN users r ON r.id = t.requester_id
 LEFT JOIN users a ON a.id = t.assignee_id
 LEFT JOIN groups g ON g.id = t.assignment_group_id
 LEFT JOIN incidents i ON i.task_id = t.id
+LEFT JOIN changes c ON c.task_id = t.id
 WHERE t.id = $1;
 
 -- The queue works on tasks alone, whatever their type, so it never needs the extension tables.
@@ -80,6 +92,14 @@ RETURNING *;
 -- name: UpdateIncident :exec
 UPDATE incidents SET resolution = sqlc.arg('resolution') WHERE task_id = sqlc.arg('task_id');
 
+-- The whole change row: the save works out what changed and writes the result.
+-- name: UpdateChange :exec
+UPDATE changes SET change_type = sqlc.arg('change_type'), risk = sqlc.arg('risk'), impact = sqlc.arg('impact'),
+    planned_start = sqlc.narg('planned_start'), planned_end = sqlc.narg('planned_end'),
+    implementation_plan = sqlc.arg('implementation_plan'), backout_plan = sqlc.arg('backout_plan'),
+    test_plan = sqlc.arg('test_plan')
+WHERE task_id = sqlc.arg('task_id');
+
 -- name: UpdateTaskStatus :one
 UPDATE tasks SET status = $2, state_category = $3 WHERE id = $1 RETURNING *;
 
@@ -98,3 +118,18 @@ SELECT sqlc.embed(c), u.name AS author_name, b.name AS on_behalf_of_name
 FROM task_comments c JOIN users u ON u.id = c.author_id LEFT JOIN users b ON b.id = c.on_behalf_of
 WHERE c.task_id = $1
 ORDER BY c.created_at, c.id;
+
+-- The calendar: records whose planned window overlaps [from, to), as the caller may see them (RLS on tasks). Only
+-- changes have a window so far. Ordered by start, so overlaps are found in one pass.
+-- name: ListPlannedWindows :many
+SELECT t.id, t.type, t.number, tt.prefix AS type_prefix, t.title, t.status, t.state_category, t.priority,
+       a.name AS assignee_name, c.change_type, c.risk,
+       c.planned_start::timestamptz AS planned_start, c.planned_end::timestamptz AS planned_end
+FROM changes c
+JOIN tasks t ON t.id = c.task_id
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN users a ON a.id = t.assignee_id
+WHERE c.planned_start IS NOT NULL AND c.planned_end IS NOT NULL
+  AND c.planned_start < sqlc.arg('to')::timestamptz AND c.planned_end > sqlc.arg('from')::timestamptz
+ORDER BY c.planned_start, t.number
+LIMIT 501;

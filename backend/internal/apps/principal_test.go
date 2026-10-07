@@ -27,17 +27,17 @@ func TestNewPermissionsNeedApproval(t *testing.T) {
 	pool := dbtest.Pool(t)
 	ctx := context.Background()
 	runAs := "kind: rule\nname: note\nrecord_type: task\ntiming: after\non: [update]\nrun_as: app\nrun:\n  - action: comment.add\n    body: hi\n"
-	v1 := permApp(t, "1.0.0", "[tickets:read_all]", runAs)
+	v1 := permApp(t, "1.0.0", "[records:read:*]", runAs)
 
 	_, err := apps.Install(ctx, pool, v1, apps.InstallOptions{})
-	if err == nil || !strings.Contains(err.Error(), "asks for permissions it does not have yet: tickets:read_all") {
+	if err == nil || !strings.Contains(err.Error(), "asks for permissions it does not have yet: records:read:*") {
 		t.Fatalf("want a refusal, got %v", err)
 	}
 	plan, err := apps.Install(ctx, pool, v1, apps.InstallOptions{DryRun: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"permits    tickets:read_all", "new        tickets:read_all (needs approval)", "run_as     rule note acts as the app"} {
+	for _, want := range []string{"permits    records:read:*", "new        records:read:* (needs approval)", "run_as     rule note acts as the app"} {
 		if !strings.Contains(plan.String(), want) {
 			t.Errorf("plan lacks %q:\n%s", want, plan)
 		}
@@ -49,11 +49,11 @@ func TestNewPermissionsNeedApproval(t *testing.T) {
 		t.Errorf("the app's principal: %d", n)
 	}
 	// The same permissions again need nothing; one more needs approving again; fewer do not.
-	if _, err := apps.Install(ctx, pool, permApp(t, "1.0.1", "[tickets:read_all]", runAs), apps.InstallOptions{}); err != nil {
+	if _, err := apps.Install(ctx, pool, permApp(t, "1.0.1", "[records:read:*]", runAs), apps.InstallOptions{}); err != nil {
 		t.Errorf("an upgrade asking for nothing new: %v", err)
 	}
-	if _, err := apps.Install(ctx, pool, permApp(t, "1.1.0", "[tickets:read_all, tickets:update]", runAs), apps.InstallOptions{}); err == nil ||
-		!strings.Contains(err.Error(), "tickets:update") || strings.Contains(err.Error(), "tickets:read_all,") {
+	if _, err := apps.Install(ctx, pool, permApp(t, "1.1.0", "[records:read:*, records:update:*]", runAs), apps.InstallOptions{}); err == nil ||
+		!strings.Contains(err.Error(), "records:update:*") || strings.Contains(err.Error(), "records:read:*,") {
 		t.Errorf("an upgrade asking for more: %v", err)
 	}
 	if _, err := apps.Install(ctx, pool, permApp(t, "1.2.0", "[]", runAs), apps.InstallOptions{}); err != nil {

@@ -1,8 +1,8 @@
 kind: role
 name: cab-member
 label: CAB member
-description: "Sits on the change advisory board: sees tickets and their internal notes, and is asked to approve changes by workflows that use approvers: role('cab-member'). Approving needs no permission of its own."
+description: "Sits on the change advisory board: sees changes and their internal notes, and is asked to approve them by workflows that use approvers: role('cab-member'). Approving needs no permission of its own."
 permissions:
-  - tickets:read_all
+  - records:read:change
   - comments:internal
   - workflows:read_all

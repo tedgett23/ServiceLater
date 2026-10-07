@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
@@ -51,11 +53,20 @@ type userDetailDTO struct {
 	Roles  []heldRoleDTO `json:"roles"`
 }
 
-// GET /users/staff (staff): active agents and admins, for assignee pickers.
+// GET /users/staff?type= (staff): everyone active who may be assigned a ticket of the type (records:update:<type>),
+// for assignee pickers; without a type, everyone who may work some type.
 func (h *handlers) listStaff(w http.ResponseWriter, r *http.Request) {
+	var recordType pgtype.Text
+	if t := r.URL.Query().Get("type"); t != "" {
+		if t == "task" || !slices.Contains(apps.KnownRecordTypes, t) {
+			writeError(w, http.StatusBadRequest, "unknown type")
+			return
+		}
+		recordType = pgtype.Text{String: t, Valid: true}
+	}
 	var out []personDTO
 	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
-		rows, err := q.ListStaff(r.Context())
+		rows, err := q.ListStaff(r.Context(), recordType)
 		out = make([]personDTO, len(rows))
 		for i, u := range rows {
 			out[i] = toPerson(u)

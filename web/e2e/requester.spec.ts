@@ -57,7 +57,7 @@ test.describe('a requester', () => {
 		const title = `Printer jam ${uid()}`;
 		await page.goto('/tickets');
 		await page.getByRole('button', { name: 'New ticket' }).click();
-		await page.getByLabel('What’s wrong?').fill(title);
+		await page.getByLabel('Summary').fill(title);
 		await page.getByRole('button', { name: 'Create ticket' }).click();
 
 		await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);

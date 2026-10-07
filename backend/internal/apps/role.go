@@ -1,6 +1,7 @@
 package apps
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -68,14 +69,33 @@ func (r *Role) validate(file string, p *Problems) {
 	}
 	seen := map[string]bool{}
 	for _, perm := range r.Permissions {
-		switch {
-		case !authz.Known(perm):
-			p.add(file, "permissions: %q is not a permission (available: %s)", perm, permissionNames())
-		case seen[perm]:
+		if msg := checkPermission(perm); msg != "" {
+			p.add(file, "permissions: %s", msg)
+		} else if seen[perm] {
 			p.add(file, "permissions: %q is listed twice", perm)
 		}
 		seen[perm] = true
 	}
+}
+
+// checkPermission says what is wrong with a permission an app names, or "" when it is one the platform checks. A
+// record permission must name a record type this version provides (task is the base, not a type you can hold
+// records of), or * for every type.
+func checkPermission(perm string) string {
+	if _, typ, ok := authz.ParseRecord(perm); ok {
+		if typ != authz.AllTypes && (typ == "task" || !slices.Contains(KnownRecordTypes, typ)) {
+			return fmt.Sprintf("%q names the record type %q, which this version does not provide (available: %s, or * for every type)",
+				perm, typ, strings.Join(slices.DeleteFunc(slices.Clone(KnownRecordTypes), func(s string) bool { return s == "task" }), ", "))
+		}
+		return ""
+	}
+	if strings.HasPrefix(perm, "records:") {
+		return fmt.Sprintf("%q is not a record permission: they are records:<verb>:<type>, with the verbs %s", perm, strings.Join(authz.Verbs, ", "))
+	}
+	if !authz.Known(perm) {
+		return fmt.Sprintf("%q is not a permission (available: %s, and records:<verb>:<type>)", perm, permissionNames())
+	}
+	return ""
 }
 
 func permissionNames() string {

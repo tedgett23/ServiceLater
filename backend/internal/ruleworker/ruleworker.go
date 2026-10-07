@@ -76,9 +76,13 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 				return err
 			}
 			// Locked before it is read, so what the rule sees is what its update is applied to. Only an app that may
-			// edit tickets can lock one under RLS; any other's run reads it plainly and any update it asks for is
-			// refused by the save.
-			if actor.Can(authz.TicketsUpdate) {
+			// edit tickets of this type can lock one under RLS; any other's run reads it plainly and any update it
+			// asks for is refused by the save.
+			task, err := q.GetTask(ctx, p.RecordID)
+			if err != nil {
+				return err
+			}
+			if actor.CanRecord(authz.Update, task.Type) {
 				if _, err := q.GetTaskForUpdate(ctx, p.RecordID); err != nil {
 					return err
 				}
@@ -131,7 +135,7 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 		case err == nil:
 			return done(ruleruns.OK, "", nil)
 		case errors.Is(err, pgx.ErrNoRows):
-			return done(ruleruns.Skipped, "the ticket no longer exists, or the app may not see it (its manifest lacks tickets:read_all)", nil)
+			return done(ruleruns.Skipped, "the ticket no longer exists, or the app may not see it (its manifest lacks records:read for the type)", nil)
 		case errors.As(err, &pe) && pe.Code == "42501":
 			return done(ruleruns.Failed, "the app is not allowed to do what the rule does: add the permission to its manifest", jobs.Permanent(err))
 		case errors.As(err, &re):

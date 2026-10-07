@@ -18,7 +18,7 @@ test('an admin grants a role from the admin section, and it changes what that pe
 	await expect(admin.page.getByRole('link', { name: /Ticket viewer/ })).toContainText('auditors. · from core-itsm');
 	await admin.page.getByRole('link', { name: /Ticket viewer/ }).click();
 	await expect(admin.page.getByRole('heading', { name: 'Ticket viewer' })).toBeVisible();
-	await expect(admin.page.locator('.perms')).toContainText('tickets:read_all');
+	await expect(admin.page.locator('.perms')).toContainText('records:read:*');
 	try {
 		await admin.page.getByLabel('Grant to someone').fill('Marcus');
 		await admin.page.getByRole('button', { name: `Grant to ${USERS.marcus.name}` }).click();
@@ -33,7 +33,7 @@ test('an admin grants a role from the admin section, and it changes what that pe
 
 		// His own page lists it; revoking it there takes it away.
 		const me = (await (await marcus.context.request.get('/api/v1/auth/me')).json()) as { id: string; permissions: string[] };
-		expect(me.permissions).toContain('tickets:read_all');
+		expect(me.permissions).toContain('records:read:*');
 		await admin.page.goto(`/admin/users/${me.id}`);
 		await admin.page.getByRole('button', { name: 'Revoke Ticket viewer' }).click();
 		await expect(admin.page.getByText('No other roles.')).toBeVisible();

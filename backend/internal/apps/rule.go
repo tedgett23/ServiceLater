@@ -37,10 +37,32 @@ const (
 
 var ruleNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
 
-// SettableFields are the fields a before rule may set, and the type each takes.
+// SettableFields are the fields rules and workflows may set, and the type each takes.
 var SettableFields = map[string]string{
 	"title": "text", "description": "text", "priority": "number", "assignee_id": "text", "resolution": "text",
-	"assignment_group": "text",
+	"assignment_group": "text", "risk": "text", "impact": "text",
+}
+
+// FieldOwners are the settable fields that live in one record type's own table, so only rules and workflows for
+// that type may set them.
+var FieldOwners = map[string]string{"resolution": "incident", "risk": "change", "impact": "change"}
+
+// FieldValues are the values an enumerated field accepts. The database checks the same lists.
+var FieldValues = map[string][]string{"risk": Levels, "impact": Levels, "change_type": ChangeTypes}
+
+// Levels rate a change's risk and impact; empty means not assessed yet.
+var Levels = []string{"", "low", "medium", "high"}
+
+// ChangeTypes are the kinds of change: standard ones are pre-approved, normal ones go to the change advisory board,
+// emergency ones to a smaller board, fast.
+var ChangeTypes = []string{"standard", "normal", "emergency"}
+
+// ownerProblem says why a definition for recordType may not set field, or "".
+func ownerProblem(field, recordType, what string) string {
+	if owner := FieldOwners[field]; owner != "" && recordType != owner {
+		return fmt.Sprintf("%s belongs to %s records, so %s that sets it must be for record_type %s", field, owner, what, owner)
+	}
+	return ""
 }
 
 // Value is written in YAML as a literal (`5`, `"text"`, `true`) or, with a leading `=`, as an expression
@@ -328,8 +350,8 @@ func (a *Action) structureProblems(r *Rule, _ int) (out []string) {
 			add("%s needs a field", a.Action)
 		case !ok:
 			add("%s cannot change %q (it can change: %s)", a.Action, a.Field, settableList())
-		case a.Field == "resolution" && r.RecordType != "incident":
-			add("resolution notes belong to incidents, so a rule that sets them must be for record_type incident")
+		case ownerProblem(a.Field, r.RecordType, "a rule") != "":
+			add("%s", ownerProblem(a.Field, r.RecordType, "a rule"))
 		}
 		if a.Value == nil {
 			add("%s needs a value", a.Action)
@@ -395,6 +417,14 @@ func (a *Action) structureProblems(r *Rule, _ int) (out []string) {
 	return out
 }
 
+func quoteAll(values []string) string {
+	q := make([]string, len(values))
+	for i, v := range values {
+		q[i] = strconv.Quote(v)
+	}
+	return strings.Join(q, ", ")
+}
+
 func settableList() string {
 	names := make([]string, 0, len(SettableFields))
 	for n := range SettableFields {
@@ -421,6 +451,8 @@ func literalProblems(field, kind string, lit any) (out []string) {
 			out = append(out, fmt.Sprintf("%s takes text", field))
 		case field == "title" && (strings.TrimSpace(s) == "" || len(s) > 200):
 			out = append(out, "title must be 1 to 200 characters")
+		case FieldValues[field] != nil && !slices.Contains(FieldValues[field], s):
+			out = append(out, fmt.Sprintf("%s must be one of %s", field, quoteAll(FieldValues[field])))
 		case len(s) > 10000:
 			out = append(out, fmt.Sprintf("%s is too long", field))
 		}

@@ -1,0 +1,8 @@
+kind: role
+name: ecab-member
+label: Emergency CAB member
+description: "Sits on the emergency change advisory board: sees changes and their internal notes, and is asked to approve emergency changes, which need one yes within four hours. Approving needs no permission of its own."
+permissions:
+  - records:read:change
+  - comments:internal
+  - workflows:read_all

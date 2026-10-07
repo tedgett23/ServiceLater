@@ -19,7 +19,7 @@ export function servicelater(...args: string[]) {
 
 /** What test apps may do as their own principal (async rules, workflows): see, edit and annotate tickets. Installing
  * them approves it, as an operator would after reviewing the plan. */
-export const APP_PERMISSIONS = 'permissions: [tickets:read_all, tickets:update, comments:internal]\n';
+export const APP_PERMISSIONS = 'permissions: [records:read:*, records:update:*, comments:internal]\n';
 
 /** Installs an app from a folder, approving the permissions it asks for. */
 export const installApp = (dir: string) => servicelater('install', '-approve-permissions', dir);

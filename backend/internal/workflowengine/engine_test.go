@@ -72,7 +72,7 @@ func setup(t *testing.T) *world {
 // see, edit and write internal notes on tickets.
 func (w *world) install(t *testing.T, name string, workflows, rules map[string]string) {
 	t.Helper()
-	w.installWith(t, name, "[tickets:read_all, tickets:update, comments:internal]", workflows, rules)
+	w.installWith(t, name, "[records:read:*, records:update:*, comments:internal]", workflows, rules)
 }
 
 // installWith is install with the app's own manifest permissions.
@@ -554,7 +554,7 @@ func TestStepsRunWithTheAppsPermissions(t *testing.T) {
 		"up":  wf("up", "a", "  a:\n    type: record.update\n    set: { priority: 1 }\n    next: b\n  b:\n    type: end\n"),
 		"int": wf("int", "a", "  a:\n    type: comment.add\n    body: private\n    internal: true\n    next: b\n  b:\n    type: end\n")}
 	w.install(t, "house", steps, nil)
-	w.installWith(t, "meek", "[tickets:read_all]", steps, nil)
+	w.installWith(t, "meek", "[records:read:*]", steps, nil)
 
 	for _, app := range []string{"meek", "house"} { // meek first: once house has set the priority, there is nothing to save
 		for _, flow := range []string{"up", "int"} {
@@ -566,7 +566,7 @@ func TestStepsRunWithTheAppsPermissions(t *testing.T) {
 			switch {
 			case app == "house" && ex.Status != workflow.Done:
 				t.Errorf("%s/%s, which may: %s %q", app, flow, ex.Status, ex.Error)
-			case app == "meek" && (ex.Status != workflow.Failed || !strings.Contains(ex.Error, "meek app") && !strings.Contains(ex.Error, "tickets:update")):
+			case app == "meek" && (ex.Status != workflow.Failed || !strings.Contains(ex.Error, "meek app") && !strings.Contains(ex.Error, "records:update:incident")):
 				t.Errorf("%s/%s, which may not: %s %q", app, flow, ex.Status, ex.Error)
 			}
 		}
@@ -669,7 +669,7 @@ func TestARuleStartsAWorkflowInTheSameTransaction(t *testing.T) {
 				return err
 			}
 			tk, err = w.svc.Create(context.Background(), dbgen.New(tx), actor, ruleruns.Cause{},
-				records.CreateInput{Title: title, Priority: &prio})
+				records.CreateInput{Type: "incident", Title: title, Priority: &prio})
 			return err
 		})
 		return tk, err
@@ -765,4 +765,40 @@ func TestTheTimerLoopQueuesDueExecutions(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("the timer never woke the execution")
+}
+
+// record.transition moves the record through the one save path, as the app for the person: a move the lifecycle
+// has goes through, and a move it does not have fails the run with the reason, leaving the record alone.
+func TestATransitionStepMovesTheRecordThroughItsLifecycle(t *testing.T) {
+	w := setup(t)
+	w.install(t, "house", map[string]string{
+		"start":   wf("start", "go", "  go:\n    type: record.transition\n    to: in_progress\n    next: done\n  done:\n    type: end\n"),
+		"nowhere": wf("nowhere", "go", "  go:\n    type: record.transition\n    to: archived\n    next: done\n  done:\n    type: end\n"),
+	}, nil)
+	status := func() (s string) {
+		t.Helper()
+		if err := w.pool.QueryRow(context.Background(), `SELECT status FROM tasks WHERE id = $1`, w.ticket).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+
+	id := w.start(t, "house", "start", w.requester) // an end user's change can set it off; the app makes the move
+	if err := w.run(id); err != nil {
+		t.Fatal(err)
+	}
+	if ex := w.execution(t, id); ex.Status != workflow.Done || status() != "in_progress" {
+		t.Fatalf("moved: %s %q, status %s", ex.Status, ex.Error, status())
+	}
+
+	id = w.start(t, "house", "nowhere", w.agent)
+	if err := w.run(id); err != nil {
+		t.Fatal(err)
+	}
+	if ex := w.execution(t, id); ex.Status != workflow.Failed || !strings.Contains(ex.Error, "the move to archived was refused: unknown status") {
+		t.Errorf("refused: %s %q", ex.Status, ex.Error)
+	}
+	if status() != "in_progress" {
+		t.Errorf("a refused move changed the status to %s", status())
+	}
 }

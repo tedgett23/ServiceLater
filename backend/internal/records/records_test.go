@@ -16,6 +16,9 @@ func TestExprRecordSetsEveryField(t *testing.T) {
 	r := records.Ticket{
 		ID: id, Type: "incident", Number: 4, Reference: "INC4", Title: "t", Description: "d", Status: "new", StateCategory: "open",
 		Priority: 2, RequesterID: other, Requester: "R", AssigneeID: &other, Assignee: &name, AssignmentGroupID: &other, AssignmentGroup: &name, CreatedAt: now, UpdatedAt: now, Resolution: "fixed",
+		// No real ticket has both an incident's and a change's own fields; this one has, so every field is checked.
+		Change: &records.Change{ChangeType: "normal", Risk: "low", Impact: "high", PlannedStart: &now, PlannedEnd: &now,
+			ImplementationPlan: "i", BackoutPlan: "b", TestPlan: "t"},
 	}.ExprRecord()
 	v := reflect.ValueOf(*r)
 	for i := 0; i < v.NumField(); i++ {

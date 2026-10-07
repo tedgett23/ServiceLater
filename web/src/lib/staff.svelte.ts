@@ -1,19 +1,24 @@
 import { api } from './api';
 import type { User } from './types';
 
-/** Agents and admins, for the assignee picker. Loaded once, on first use. */
+/** Who may be assigned a ticket of each type (records:update:<type>), for the assignee picker. Loaded once per type. */
 class Staff {
-	list = $state<User[]>([]);
-	private requested = false;
+	byType = $state<Record<string, User[]>>({});
+	private requested = new Set<string>();
 
-	async ensure() {
-		if (this.requested) return;
-		this.requested = true;
+	async ensure(type: string) {
+		if (this.requested.has(type)) return;
+		this.requested.add(type);
 		try {
-			this.list = (await api<{ items: User[] }>('/api/v1/users/staff')).items;
+			const items = (await api<{ items: User[] }>(`/api/v1/users/staff?type=${encodeURIComponent(type)}`)).items;
+			this.byType = { ...this.byType, [type]: items };
 		} catch {
-			this.requested = false; // try again next time
+			this.requested.delete(type); // try again next time
 		}
+	}
+
+	of(type: string): User[] {
+		return this.byType[type] ?? [];
 	}
 }
 

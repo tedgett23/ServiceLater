@@ -1,0 +1,13 @@
+# Tell the requester and the assignee when a change goes back to Assess from later on: a board said no or did not
+# decide, or someone reassessed a scheduled change.
+kind: rule
+name: notify-sent-back
+record_type: change
+timing: after
+on: [update]
+when: record.status == "assess" && old.status in ["authorize", "scheduled"]
+on_error: skip
+run:
+  - action: notify
+    template: change-sent-back
+    to: [requester, assignee]

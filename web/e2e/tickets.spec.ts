@@ -12,7 +12,7 @@ test.describe('an agent working the queue', () => {
 		await page.keyboard.press('c');
 		const dialog = page.getByRole('dialog', { name: 'New ticket' });
 		await expect(dialog).toBeVisible();
-		await dialog.getByLabel('What’s wrong?').fill(title);
+		await dialog.getByLabel('Summary').fill(title);
 		await dialog.getByLabel('Details').fill('Black screen after the update.');
 		await dialog.getByLabel('Priority').selectOption('High');
 		await dialog.getByRole('button', { name: 'Create ticket' }).click();
@@ -135,9 +135,9 @@ test.describe('an agent working the queue', () => {
 
 		await openTicket(page, b.number); // newest first, so b is above a
 		await page.keyboard.press('j');
-		await expect(page).toHaveURL(new RegExp(`/tickets/${a.number}$`));
+		await expect(page).toHaveURL(new RegExp(`/tickets/${a.reference}$`));
 		await page.keyboard.press('k');
-		await expect(page).toHaveURL(new RegExp(`/tickets/${b.number}$`));
+		await expect(page).toHaveURL(new RegExp(`/tickets/${b.reference}$`));
 
 		await page.keyboard.press('/');
 		await expect(page.getByLabel('Search ticket titles')).toBeFocused();

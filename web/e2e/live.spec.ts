@@ -52,7 +52,7 @@ test.describe('live updates', () => {
 
 		await lena.page.goto('/tickets');
 		await lena.page.getByRole('button', { name: 'New ticket' }).click();
-		await lena.page.getByLabel('What’s wrong?').fill(title);
+		await lena.page.getByLabel('Summary').fill(title);
 		await lena.page.getByRole('button', { name: 'Create ticket' }).click();
 
 		await expect(row(agent.page, title)).toBeVisible();

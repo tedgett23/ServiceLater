@@ -56,6 +56,17 @@ type Record struct {
 	// Resolution is an incident's own column. It reads as empty for types that have none, so a guard written for
 	// `task` never fails to evaluate: the record is flat, whichever table a field lives in.
 	Resolution string `cel:"resolution"`
+	// A change's own columns, empty for other types. change_type is standard, normal or emergency; risk and impact
+	// are low, medium, high or "" (not assessed). The planned window is a zero time until it is set, so test it with
+	// has(record.planned_start).
+	ChangeType         string    `cel:"change_type"`
+	Risk               string    `cel:"risk"`
+	Impact             string    `cel:"impact"`
+	PlannedStart       time.Time `cel:"planned_start"`
+	PlannedEnd         time.Time `cel:"planned_end"`
+	ImplementationPlan string    `cel:"implementation_plan"`
+	BackoutPlan        string    `cel:"backout_plan"`
+	TestPlan           string    `cel:"test_plan"`
 }
 
 // User is what an expression sees as `user`: the person acting.

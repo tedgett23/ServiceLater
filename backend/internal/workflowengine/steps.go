@@ -39,7 +39,7 @@ func (e *Engine) run(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExe
 		t, err := records.Load(ctx, q, ex.RecordID.UUID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			if ex.RunAs.Valid {
-				return outcome{}, failf("the ticket no longer exists, or the %s app may not see it (its manifest needs tickets:read_all)", ex.App)
+				return outcome{}, failf("the ticket no longer exists, or the %s app may not see it (its manifest needs records:read for the type)", ex.App)
 			}
 			return outcome{}, failf("the ticket no longer exists, or %s can no longer see it", user.Name)
 		}
@@ -75,6 +75,11 @@ func (e *Engine) run(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExe
 			return out, failf("record.update needs a ticket, and this execution has none")
 		}
 		return e.doUpdate(ctx, q, ex, st, in, *ticket, out)
+	case apps.StepRecordTransition:
+		if ticket == nil {
+			return out, failf("record.transition needs a ticket, and this execution has none")
+		}
+		return e.doTransition(ctx, q, ex, st, *ticket, out)
 	case apps.StepCommentAdd:
 		if ticket == nil {
 			return out, failf("comment.add needs a ticket, and this execution has none")
@@ -200,6 +205,40 @@ func (e *Engine) doWait(ctx context.Context, ex dbgen.WorkflowExecution, st *app
 	return out, nil
 }
 
+// doTransition moves the record through records.Service.Transition, as the workflow runs (the app, for the person),
+// so the move must exist and its guard must agree, exactly as for a person; automatic moves are allowed here.
+func (e *Engine) doTransition(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExecution, st *apps.Step, t records.Ticket, out outcome) (outcome, error) {
+	out.detail["from"], out.detail["to"] = t.Status, st.To
+	if t.Status == st.To {
+		return out, nil // already there: a retry after the move committed, or someone moved it first
+	}
+	var cause ruleruns.Cause
+	_ = json.Unmarshal(ex.Cause, &cause)
+	user, err := q.GetUser(ctx, ex.StartedBy)
+	if err != nil {
+		return out, err
+	}
+	runner := ex.StartedBy
+	if ex.RunAs.Valid {
+		runner = ex.RunAs.UUID
+	}
+	actor, err := records.ActorIn(ctx, q, runner)
+	if err != nil {
+		return out, err
+	}
+	if _, err := e.Svc.Transition(ctx, q, actor, cause, t.ID, st.To); err != nil {
+		var re *records.Error
+		if errors.As(err, &re) {
+			return out, failf("the move to %s was refused: %s", st.To, re.Msg)
+		}
+		if isForbidden(err) {
+			return out, failf("the %s app is not allowed to move this ticket for %s: add the permission it needs to its manifest", ex.App, user.Name)
+		}
+		return out, err
+	}
+	return out, nil
+}
+
 func (e *Engine) doUpdate(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExecution, st *apps.Step, in expr.Input, t records.Ticket, out outcome) (outcome, error) {
 	// Evaluated into a copy of the record, in order, so a later field can use an earlier one; then saved as one edit.
 	rec := *in.Record
@@ -270,6 +309,10 @@ func assign(rec *expr.Record, field string, x any) error {
 		rec.Description = s
 	case "resolution":
 		rec.Resolution = s
+	case "risk":
+		rec.Risk = s
+	case "impact":
+		rec.Impact = s
 	case "assignee_id":
 		if s == "" {
 			rec.AssigneeID, rec.AssigneeName = nil, nil
@@ -301,6 +344,8 @@ func changed(p records.Patch) []string {
 	add("assignee_id", p.SetAssignee)
 	add("assignment_group", p.SetAssignmentGroup)
 	add("resolution", p.Resolution != nil)
+	add("risk", p.Change != nil && p.Change.Risk != nil)
+	add("impact", p.Change != nil && p.Change.Impact != nil)
 	return out
 }
 

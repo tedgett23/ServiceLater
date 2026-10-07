@@ -19,7 +19,7 @@ import (
 // installApp installs (or replaces) an app made only of rules, keyed by file name, and reloads the registry.
 func (w *world) installApp(t *testing.T, name string, rules map[string]string) {
 	t.Helper()
-	w.installAppWith(t, name, "[tickets:read_all, tickets:update, comments:internal]", rules)
+	w.installAppWith(t, name, "[records:read:*, records:update:*, comments:internal]", rules)
 }
 
 // installAppWith is installApp with the app's own manifest permissions.
@@ -149,12 +149,12 @@ func TestBeforeRulesJudgeARulesUpdate(t *testing.T) {
 func TestARequestersChangeCanSetOffAnAppsUpdate(t *testing.T) {
 	w := setup(t, "")
 	bump := map[string]string{"up": asyncRule("bump", "update", "run:\n  - action: record.update\n    field: priority\n    value: 1\n")}
-	w.installAppWith(t, "meek", "[tickets:read_all]", bump)
+	w.installAppWith(t, "meek", "[records:read:*]", bump)
 	err := w.runJob(w.jobFor("meek", "bump", w.agent, ruleruns.Cause{}))
 	if !jobs.IsPermanent(err) || w.row(t).Priority != 3 {
 		t.Fatalf("an app that may not edit tickets, set off by an agent: %v", err)
 	}
-	if a := w.audit(t); len(a) < 1 || a[0].Outcome != ruleruns.Failed || !strings.Contains(a[0].Detail, "tickets:update") {
+	if a := w.audit(t); len(a) < 1 || a[0].Outcome != ruleruns.Failed || !strings.Contains(a[0].Detail, "records:update:incident") {
 		t.Errorf("audit: %+v", a)
 	}
 

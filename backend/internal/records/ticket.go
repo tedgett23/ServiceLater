@@ -6,6 +6,7 @@ package records
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/expr"
 )
@@ -22,6 +24,7 @@ const (
 	MaxDescription = 10000
 	MaxResolution  = 10000
 	MaxComment     = 10000
+	MaxPlan        = 10000
 )
 
 // Ticket is a ticket as clients see it: the task, display names, the type's prefix and the type's own columns.
@@ -48,6 +51,55 @@ type Ticket struct {
 	UpdatedAt         time.Time  `json:"updated_at"`
 	// Resolution is how an incident was fixed. It lives in the incident's own table; other types have none.
 	Resolution string `json:"resolution"`
+	// Change is a change's own fields; absent for other types.
+	Change *Change `json:"change,omitempty"`
+}
+
+// Change is what a change record has beyond the base: its kind, assessment, planned window and plans.
+type Change struct {
+	// ChangeType is standard (pre-approved), normal (goes to the change advisory board) or emergency.
+	ChangeType string `json:"change_type"`
+	// Risk and Impact are low, medium or high; empty until assessed.
+	Risk   string `json:"risk"`
+	Impact string `json:"impact"`
+	// PlannedStart and PlannedEnd are the window the change is done in; the end is after the start.
+	PlannedStart       *time.Time `json:"planned_start"`
+	PlannedEnd         *time.Time `json:"planned_end"`
+	ImplementationPlan string     `json:"implementation_plan"`
+	BackoutPlan        string     `json:"backout_plan"`
+	TestPlan           string     `json:"test_plan"`
+}
+
+func (c *Change) clone() *Change {
+	if c == nil {
+		return nil
+	}
+	out := *c
+	return &out
+}
+
+func sameChange(a, b *Change) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.ChangeType == b.ChangeType && a.Risk == b.Risk && a.Impact == b.Impact &&
+		sameTime(a.PlannedStart, b.PlannedStart) && sameTime(a.PlannedEnd, b.PlannedEnd) &&
+		a.ImplementationPlan == b.ImplementationPlan && a.BackoutPlan == b.BackoutPlan && a.TestPlan == b.TestPlan
+}
+
+func sameTime(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
+}
+
+func timePtr(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	v := t.Time
+	return &v
 }
 
 // FromParts builds a ticket from a task row and the names around it.
@@ -79,7 +131,13 @@ func Load(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (Ticket, error) {
 	if err != nil {
 		return Ticket{}, err
 	}
-	return FromParts(v.Task, v.TypePrefix, v.RequesterName, v.AssigneeName, v.AssignmentGroupName, v.Resolution), nil
+	t := FromParts(v.Task, v.TypePrefix, v.RequesterName, v.AssigneeName, v.AssignmentGroupName, v.Resolution)
+	if v.ChangeType.Valid {
+		t.Change = &Change{ChangeType: v.ChangeType.String, Risk: v.Risk, Impact: v.Impact,
+			PlannedStart: timePtr(v.PlannedStart), PlannedEnd: timePtr(v.PlannedEnd),
+			ImplementationPlan: v.ImplementationPlan, BackoutPlan: v.BackoutPlan, TestPlan: v.TestPlan}
+	}
+	return t, nil
 }
 
 // ExprRecord is the ticket as expressions see it. It is the only converter: a field added to expr.Record is filled
@@ -100,7 +158,34 @@ func (d Ticket) ExprRecord() *expr.Record {
 		id := d.AssignmentGroupID.String()
 		r.AssignmentGroupID = &id
 	}
+	if c := d.Change; c != nil {
+		r.ChangeType, r.Risk, r.Impact = c.ChangeType, c.Risk, c.Impact
+		r.ImplementationPlan, r.BackoutPlan, r.TestPlan = c.ImplementationPlan, c.BackoutPlan, c.TestPlan
+		if c.PlannedStart != nil {
+			r.PlannedStart = *c.PlannedStart
+		}
+		if c.PlannedEnd != nil {
+			r.PlannedEnd = *c.PlannedEnd
+		}
+	}
 	return r
+}
+
+// validChange checks a change's fields as a person or a rule left them.
+func validChange(c *Change) error {
+	switch {
+	case !slices.Contains(apps.ChangeTypes, c.ChangeType):
+		return Invalid("change_type must be standard, normal or emergency")
+	case !slices.Contains(apps.Levels, c.Risk):
+		return Invalid("risk must be low, medium or high (or empty: not assessed)")
+	case !slices.Contains(apps.Levels, c.Impact):
+		return Invalid("impact must be low, medium or high (or empty: not assessed)")
+	case c.PlannedStart != nil && c.PlannedEnd != nil && !c.PlannedEnd.After(*c.PlannedStart):
+		return Invalid("the planned end must be after the planned start")
+	case len(c.ImplementationPlan) > MaxPlan || len(c.BackoutPlan) > MaxPlan || len(c.TestPlan) > MaxPlan:
+		return Invalid("a plan is too long")
+	}
+	return nil
 }
 
 func validTitle(s string) error {

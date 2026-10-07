@@ -22,7 +22,7 @@ import (
 // installFlows installs an app of workflows and rules on top of the first-party apps and reloads the registry.
 func installFlows(t *testing.T, pool *pgxpool.Pool, reg *apps.Registry, workflows, rules map[string]string) {
 	t.Helper()
-	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-flows\nversion: 1.0.0\nauthor: t\ndescription: \"Flows.\"\npermissions: [tickets:read_all, tickets:update, comments:internal]\n")}
+	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-flows\nversion: 1.0.0\nauthor: t\ndescription: \"Flows.\"\npermissions: [records:read:*, records:update:*, comments:internal]\n")}
 	for name, src := range workflows {
 		files["default/workflows/"+name+".yaml"] = []byte(src)
 	}
@@ -194,7 +194,12 @@ func TestOnlyStaffSeeAndDriveRuns(t *testing.T) {
 	ws := decodeBody[struct {
 		Items []struct{ App, Name, RecordType string } `json:"items"`
 	}](t, agent.do(h, "GET", "/api/v1/workflows", ""))
-	if len(ws.Items) != 1 || ws.Items[0].App != "house-flows" || ws.Items[0].Name != "nap" {
+	// The test app's workflow is listed among the first-party ones (change-management ships its boards).
+	found := false
+	for _, x := range ws.Items {
+		found = found || (x.App == "house-flows" && x.Name == "nap")
+	}
+	if !found {
 		t.Errorf("workflows: %+v", ws)
 	}
 }

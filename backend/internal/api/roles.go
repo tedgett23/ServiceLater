@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -67,9 +68,22 @@ func nullID(id uuid.NullUUID) *uuid.UUID {
 	return &v
 }
 
-// GET /permissions: every permission the platform checks, for showing what a role allows.
-func (h *handlers) listPermissions(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"items": authz.Catalog})
+// GET /permissions: every permission the platform checks, for showing what a role allows: the record permissions
+// (records:<verb>:<type>, for every type and for each registered one), then the rest.
+func (h *handlers) listPermissions(w http.ResponseWriter, r *http.Request) {
+	var items []authz.Permission
+	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+		rows, err := q.ListTaskTypes(r.Context())
+		types, labels := make([]string, len(rows)), map[string]string{}
+		for i, t := range rows {
+			types[i], labels[t.Type] = t.Type, strings.ToLower(t.Label)
+		}
+		items = append(authz.RecordCatalog(types, labels), authz.Catalog...)
+		return err
+	}) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 // GET /roles: every role, the built-in base roles first.

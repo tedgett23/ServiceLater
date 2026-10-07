@@ -19,9 +19,9 @@ type moveDTO struct {
 	Blocked string `json:"blocked,omitempty"` // why it is not available at the moment
 }
 
-// movesFor lists the moves offered on a ticket. Only staff can move tickets, so everyone else gets none.
+// movesFor lists the moves offered on a ticket. Only those who may work its type can move it; everyone else gets none.
 func (h *handlers) movesFor(ctx context.Context, q *dbgen.Queries, p auth.Principal, cur ticketDTO) []moveDTO {
-	if !p.Can(authz.TicketsUpdate) {
+	if !p.Perms.CanRecord(authz.Update, cur.Type) {
 		return nil
 	}
 	lc := h.lifecycleFor(cur.Type)
@@ -37,6 +37,9 @@ func (h *handlers) movesFor(ctx context.Context, q *dbgen.Queries, p auth.Princi
 	loaded := false
 	var out []moveDTO
 	for _, t := range lc.TransitionsFrom(cur.Status) {
+		if t.Automatic {
+			continue // the process makes this move, not a person
+		}
 		m := moveDTO{To: t.To, Verb: t.Verb, Primary: t.Primary}
 		if t.When != "" {
 			if !loaded { // the acting user is only needed when some move here has a guard

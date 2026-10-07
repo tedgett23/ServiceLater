@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
 	import { priorityLabel } from '$lib/format';
+	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { queue } from '$lib/queue.svelte';
 	import type { Ticket } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
@@ -10,6 +11,9 @@
 	let title = $state('');
 	let description = $state('');
 	let priority = $state<1 | 2 | 3 | 4>(3);
+	// Which kind of record to file. The choice is offered only when the person may file more than one type.
+	let chosen = $state('');
+	const kind = $derived(lifecycle.fileable.some((t) => t.type === chosen) ? chosen : (lifecycle.fileable[0]?.type ?? 'incident'));
 	let busy = $state(false);
 	let error = $state('');
 
@@ -20,7 +24,7 @@
 	});
 
 	function reset() {
-		title = description = error = '';
+		title = description = error = chosen = '';
 		priority = 3;
 	}
 
@@ -29,12 +33,12 @@
 		busy = true;
 		error = '';
 		try {
-			const t = await api<Ticket>('/api/v1/tickets', { method: 'POST', body: { title, description, priority } });
+			const t = await api<Ticket>('/api/v1/tickets', { method: 'POST', body: { type: kind, title, description, priority } });
 			queue.prepend(t);
 			ui.newTicketOpen = false;
-			ui.announce = `Created ticket ${t.number}`;
+			ui.announce = `Created ${t.reference}`;
 			reset();
-			await goto(`/tickets/${t.number}`);
+			await goto(`/tickets/${t.reference}`);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Could not create the ticket';
 		} finally {
@@ -47,8 +51,20 @@
 	<form onsubmit={submit}>
 		<h2 id="new-title">New ticket</h2>
 
+		{#if lifecycle.fileable.length > 1}
+			<fieldset class="kinds">
+				<legend>Type</legend>
+				{#each lifecycle.fileable as t (t.type)}
+					<label class="kind">
+						<input type="radio" name="type" value={t.type} checked={kind === t.type} onchange={() => (chosen = t.type)} />
+						<span>{t.label}</span>
+					</label>
+				{/each}
+			</fieldset>
+		{/if}
+
 		<label class="field">
-			<span>What’s wrong?</span>
+			<span>Summary</span>
 			<!-- svelte-ignore a11y_autofocus -->
 			<input name="title" required maxlength="200" autofocus bind:value={title} />
 		</label>
@@ -93,6 +109,42 @@
 	}
 	h2 {
 		font: 700 1.9rem/1 var(--font-display);
+	}
+	.kinds {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+	.kinds legend {
+		margin-bottom: 0.35rem;
+		font-weight: 600;
+		font-size: 0.85rem;
+	}
+	.kind {
+		position: relative;
+	}
+	.kind input {
+		position: absolute;
+		opacity: 0;
+	}
+	.kind span {
+		display: inline-block;
+		padding: 0.4rem 0.9rem;
+		border: 1px solid var(--rule);
+		border-radius: var(--radius);
+		cursor: pointer;
+	}
+	.kind input:checked + span {
+		border-color: var(--blue);
+		box-shadow: inset 0 0 0 1px var(--blue);
+		font-weight: 600;
+	}
+	.kind input:focus-visible + span {
+		outline: 2px solid var(--blue);
+		outline-offset: 2px;
 	}
 	.actions {
 		display: flex;

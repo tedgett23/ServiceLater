@@ -2,12 +2,12 @@
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import type { Category, Status } from '$lib/types';
 
-	let { status, category }: { status: Status; category: Category } = $props();
+	let { status, category, type }: { status: Status; category: Category; type: string } = $props();
 </script>
 
 <span class="status">
-	<i class="{category} {lifecycle.isInitial(status) ? 'initial' : ''}" aria-hidden="true"></i>
-	{lifecycle.label(status)}
+	<i class="{category} {lifecycle.isInitial(status, type) ? 'initial' : ''}" aria-hidden="true"></i>
+	{lifecycle.label(status, type)}
 </span>
 
 <style>

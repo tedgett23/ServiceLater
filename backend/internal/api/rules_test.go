@@ -17,7 +17,7 @@ import (
 // installRules installs an app made only of rules, on top of the first-party apps, and reloads the registry.
 func installRules(t *testing.T, pool *pgxpool.Pool, reg *apps.Registry, rules map[string]string) {
 	t.Helper()
-	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-rules\nversion: 1.0.0\nauthor: t\ndescription: \"Rules.\"\npermissions: [tickets:read_all, tickets:update, comments:internal]\n")}
+	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-rules\nversion: 1.0.0\nauthor: t\ndescription: \"Rules.\"\npermissions: [records:read:*, records:update:*, comments:internal]\n")}
 	for name, src := range rules {
 		files["default/rules/"+name+".yaml"] = []byte(src)
 	}

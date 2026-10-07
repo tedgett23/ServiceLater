@@ -45,6 +45,14 @@ type Actor struct {
 // Can reports whether the actor has a permission.
 func (a Actor) Can(perm string) bool { return a.Perms.Has(perm) }
 
+// CanRecord reports whether the actor may do verb to records of a type.
+func (a Actor) CanRecord(verb, recordType string) bool { return a.Perms.CanRecord(verb, recordType) }
+
+// needs is the refusal for an actor without verb on a record type.
+func needs(doing, recordType, verb string) error {
+	return Forbidden(fmt.Sprintf("%s needs the %s permission", doing, authz.Record(verb, recordType)))
+}
+
 // Person is who a change is for: the person acting, or the one an app acts for.
 func (a Actor) Person() uuid.UUID {
 	if a.OnBehalfOf != uuid.Nil {
@@ -64,16 +72,80 @@ func ActorIn(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (Actor, error)
 	return Actor{ID: id, Perms: authz.Parse(s), OnBehalfOf: behalf}, err
 }
 
-// assignable reports whether someone may be given a ticket: they must be able to work tickets.
-func assignable(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (bool, error) {
-	return q.UserCan(ctx, dbgen.UserCanParams{UserID: id, Permission: authz.TicketsUpdate})
+// assignable reports whether someone may be given a ticket: they must be able to work records of its type.
+func assignable(ctx context.Context, q *dbgen.Queries, id uuid.UUID, recordType string) (bool, error) {
+	return q.UserCanRecord(ctx, dbgen.UserCanRecordParams{UserID: id, Verb: authz.Update, RecordType: recordType})
 }
 
-// CreateInput is a new incident as asked for.
+// CreateInput is a new record as asked for.
 type CreateInput struct {
+	// Type is the record type (incident, change...). It must be in use: an installed app defines its lifecycle.
+	Type               string
 	Title, Description string
 	Priority           *int16
 	RequesterID        *uuid.UUID // staff may file on behalf of someone else
+	// Change is what to fill in of a change's own fields; only a change has them.
+	Change *ChangePatch
+}
+
+// ChangePatch is a change to a change's own fields. A nil field is left alone; SetPlannedStart with a nil
+// PlannedStart clears the start, and likewise the end.
+type ChangePatch struct {
+	ChangeType, Risk, Impact              *string
+	SetPlannedStart, SetPlannedEnd        bool
+	PlannedStart, PlannedEnd              *time.Time
+	ImplementationPlan, BackoutPlan, Test *string
+}
+
+func (p *ChangePatch) empty() bool {
+	return p == nil || p.ChangeType == nil && p.Risk == nil && p.Impact == nil && !p.SetPlannedStart && !p.SetPlannedEnd &&
+		p.ImplementationPlan == nil && p.BackoutPlan == nil && p.Test == nil
+}
+
+// apply returns c with the patch applied.
+func (p *ChangePatch) apply(c *Change) *Change {
+	out := c.clone()
+	set := func(dst *string, v *string) {
+		if v != nil {
+			*dst = *v
+		}
+	}
+	set(&out.ChangeType, p.ChangeType)
+	set(&out.Risk, p.Risk)
+	set(&out.Impact, p.Impact)
+	set(&out.ImplementationPlan, p.ImplementationPlan)
+	set(&out.BackoutPlan, p.BackoutPlan)
+	set(&out.TestPlan, p.Test)
+	if p.SetPlannedStart {
+		out.PlannedStart = p.PlannedStart
+	}
+	if p.SetPlannedEnd {
+		out.PlannedEnd = p.PlannedEnd
+	}
+	return out
+}
+
+// changeBetween is the patch that turns a into b.
+func changeBetween(a, b *Change) *ChangePatch {
+	if a == nil || b == nil || sameChange(a, b) {
+		return nil
+	}
+	p := &ChangePatch{}
+	diff := func(x, y string) *string {
+		if x == y {
+			return nil
+		}
+		return &y
+	}
+	p.ChangeType, p.Risk, p.Impact = diff(a.ChangeType, b.ChangeType), diff(a.Risk, b.Risk), diff(a.Impact, b.Impact)
+	p.ImplementationPlan, p.BackoutPlan, p.Test = diff(a.ImplementationPlan, b.ImplementationPlan), diff(a.BackoutPlan, b.BackoutPlan), diff(a.TestPlan, b.TestPlan)
+	if !sameTime(a.PlannedStart, b.PlannedStart) {
+		p.SetPlannedStart, p.PlannedStart = true, b.PlannedStart
+	}
+	if !sameTime(a.PlannedEnd, b.PlannedEnd) {
+		p.SetPlannedEnd, p.PlannedEnd = true, b.PlannedEnd
+	}
+	return p
 }
 
 // Patch is a change to a ticket. A nil field is left alone; SetAssignee with a nil AssigneeID unassigns, and
@@ -86,12 +158,13 @@ type Patch struct {
 	SetAssignmentGroup bool
 	AssignmentGroupID  *uuid.UUID
 	Resolution         *string
+	Change             *ChangePatch
 }
 
 // Empty reports whether the patch changes nothing.
 func (p Patch) Empty() bool {
 	return p.Title == nil && p.Description == nil && p.Priority == nil && !p.SetAssignee && !p.SetAssignmentGroup &&
-		p.Resolution == nil
+		p.Resolution == nil && p.Change.empty()
 }
 
 // PatchBetween is the patch that turns t into want, for the fields a patch can change.
@@ -115,14 +188,25 @@ func PatchBetween(t, want Ticket) Patch {
 	if want.Resolution != t.Resolution {
 		p.Resolution = &want.Resolution
 	}
+	p.Change = changeBetween(t.Change, want.Change)
 	return p
 }
 
 // q must be built on the transaction of the save (db.WithUser), so the ticket, its comments, the jobs it queues and
 // what the rules did all commit or roll back together.
 
-// Create files an incident.
+// Create files a record of any type in use.
 func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, in CreateInput) (Ticket, error) {
+	tt, err := q.GetTaskType(ctx, in.Type)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !s.Apps.Provides(in.Type)) {
+		return Ticket{}, Invalid(fmt.Sprintf("%q is not a record type in use", in.Type))
+	} else if err != nil {
+		return Ticket{}, err
+	}
+	// Anyone may file a record of an open type (incidents); any other type needs records:create:<type>.
+	if !tt.AnyoneMayFile && !a.CanRecord(authz.Create, tt.Type) {
+		return Ticket{}, needs("filing a "+strings.ToLower(tt.Label), tt.Type, authz.Create)
+	}
 	if err := validTitle(in.Title); err != nil {
 		return Ticket{}, err
 	}
@@ -138,17 +222,28 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	}
 	requester := a.ID
 	if in.RequesterID != nil && *in.RequesterID != a.ID {
-		if !a.Can(authz.TicketsUpdate) {
-			return Ticket{}, Forbidden("filing a ticket for someone else needs the tickets:update permission")
+		if !a.CanRecord(authz.Update, tt.Type) {
+			return Ticket{}, needs("filing a "+strings.ToLower(tt.Label)+" for someone else", tt.Type, authz.Update)
 		}
 		requester = *in.RequesterID
 	}
-	lc := s.Apps.Lifecycle("incident")
+	lc := s.Apps.Lifecycle(tt.Type)
 	category, _ := lc.Category(lc.Initial)
-	next := Ticket{Type: "incident", Title: strings.TrimSpace(in.Title), Description: in.Description, Priority: prio,
+	next := Ticket{Type: tt.Type, Title: strings.TrimSpace(in.Title), Description: in.Description, Priority: prio,
 		RequesterID: requester, Status: lc.Initial, StateCategory: string(category)}
+	if tt.Type == "change" {
+		next.Change = &Change{ChangeType: "normal"}
+		if !in.Change.empty() {
+			next.Change = in.Change.apply(next.Change)
+		}
+		if err := validChange(next.Change); err != nil {
+			return Ticket{}, err
+		}
+	} else if !in.Change.empty() {
+		return Ticket{}, Invalid("only a change has change fields")
+	}
 	// Before rules see the ticket as it is about to be written and may change it or stop the save.
-	next, err := s.runBefore(ctx, q, a, apps.EventCreate, nil, next)
+	next, err = s.runBefore(ctx, q, a, apps.EventCreate, nil, next)
 	if err != nil {
 		return Ticket{}, err
 	}
@@ -159,7 +254,7 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	if err != nil {
 		return Ticket{}, err
 	}
-	if err := q.CreateIncident(ctx, t.ID); err != nil {
+	if err := createExtension(ctx, q, t); err != nil {
 		return Ticket{}, err
 	}
 	// What the rules changed beyond the columns the insert takes is written now.
@@ -180,8 +275,8 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 // Update edits a ticket. It locks the row first, so rules see the ticket as it is and two edits cannot both act on
 // the same state.
 func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, id uuid.UUID, p Patch) (Ticket, error) {
-	if !a.Can(authz.TicketsUpdate) {
-		return Ticket{}, Forbidden("editing tickets needs the tickets:update permission")
+	if err := s.mayUpdate(ctx, q, a, id, "editing"); err != nil {
+		return Ticket{}, err
 	}
 	if p.Title != nil {
 		if err := validTitle(*p.Title); err != nil {
@@ -223,10 +318,10 @@ func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 			if err != nil {
 				return Ticket{}, Invalid("assignee does not exist")
 			}
-			if ok, err := assignable(ctx, q, u.ID); err != nil {
+			if ok, err := assignable(ctx, q, u.ID, cur.Type); err != nil {
 				return Ticket{}, err
 			} else if !ok {
-				return Ticket{}, Invalid("assignee must be someone who works tickets")
+				return Ticket{}, Invalid("assignee must be someone who works tickets of this type")
 			}
 			if u.DeactivatedAt.Valid {
 				return Ticket{}, Invalid("assignee is deactivated")
@@ -251,6 +346,15 @@ func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 		}
 		next.Resolution = *p.Resolution
 	}
+	if !p.Change.empty() {
+		if cur.Change == nil {
+			return Ticket{}, Invalid("only a change has change fields")
+		}
+		next.Change = p.Change.apply(cur.Change)
+		if err := validChange(next.Change); err != nil {
+			return Ticket{}, err
+		}
+	}
 	final, err := s.runBefore(ctx, q, a, apps.EventUpdate, &cur, next)
 	if err != nil {
 		return Ticket{}, err
@@ -267,8 +371,8 @@ func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 
 // Transition moves a ticket to another status, if its lifecycle allows the move and its guard agrees.
 func (s *Service) Transition(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, id uuid.UUID, to string) (Ticket, error) {
-	if !a.Can(authz.TicketsUpdate) {
-		return Ticket{}, Forbidden("moving tickets needs the tickets:update permission")
+	if err := s.mayUpdate(ctx, q, a, id, "moving"); err != nil {
+		return Ticket{}, err
 	}
 	// Lock the row so two concurrent transitions can't both pass the check against the same state.
 	t, err := q.GetTaskForUpdate(ctx, id)
@@ -282,6 +386,10 @@ func (s *Service) Transition(ctx context.Context, q *dbgen.Queries, a Actor, cau
 	}
 	if !lc.CanTransition(t.Status, to) {
 		return Ticket{}, Conflict("cannot move a " + lc.Label(t.Status) + " ticket to " + lc.Label(to))
+	}
+	// Only an app acting in a process (a workflow) makes an automatic move: a person asking for one is refused.
+	if lc.Automatic(t.Status, to) && a.OnBehalfOf == uuid.Nil {
+		return Ticket{}, Conflict(lc.Label(t.Status) + " to " + lc.Label(to) + " is made by the process, not by hand")
 	}
 	cur, err := Load(ctx, q, id)
 	if err != nil {
@@ -322,6 +430,30 @@ func (s *Service) Transition(ctx context.Context, q *dbgen.Queries, a Actor, cau
 		return Ticket{}, err
 	}
 	return out, s.runAfter(ctx, q, a, cause, apps.EventUpdate, &cur, out)
+}
+
+// mayUpdate refuses an actor who may not work records of this one's type, with a reason, before the row is locked
+// (which, under RLS, would only say the record is not there). A record the actor cannot see is ErrNoRows: a 404.
+func (s *Service) mayUpdate(ctx context.Context, q *dbgen.Queries, a Actor, id uuid.UUID, doing string) error {
+	t, err := q.GetTask(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !a.CanRecord(authz.Update, t.Type) {
+		return needs(doing+" "+t.Type+" records", t.Type, authz.Update)
+	}
+	return nil
+}
+
+// createExtension writes the type's own row, for the types that have one, in the save's transaction.
+func createExtension(ctx context.Context, q *dbgen.Queries, t dbgen.Task) error {
+	switch t.Type {
+	case "incident":
+		return q.CreateIncident(ctx, t.ID)
+	case "change":
+		return q.CreateChange(ctx, t.ID)
+	}
+	return nil
 }
 
 // GuardInput is what a transition guard sees: the ticket as it would be after the move, as it is now, and who is acting.
@@ -425,6 +557,10 @@ func FromRecord(ctx context.Context, q *dbgen.Queries, base Ticket, res *expr.Re
 		}
 	}
 	out.Title, out.Description, out.Resolution = res.Title, res.Description, res.Resolution
+	if base.Change != nil {
+		out.Change = base.Change.clone()
+		out.Change.Risk, out.Change.Impact = res.Risk, res.Impact
+	}
 	out.AssigneeID = nil
 	if res.AssigneeID != nil {
 		id, err := uuid.Parse(*res.AssigneeID)
@@ -457,6 +593,11 @@ func validateRuleChanges(ctx context.Context, q *dbgen.Queries, before, after Ti
 	if after.Description != before.Description && len(after.Description) > MaxDescription {
 		return Invalid("a rule made the description too long")
 	}
+	if after.Change != nil && !sameChange(before.Change, after.Change) {
+		if err := validChange(after.Change); err != nil {
+			return wrap(err)
+		}
+	}
 	if after.Resolution != before.Resolution {
 		if after.Type != "incident" {
 			return Invalid("a rule set resolution notes on a ticket that has none")
@@ -470,10 +611,10 @@ func validateRuleChanges(ctx context.Context, q *dbgen.Queries, before, after Ti
 		if err != nil {
 			return Invalid("a rule set an assignee who does not exist")
 		}
-		if ok, err := assignable(ctx, q, u.ID); err != nil {
+		if ok, err := assignable(ctx, q, u.ID, after.Type); err != nil {
 			return err
 		} else if !ok {
-			return Invalid("a rule set an assignee who does not work tickets")
+			return Invalid("a rule set an assignee who does not work tickets of this type")
 		}
 	}
 	return nil
@@ -561,15 +702,29 @@ func writeChanges(ctx context.Context, q *dbgen.Queries, cur, final Ticket) erro
 		}
 	}
 	if final.Resolution != cur.Resolution {
-		return q.UpdateIncident(ctx, dbgen.UpdateIncidentParams{TaskID: cur.ID, Resolution: final.Resolution})
+		if err := q.UpdateIncident(ctx, dbgen.UpdateIncidentParams{TaskID: cur.ID, Resolution: final.Resolution}); err != nil {
+			return err
+		}
+	}
+	if c := final.Change; c != nil && !sameChange(cur.Change, c) {
+		return q.UpdateChange(ctx, dbgen.UpdateChangeParams{TaskID: cur.ID, ChangeType: c.ChangeType, Risk: c.Risk, Impact: c.Impact,
+			PlannedStart: timestamptz(c.PlannedStart), PlannedEnd: timestamptz(c.PlannedEnd),
+			ImplementationPlan: c.ImplementationPlan, BackoutPlan: c.BackoutPlan, TestPlan: c.TestPlan})
 	}
 	return nil
+}
+
+func timestamptz(t *time.Time) pgtype.Timestamptz {
+	if t == nil {
+		return pgtype.Timestamptz{}
+	}
+	return pgtype.Timestamptz{Time: *t, Valid: true}
 }
 
 // withRuleFields is base with the fields rules may set taken from the other ticket.
 func withRuleFields(base, from Ticket) Ticket {
 	base.Title, base.Description, base.Priority = strings.TrimSpace(from.Title), from.Description, from.Priority
-	base.AssigneeID, base.Resolution = from.AssigneeID, from.Resolution
+	base.AssigneeID, base.Resolution, base.Change = from.AssigneeID, from.Resolution, from.Change.clone()
 	base.AssignmentGroupID, base.AssignmentGroup = from.AssignmentGroupID, from.AssignmentGroup
 	return base
 }

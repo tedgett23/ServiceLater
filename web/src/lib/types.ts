@@ -39,7 +39,46 @@ export interface Ticket {
 	assignment_group_name: string | null;
 	created_at: string;
 	updated_at: string;
+	/** A change's own fields; absent on other types. */
+	change?: ChangeFields;
 }
+
+/** What a change has beyond the base: its kind, assessment, planned window and plans. */
+export interface ChangeFields {
+	change_type: 'standard' | 'normal' | 'emergency';
+	/** Empty until assessed. */
+	risk: '' | Level;
+	impact: '' | Level;
+	planned_start: string | null;
+	planned_end: string | null;
+	implementation_plan: string;
+	backout_plan: string;
+	test_plan: string;
+}
+
+export type Level = 'low' | 'medium' | 'high';
+
+/** One record's planned window on the calendar. */
+export interface CalendarEntry {
+	id: string;
+	type: string;
+	number: number;
+	reference: string;
+	title: string;
+	status: Status;
+	state_category: Category;
+	priority: 1 | 2 | 3 | 4;
+	assignee_name: string | null;
+	change_type: ChangeFields['change_type'];
+	risk: ChangeFields['risk'];
+	planned_start: string;
+	planned_end: string;
+	/** Other entries still to be done whose windows overlap this one. */
+	overlaps: string[];
+}
+
+/** The type's prefix of a reference: INC for INC42. */
+export const prefixOf = (t: Pick<Ticket, 'reference' | 'number'>) => t.reference.slice(0, t.reference.length - String(t.number).length);
 
 export interface TicketPage {
 	items: Ticket[];
@@ -63,8 +102,6 @@ export interface Comment {
 
 /** Permission names, as the server checks them (internal/authz). */
 export const P = {
-	ticketsReadAll: 'tickets:read_all',
-	ticketsUpdate: 'tickets:update',
 	commentsInternal: 'comments:internal',
 	workflowsReadAll: 'workflows:read_all',
 	usersManage: 'users:manage',
@@ -74,6 +111,26 @@ export const P = {
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */
 export const can = (u: User | null | undefined, perm: string) => !!u?.permissions?.includes(perm);
+
+/** A record verb: what records:<verb>:<type> allows on records of that type. */
+export type Verb = 'read' | 'create' | 'update' | 'delete';
+
+/** Whether someone may do verb to records of a type, by name or for every type (records:update:*). */
+export const canRecord = (u: User | null | undefined, verb: Verb, type: string) =>
+	can(u, `records:${verb}:${type}`) || can(u, `records:${verb}:*`);
+
+/** Whether someone may do verb to records of at least one type: reading any is what makes someone staff in the UI. */
+export const canRecordAny = (u: User | null | undefined, verb: Verb) =>
+	!!u?.permissions?.some((p) => p.startsWith(`records:${verb}:`));
+
+/** A record type in use (an installed app defines its lifecycle), and whether the person may file one. */
+export interface RecordType {
+	type: string;
+	prefix: string;
+	label: string;
+	can_file: boolean;
+	can_file_for_others: boolean;
+}
 
 /** Whether someone may reach anything in the admin section. */
 export const canAdmin = (u: User | null | undefined) =>

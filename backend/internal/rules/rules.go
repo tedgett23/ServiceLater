@@ -297,6 +297,10 @@ func set(ctx context.Context, a *apps.Action, in expr.Input) error {
 		rec.Description = s
 	case "resolution":
 		rec.Resolution = s
+	case "risk":
+		rec.Risk = s
+	case "impact":
+		rec.Impact = s
 	case "assignee_id":
 		if s == "" {
 			rec.AssigneeID, rec.AssigneeName = nil, nil

@@ -121,6 +121,9 @@ func TestWorkflowsAreRejectedWhenTheyAreWrong(t *testing.T) {
 		{"record.update with a priority out of range", one("  a:\n    type: record.update\n    set: { priority: 9 }\n    next: b\n  b:\n    type: end\n"), "priority must be 1 (critical) to 4 (low)"},
 		{"record.update with an expression of the wrong type", one("  a:\n    type: record.update\n    set: { priority: '=record.title' }\n    next: b\n  b:\n    type: end\n"), "must produce a whole number"},
 		{"comment.add with no body", one("  a:\n    type: comment.add\n    next: b\n  b:\n    type: end\n"), "comment.add needs a body"},
+		{"record.transition with no status", one("  a:\n    type: record.transition\n    next: b\n  b:\n    type: end\n"), "record.transition needs to"},
+		{"record.transition to a status that is not an id", one("  a:\n    type: record.transition\n    to: Done!\n    next: b\n  b:\n    type: end\n"), `to: "Done!" is not a status id`},
+		{"record.transition with a set", one("  a:\n    type: record.transition\n    to: done\n    set: { priority: 1 }\n    next: b\n  b:\n    type: end\n"), "record.transition does not take set"},
 		{"approval with no approvers", one("  a:\n    type: approval\n    next: b\n  b:\n    type: end\n"), "approval needs approvers"},
 		{"approval with a bad rule", one("  a:\n    type: approval\n    approvers: '[\"x\"]'\n    rule: some\n    next: b\n  b:\n    type: end\n"), "rule must be one of"},
 		{"approval whose approvers is not a list", one("  a:\n    type: approval\n    approvers: 'record.title'\n    next: b\n  b:\n    type: end\n"), "must produce a list of text"},
@@ -138,6 +141,21 @@ func TestWorkflowsAreRejectedWhenTheyAreWrong(t *testing.T) {
 				t.Errorf("error %q does not mention %q", p.Error(), c.want)
 			}
 		})
+	}
+}
+
+// A record.transition in a workflow for a type whose lifecycle the same app defines is checked against it at install.
+func TestATransitionStepMustNameAStateOfTheAppsOwnLifecycle(t *testing.T) {
+	files := workflowApp(map[string]string{"w.yaml": "kind: workflow\nname: ww\nrecord_type: incident\nstart: a\nsteps:\n" +
+		"  a:\n    type: record.transition\n    to: archived\n    next: b\n  b:\n    type: end\n"})
+	files["default/lifecycles/incident.yaml"] = goodLifecycle
+	_, p := compile(t, files)
+	if p == nil || !strings.Contains(p.Error(), `to: "archived" is not a status of this app's incident lifecycle`) {
+		t.Errorf("want the unknown status reported, got %v", p)
+	}
+	files["default/workflows/w.yaml"] = strings.Replace(files["default/workflows/w.yaml"], "archived", "done", 1)
+	if _, p := compile(t, files); p != nil {
+		t.Errorf("a real status: %v", p)
 	}
 }
 

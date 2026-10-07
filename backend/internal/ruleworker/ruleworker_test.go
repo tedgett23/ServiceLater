@@ -59,7 +59,7 @@ func setup(t *testing.T, rule string) *world {
 
 func (w *world) installRule(t *testing.T, rule string) {
 	t.Helper()
-	w.installRuleWith(t, rule, "[tickets:read_all, tickets:update, comments:internal]")
+	w.installRuleWith(t, rule, "[records:read:*, records:update:*, comments:internal]")
 }
 
 // installRuleWith is installRule with the app's own manifest permissions.
@@ -141,7 +141,7 @@ func TestARunWritesItsCommentAsTheAppForTheActorAndIsAudited(t *testing.T) {
 // A ticket that has gone, or that the app may not see, is nothing to retry: the run is recorded as skipped.
 func TestATicketThatIsGoneIsSkippedNotRetried(t *testing.T) {
 	w := setup(t, rule("true"))
-	// An app without tickets:read_all cannot see Lena's ticket when Ada's change sets it off, so for it the ticket is
+	// An app without records:read:* cannot see Lena's ticket when Ada's change sets it off, so for it the ticket is
 	// as good as gone.
 	w.installRuleWith(t, rule("true"), "[users:read]")
 	if err := w.run(w.agent); err != nil {
@@ -188,7 +188,7 @@ func TestARunCannotDoMoreThanItsAppMay(t *testing.T) {
 	if _, err := w.pool.Exec(context.Background(), "DELETE FROM task_comments; DELETE FROM action_runs"); err != nil {
 		t.Fatal(err)
 	}
-	w.installRuleWith(t, rule("true"), "[tickets:read_all]")
+	w.installRuleWith(t, rule("true"), "[records:read:*]")
 	err := w.run(w.requester)
 	if !jobs.IsPermanent(err) {
 		t.Fatalf("want a permanent failure, got %v", err)
@@ -200,7 +200,7 @@ func TestARunCannotDoMoreThanItsAppMay(t *testing.T) {
 		t.Errorf("audit: %+v", a)
 	}
 	// The same rule with a public comment is within what the app may.
-	w.installRuleWith(t, rule("false"), "[tickets:read_all]")
+	w.installRuleWith(t, rule("false"), "[records:read:*]")
 	if err := w.run(w.requester); err != nil {
 		t.Fatal(err)
 	}

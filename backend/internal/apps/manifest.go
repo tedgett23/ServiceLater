@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/servicelater/servicelater/backend/internal/authz"
 )
 
 // FormatVersion is the version of the app format this build understands (apiVersion in app.yaml).
@@ -109,8 +107,10 @@ func parseManifest(data []byte, p *Problems) *Manifest {
 			p.add(file, "permission %q is listed twice", perm)
 		case strings.HasPrefix(perm, "notify:") || strings.HasPrefix(perm, "http:"):
 			// Capabilities for steps that are not built yet (notify.email, http.request); declared now, checked then.
-		case !authz.Known(perm):
-			p.add(file, "permission %q is not one the platform knows (available: %s)", perm, permissionNames())
+		default:
+			if msg := checkPermission(perm); msg != "" {
+				p.add(file, "permissions: %s", msg)
+			}
 		}
 		seenPerm[perm] = true
 	}

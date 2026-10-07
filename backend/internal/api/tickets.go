@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -24,6 +25,34 @@ const (
 	defaultLimit = 25
 	maxLimit     = 100
 )
+
+// changeFields are a change's own fields in a request. Absent fields are left alone; planned_start and planned_end
+// take null to clear them.
+type changeFields struct {
+	// ChangeType is standard, normal or emergency.
+	ChangeType *string `json:"change_type"`
+	// Risk is low, medium, high, or "" for not assessed.
+	Risk *string `json:"risk"`
+	// Impact is low, medium, high, or "" for not assessed.
+	Impact *string `json:"impact"`
+	// PlannedStart is when the change's window opens.
+	PlannedStart nullable[time.Time] `json:"planned_start"`
+	// PlannedEnd is when the window closes, after the start.
+	PlannedEnd         nullable[time.Time] `json:"planned_end"`
+	ImplementationPlan *string             `json:"implementation_plan"`
+	BackoutPlan        *string             `json:"backout_plan"`
+	TestPlan           *string             `json:"test_plan"`
+}
+
+func (c *changeFields) patch() *records.ChangePatch {
+	if c == nil {
+		return nil
+	}
+	return &records.ChangePatch{ChangeType: c.ChangeType, Risk: c.Risk, Impact: c.Impact,
+		SetPlannedStart: c.PlannedStart.Set, PlannedStart: c.PlannedStart.Value,
+		SetPlannedEnd: c.PlannedEnd.Set, PlannedEnd: c.PlannedEnd.Value,
+		ImplementationPlan: c.ImplementationPlan, BackoutPlan: c.BackoutPlan, Test: c.TestPlan}
+}
 
 // ticketDTO is a ticket plus, on single-ticket responses (not lists), what the person may do next.
 type ticketDTO struct {
@@ -204,21 +233,30 @@ func (h *handlers) listTickets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "limit": limit, "offset": args.Offset, "has_more": more})
 }
 
-// POST /tickets. Staff may file on behalf of another requester; everyone else files as themselves.
+// POST /tickets: file a record of any type in use (GET /record-types says which the caller may). Anyone may file an
+// incident; other types need records:create:<type>, and naming another requester needs records:update:<type> too.
 func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		// Type is the record type; incident when absent.
+		Type        string     `json:"type"`
 		Title       string     `json:"title"`
 		Description string     `json:"description"`
 		Priority    *int16     `json:"priority"`
 		RequesterID *uuid.UUID `json:"requester_id"`
+		// Change fills in a change's own fields; only for type change.
+		Change *changeFields `json:"change"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
+	if req.Type == "" {
+		req.Type = "incident"
+	}
 	var out ticketDTO
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
-		saved, err := h.svc.Create(r.Context(), q, actorOf(p), ruleruns.Cause{}, records.CreateInput{
-			Title: req.Title, Description: req.Description, Priority: req.Priority, RequesterID: req.RequesterID})
+		saved, err := h.svc.Create(r.Context(), q, actorOf(p), ruleruns.Cause{}, records.CreateInput{Type: req.Type,
+			Title: req.Title, Description: req.Description, Priority: req.Priority, RequesterID: req.RequesterID,
+			Change: req.Change.patch()})
 		if err != nil {
 			return err
 		}
@@ -261,11 +299,14 @@ func (h *handlers) updateTicket(w http.ResponseWriter, r *http.Request) {
 		AssigneeID        nullable[uuid.UUID] `json:"assignee_id"`
 		AssignmentGroupID nullable[uuid.UUID] `json:"assignment_group_id"`
 		Resolution        *string             `json:"resolution"`
+		// Change edits a change's own fields; only for a change.
+		Change *changeFields `json:"change"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
 	patch := records.Patch{Title: req.Title, Description: req.Description, Priority: req.Priority, Resolution: req.Resolution,
+		Change:      req.Change.patch(),
 		SetAssignee: req.AssigneeID.Set, AssigneeID: req.AssigneeID.Value,
 		SetAssignmentGroup: req.AssignmentGroupID.Set, AssignmentGroupID: req.AssignmentGroupID.Value}
 	var out ticketDTO

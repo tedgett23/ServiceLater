@@ -3,7 +3,7 @@ name: ticket-viewer
 label: Ticket viewer
 description: "Sees every ticket and its internal notes, and changes nothing. For managers and auditors."
 permissions:
-  - tickets:read_all
+  - records:read:*
   - comments:internal
   - workflows:read_all
   - users:read

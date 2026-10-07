@@ -320,6 +320,7 @@ func (b *Bundle) Compile() (*Compiled, error) {
 	}
 	checkWorkflowStarts(defs, &p)
 	checkNotifyTemplates(defs, &p)
+	checkTransitionTargets(defs, &p)
 	if err := p.orNil(); err != nil || m == nil {
 		return nil, p
 	}

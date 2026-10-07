@@ -136,33 +136,33 @@ func TestATypeInheritsTheTaskLifecycle(t *testing.T) {
 	installBaseFlow(t, pool, reg)
 	agent := newActor(t, h, pool, "agent@x.test", "agent")
 
-	// A "change" ticket: a base row only, as an app-defined type would be.
-	var changeID string
+	// A "problem" ticket: a base row only, as an app-defined type would be.
+	var problemID string
 	if err := pool.QueryRow(context.Background(), `INSERT INTO tasks (type, title, requester_id, status, state_category)
-		VALUES ('change', 'Upgrade the firewall', $1, 'todo', 'open') RETURNING id`, agent.id).Scan(&changeID); err != nil {
+		VALUES ('problem', 'Recurring firewall drops', $1, 'todo', 'open') RETURNING id`, agent.id).Scan(&problemID); err != nil {
 		t.Fatal(err)
 	}
 	incident := decodeBody[typed](t, agent.do(h, "POST", "/api/v1/tickets", `{"title":"an incident"}`))
 
-	change := decodeBody[typed](t, agent.do(h, "GET", "/api/v1/tickets/"+changeID, ""))
-	if change.Type != "change" || change.Reference != "CHG1" || change.Resolution != "" {
-		t.Errorf("change: %+v", change)
+	problem := decodeBody[typed](t, agent.do(h, "GET", "/api/v1/tickets/"+problemID, ""))
+	if problem.Type != "problem" || problem.Reference != "PRB1" || problem.Resolution != "" {
+		t.Errorf("problem: %+v", problem)
 	}
 	// It takes its moves from the task lifecycle...
-	if m := moveTo(change.Moves, "doing"); m == nil || m.Verb != "Begin" || len(change.Moves) != 1 {
-		t.Errorf("a change is offered the task lifecycle's moves: %+v", change.Moves)
+	if m := moveTo(problem.Moves, "doing"); m == nil || m.Verb != "Begin" || len(problem.Moves) != 1 {
+		t.Errorf("a problem is offered the task lifecycle's moves: %+v", problem.Moves)
 	}
 	// ...while the incident keeps its own.
 	if m := moveTo(incident.Moves, "in_progress"); m == nil || m.Verb != "Start work" {
 		t.Errorf("an incident keeps the incident lifecycle: %+v", incident.Moves)
 	}
 
-	w := agent.do(h, "POST", "/api/v1/tickets/CHG1/transitions", `{"to":"doing"}`)
-	expect(t, w, 200, "move a change")
-	expect(t, agent.do(h, "POST", "/api/v1/tickets/CHG1/transitions", `{"to":"in_progress"}`), 422, "an incident status is unknown to a change")
-	expect(t, agent.do(h, "POST", "/api/v1/tickets/CHG1/comments", `{"body":"Window booked."}`), 201, "comment on a change")
-	expect(t, agent.do(h, "PATCH", "/api/v1/tickets/CHG1", `{"resolution":"x"}`), 422, "a change has no resolution notes")
-	expect(t, agent.do(h, "PATCH", "/api/v1/tickets/CHG1", `{"priority":1}`), 200, "but its base fields edit fine")
+	w := agent.do(h, "POST", "/api/v1/tickets/PRB1/transitions", `{"to":"doing"}`)
+	expect(t, w, 200, "move a problem")
+	expect(t, agent.do(h, "POST", "/api/v1/tickets/PRB1/transitions", `{"to":"in_progress"}`), 422, "an incident status is unknown to a problem")
+	expect(t, agent.do(h, "POST", "/api/v1/tickets/PRB1/comments", `{"body":"Window booked."}`), 201, "comment on a problem")
+	expect(t, agent.do(h, "PATCH", "/api/v1/tickets/PRB1", `{"resolution":"x"}`), 422, "a problem has no resolution notes")
+	expect(t, agent.do(h, "PATCH", "/api/v1/tickets/PRB1", `{"priority":1}`), 200, "but its base fields edit fine")
 
 	// The queue spans types and can be narrowed to one.
 	all := decodeBody[struct {
@@ -173,17 +173,17 @@ func TestATypeInheritsTheTaskLifecycle(t *testing.T) {
 	}
 	only := decodeBody[struct {
 		Items []typed `json:"items"`
-	}](t, agent.do(h, "GET", "/api/v1/tickets?type=change", ""))
-	if len(only.Items) != 1 || only.Items[0].Reference != "CHG1" {
+	}](t, agent.do(h, "GET", "/api/v1/tickets?type=problem", ""))
+	if len(only.Items) != 1 || only.Items[0].Reference != "PRB1" {
 		t.Errorf("type filter: %+v", only.Items)
 	}
 	// A status is valid in the queue if any lifecycle has it.
 	expect(t, agent.do(h, "GET", "/api/v1/tickets?status=doing", ""), 200, "a status only the task lifecycle has")
 
 	// The lifecycle endpoint reports the type asked for, whichever lifecycle answers.
-	lc := decodeBody[lifecycleResp](t, agent.do(h, "GET", "/api/v1/lifecycles/change", ""))
-	if lc.RecordType != "change" || lc.App != "base-flow" || lc.Initial != "todo" {
-		t.Errorf("lifecycle for change: %+v", lc)
+	lc := decodeBody[lifecycleResp](t, agent.do(h, "GET", "/api/v1/lifecycles/problem", ""))
+	if lc.RecordType != "problem" || lc.App != "base-flow" || lc.Initial != "todo" {
+		t.Errorf("lifecycle for problem: %+v", lc)
 	}
 	if inc := decodeBody[lifecycleResp](t, agent.do(h, "GET", "/api/v1/lifecycles/incident", "")); inc.App != "incident-management" {
 		t.Errorf("incident lifecycle: %+v", inc)

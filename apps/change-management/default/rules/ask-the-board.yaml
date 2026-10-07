@@ -1,0 +1,16 @@
+# Requesting authorization asks the right board: the change advisory board for a normal change, the emergency board
+# for an emergency one. (A standard change never gets here: it is scheduled from Assess.) The board's decision moves
+# the change on, through the workflow.
+kind: rule
+name: ask-the-board
+record_type: change
+timing: after
+on: [update]
+when: record.status == "authorize" && old.status != "authorize"
+run:
+  - action: workflow.start
+    workflow: cab-approval
+    when: record.change_type == "normal"
+  - action: workflow.start
+    workflow: ecab-approval
+    when: record.change_type == "emergency"

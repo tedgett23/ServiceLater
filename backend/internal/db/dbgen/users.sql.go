@@ -164,13 +164,16 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 
 const listStaff = `-- name: ListStaff :many
 SELECT id, email, name, role, created_at, deactivated_at, app_name FROM users
-WHERE deactivated_at IS NULL AND app_name IS NULL AND app_user_can(id, 'tickets:update')
+WHERE deactivated_at IS NULL AND app_name IS NULL
+  AND (CASE WHEN $1::text IS NULL THEN app_user_can_record_any(id, 'update')
+            ELSE app_user_can_record(id, 'update', $1) END)
 ORDER BY name
 `
 
-// Who can be assigned a ticket: everyone active who may work tickets (tickets:update), whatever role gives it.
-func (q *Queries) ListStaff(ctx context.Context) ([]User, error) {
-	rows, err := q.db.Query(ctx, listStaff)
+// Who can be assigned a ticket: everyone active who may work records of its type (records:update:<type>), whatever
+// role gives it; with no type, everyone who may work some type.
+func (q *Queries) ListStaff(ctx context.Context, recordType pgtype.Text) ([]User, error) {
+	rows, err := q.db.Query(ctx, listStaff, recordType)
 	if err != nil {
 		return nil, err
 	}
@@ -356,6 +359,23 @@ type UserCanParams struct {
 
 func (q *Queries) UserCan(ctx context.Context, arg UserCanParams) (bool, error) {
 	row := q.db.QueryRow(ctx, userCan, arg.UserID, arg.Permission)
+	var can bool
+	err := row.Scan(&can)
+	return can, err
+}
+
+const userCanRecord = `-- name: UserCanRecord :one
+SELECT app_user_can_record($1::uuid, $2::text, $3::text)::bool AS can
+`
+
+type UserCanRecordParams struct {
+	UserID     uuid.UUID `json:"user_id"`
+	Verb       string    `json:"verb"`
+	RecordType string    `json:"record_type"`
+}
+
+func (q *Queries) UserCanRecord(ctx context.Context, arg UserCanRecordParams) (bool, error) {
+	row := q.db.QueryRow(ctx, userCanRecord, arg.UserID, arg.Verb, arg.RecordType)
 	var can bool
 	err := row.Scan(&can)
 	return can, err
