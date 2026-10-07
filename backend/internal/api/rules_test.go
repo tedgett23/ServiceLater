@@ -17,7 +17,7 @@ import (
 // installRules installs an app made only of rules, on top of the first-party apps, and reloads the registry.
 func installRules(t *testing.T, pool *pgxpool.Pool, reg *apps.Registry, rules map[string]string) {
 	t.Helper()
-	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-rules\nversion: 1.0.0\nauthor: t\ndescription: \"Rules.\"\n")}
+	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-rules\nversion: 1.0.0\nauthor: t\ndescription: \"Rules.\"\npermissions: [tickets:read_all, tickets:update, comments:internal]\n")}
 	for name, src := range rules {
 		files["default/rules/"+name+".yaml"] = []byte(src)
 	}
@@ -25,7 +25,7 @@ func installRules(t *testing.T, pool *pgxpool.Pool, reg *apps.Registry, rules ma
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := apps.Install(context.Background(), pool, c, apps.InstallOptions{}); err != nil {
+	if _, err := apps.Install(context.Background(), pool, c, apps.InstallOptions{ApprovePermissions: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.Load(context.Background()); err != nil {
@@ -294,7 +294,8 @@ func TestAsyncRulesRunAfterTheSaveInAWorker(t *testing.T) {
 	}
 	waitFor(t, "the worker's comment", func() bool { return len(comments(loud.ID)) == 1 })
 	cs := comments(loud.ID)
-	if !cs[0].Internal || cs[0].AuthorID != agent.id || !strings.HasPrefix(cs[0].Body, "Escalated by agent@x.test: INC") {
+	// Written by the app, for the agent whose change set it off.
+	if !cs[0].Internal || cs[0].Author != "house-rules" || cs[0].Behalf != "agent@x.test" || !strings.HasPrefix(cs[0].Body, "Escalated by agent@x.test: INC") {
 		t.Errorf("comment: %+v", cs[0])
 	}
 	// Raising the calm one fires it on update, judged against its old priority.

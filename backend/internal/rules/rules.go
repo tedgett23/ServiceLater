@@ -47,6 +47,7 @@ func (b *Broken) Unwrap() error { return b.Err }
 type Comment struct {
 	Body     string
 	Internal bool
+	App      string
 	Rule     string
 }
 
@@ -200,7 +201,7 @@ func perform(ctx context.Context, r *apps.Rule, a *apps.Action, in expr.Input, f
 		if err != nil {
 			return err
 		}
-		fx.Comments = append(fx.Comments, Comment{Body: body, Internal: a.Internal, Rule: r.Name})
+		fx.Comments = append(fx.Comments, Comment{Body: body, Internal: a.Internal, App: r.App, Rule: r.Name})
 		return nil
 	case "workflow.start":
 		fx.Starts = append(fx.Starts, Start{App: r.App, Workflow: a.Workflow, Rule: r.Name})

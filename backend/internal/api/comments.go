@@ -7,8 +7,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 )
 
@@ -22,11 +24,13 @@ type commentDTO struct {
 	Body      string    `json:"body"`
 	Internal  bool      `json:"internal"`
 	CreatedAt time.Time `json:"created_at"`
+	// OnBehalfOf names the person an app acted for, when an app wrote the comment (author_name is then the app).
+	OnBehalfOf string `json:"on_behalf_of_name,omitempty"`
 }
 
-func toComment(c dbgen.TaskComment, authorName string) commentDTO {
+func toComment(c dbgen.TaskComment, authorName string, behalf pgtype.Text) commentDTO {
 	return commentDTO{ID: c.ID, TicketID: c.TaskID, AuthorID: c.AuthorID, Author: authorName, Body: c.Body,
-		Internal: c.Internal, CreatedAt: c.CreatedAt.Time}
+		Internal: c.Internal, CreatedAt: c.CreatedAt.Time, OnBehalfOf: behalf.String}
 }
 
 // GET /tickets/{id}/comments. Internal notes are filtered out by RLS for non-staff.
@@ -40,7 +44,7 @@ func (h *handlers) listComments(w http.ResponseWriter, r *http.Request) {
 		rows, err := q.ListComments(r.Context(), t.ID)
 		out = make([]commentDTO, len(rows))
 		for i, c := range rows {
-			out[i] = toComment(c.TaskComment, c.AuthorName)
+			out[i] = toComment(c.TaskComment, c.AuthorName, c.OnBehalfOfName)
 		}
 		return err
 	}) {
@@ -63,8 +67,8 @@ func (h *handlers) createComment(w http.ResponseWriter, r *http.Request) {
 		if n := utf8.RuneCountInString(strings.TrimSpace(req.Body)); n < 1 || len(req.Body) > maxComment {
 			return invalid("comment must be 1 to 10000 characters")
 		}
-		if req.Internal && !isStaff(p.Role) {
-			return forbidden("only staff can post internal notes")
+		if req.Internal && !p.Can(authz.CommentsInternal) {
+			return forbidden("internal notes need the comments:internal permission")
 		}
 		t, err := loadTicket(r, q)
 		if err != nil {
@@ -76,7 +80,7 @@ func (h *handlers) createComment(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		v, err := q.GetCommentView(r.Context(), c.ID)
-		out = toComment(v.TaskComment, v.AuthorName)
+		out = toComment(v.TaskComment, v.AuthorName, v.OnBehalfOfName)
 		return err
 	}) {
 		return

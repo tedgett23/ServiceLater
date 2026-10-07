@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/records"
 )
@@ -20,7 +21,7 @@ type moveDTO struct {
 
 // movesFor lists the moves offered on a ticket. Only staff can move tickets, so everyone else gets none.
 func (h *handlers) movesFor(ctx context.Context, q *dbgen.Queries, p auth.Principal, cur ticketDTO) []moveDTO {
-	if !isStaff(p.Role) {
+	if !p.Can(authz.TicketsUpdate) {
 		return nil
 	}
 	lc := h.lifecycleFor(cur.Type)

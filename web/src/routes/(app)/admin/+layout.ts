@@ -1,8 +1,10 @@
 import { redirect } from '@sveltejs/kit';
+import { canAdmin } from '$lib/types';
 
-// Managing people and teams is an admin's job. Everyone else goes back to their tickets.
+// Managing people, teams and roles. Anyone without a permission for any of it goes back to their tickets; each page
+// checks its own.
 export const load = async ({ parent }) => {
 	const { user } = await parent();
-	if (user.role !== 'admin') redirect(307, '/tickets');
+	if (!canAdmin(user)) redirect(307, '/tickets');
 	return { user };
 };

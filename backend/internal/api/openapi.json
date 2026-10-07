@@ -61,6 +61,10 @@
           "internal": {
             "type": "boolean"
           },
+          "on_behalf_of_name": {
+            "description": "Names the person an app acted for, when an app wrote the comment (author_name is then the app).",
+            "type": "string"
+          },
           "ticket_id": {
             "format": "uuid",
             "type": "string"
@@ -86,6 +90,48 @@
         },
         "required": [
           "error"
+        ],
+        "type": "object"
+      },
+      "Grant": {
+        "description": "A role given to a person or to a group (everyone in it).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "group_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group_name": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "user_email": {
+            "type": "string"
+          },
+          "user_id": {
+            "description": "Set for a grant to a person, GroupID for one to a group.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "id"
         ],
         "type": "object"
       },
@@ -164,7 +210,7 @@
         "type": "object"
       },
       "GroupDetail": {
-        "description": "A group with everyone in it.",
+        "description": "A group with everyone in it, and the roles it gives them.",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -191,6 +237,12 @@
             "description": "Unique whatever its case; expressions refer to a group by it.",
             "type": "string"
           },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/HeldRole"
+            },
+            "type": "array"
+          },
           "updated_at": {
             "format": "date-time",
             "type": "string"
@@ -203,6 +255,7 @@
           "member_count",
           "members",
           "name",
+          "roles",
           "updated_at"
         ],
         "type": "object"
@@ -221,6 +274,39 @@
         "required": [
           "id",
           "name"
+        ],
+        "type": "object"
+      },
+      "HeldRole": {
+        "description": "A role someone or a group holds, and through what.",
+        "properties": {
+          "grant_id": {
+            "description": "The grant to revoke to take it away.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "group_id": {
+            "description": "And GroupName say which group a person holds it through; empty when it was granted to them.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group_name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_id",
+          "label",
+          "role"
         ],
         "type": "object"
       },
@@ -380,6 +466,21 @@
         ],
         "type": "object"
       },
+      "Permission": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "name"
+        ],
+        "type": "object"
+      },
       "Person": {
         "description": "Someone in the user directory.",
         "properties": {
@@ -417,6 +518,99 @@
           "id",
           "name",
           "role"
+        ],
+        "type": "object"
+      },
+      "Role": {
+        "description": "A named set of permissions: a built-in base role, or one an app defines in roles/.",
+        "properties": {
+          "app": {
+            "description": "The app that defines the role; empty for the built-in base roles.",
+            "type": "string"
+          },
+          "built_in": {
+            "description": "Roles are base roles: set on a person, never granted.",
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "grants": {
+            "description": "How many people and groups the role is granted to.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "app",
+          "built_in",
+          "description",
+          "grants",
+          "label",
+          "name",
+          "permissions"
+        ],
+        "type": "object"
+      },
+      "RoleDetail": {
+        "description": "A role and who has it.",
+        "properties": {
+          "app": {
+            "description": "The app that defines the role; empty for the built-in base roles.",
+            "type": "string"
+          },
+          "built_in": {
+            "description": "Roles are base roles: set on a person, never granted.",
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "granted_to": {
+            "items": {
+              "$ref": "#/components/schemas/Grant"
+            },
+            "type": "array"
+          },
+          "grants": {
+            "description": "How many people and groups the role is granted to.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "app",
+          "built_in",
+          "description",
+          "granted_to",
+          "grants",
+          "label",
+          "name",
+          "permissions"
         ],
         "type": "object"
       },
@@ -703,6 +897,12 @@
           "name": {
             "type": "string"
           },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "role": {
             "type": "string"
           }
@@ -711,12 +911,13 @@
           "email",
           "id",
           "name",
+          "permissions",
           "role"
         ],
         "type": "object"
       },
       "UserDetail": {
-        "description": "Someone and the groups they are in.",
+        "description": "Someone, the groups they are in, and the roles they hold on top of their base role.",
         "properties": {
           "created_at": {
             "format": "date-time",
@@ -749,6 +950,12 @@
           "role": {
             "description": "Admin, agent or end_user.",
             "type": "string"
+          },
+          "roles": {
+            "items": {
+              "$ref": "#/components/schemas/HeldRole"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -758,7 +965,8 @@
           "groups",
           "id",
           "name",
-          "role"
+          "role",
+          "roles"
         ],
         "type": "object"
       },
@@ -1367,7 +1575,7 @@
         ]
       },
       "post": {
-        "description": "With {\"name\": \"...\", \"description\": \"...\"}.\n\nRequires the admin role.",
+        "description": "With {\"name\": \"...\", \"description\": \"...\"}.\n\nRequires the `groups:manage` permission.",
         "operationId": "createGroup",
         "requestBody": {
           "content": {
@@ -1478,14 +1686,14 @@
         "tags": [
           "groups"
         ],
-        "x-roles": [
-          "admin"
+        "x-permissions": [
+          "groups:manage"
         ]
       }
     },
     "/api/v1/groups/{id}": {
       "delete": {
-        "description": "A group that tickets are assigned to cannot be deleted: move them first.\n\nRequires the admin role.",
+        "description": "A group that tickets are assigned to cannot be deleted: move them first.\n\nRequires the `groups:manage` permission.",
         "operationId": "deleteGroup",
         "parameters": [
           {
@@ -1582,8 +1790,8 @@
         "tags": [
           "groups"
         ],
-        "x-roles": [
-          "admin"
+        "x-permissions": [
+          "groups:manage"
         ]
       },
       "get": {
@@ -1693,7 +1901,7 @@
         ]
       },
       "patch": {
-        "description": "With {\"name\"?, \"description\"?}. Renaming a group breaks any expression that names it.\n\nRequires the admin role.",
+        "description": "With {\"name\"?, \"description\"?}. Renaming a group breaks any expression that names it.\n\nRequires the `groups:manage` permission.",
         "operationId": "updateGroup",
         "parameters": [
           {
@@ -1821,8 +2029,8 @@
         "tags": [
           "groups"
         ],
-        "x-roles": [
-          "admin"
+        "x-permissions": [
+          "groups:manage"
         ]
       }
     },
@@ -1947,7 +2155,7 @@
     },
     "/api/v1/groups/{id}/members/{userId}": {
       "delete": {
-        "description": "Take someone out. Tickets already assigned to them keep their assignee; the next change of group is what lets go of them.\n\nRequires the admin role.",
+        "description": "Take someone out. Tickets already assigned to them keep their assignee; the next change of group is what lets go of them.\n\nRequires the `groups:manage` permission.",
         "operationId": "removeGroupMember",
         "parameters": [
           {
@@ -2053,12 +2261,12 @@
         "tags": [
           "groups"
         ],
-        "x-roles": [
-          "admin"
+        "x-permissions": [
+          "groups:manage"
         ]
       },
       "put": {
-        "description": "Add someone. Adding someone already in the group changes nothing.\n\nRequires the admin role.",
+        "description": "Add someone. Adding someone already in the group changes nothing.\n\nRequires the `groups:manage` permission.",
         "operationId": "addGroupMember",
         "parameters": [
           {
@@ -2164,8 +2372,8 @@
         "tags": [
           "groups"
         ],
-        "x-roles": [
-          "admin"
+        "x-permissions": [
+          "groups:manage"
         ]
       }
     },
@@ -2582,6 +2790,527 @@
         "summary": "Get open API",
         "tags": [
           "openapi"
+        ]
+      }
+    },
+    "/api/v1/permissions": {
+      "get": {
+        "description": "Every permission the platform checks, for showing what a role allows.",
+        "operationId": "listPermissions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/Permission"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List permissions",
+        "tags": [
+          "permissions"
+        ]
+      }
+    },
+    "/api/v1/roles": {
+      "get": {
+        "description": "Every role, the built-in base roles first.\n\nRequires the `roles:manage` or `users:manage` or `groups:manage` permission.",
+        "operationId": "listRoles",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/Role"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List roles",
+        "tags": [
+          "roles"
+        ],
+        "x-permissions": [
+          "roles:manage",
+          "users:manage",
+          "groups:manage"
+        ]
+      }
+    },
+    "/api/v1/roles/{name}": {
+      "get": {
+        "description": "A role and everyone it is granted to.\n\nRequires the `roles:manage` or `users:manage` or `groups:manage` permission.",
+        "operationId": "getRole",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleDetail"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get role",
+        "tags": [
+          "roles"
+        ],
+        "x-permissions": [
+          "roles:manage",
+          "users:manage",
+          "groups:manage"
+        ]
+      }
+    },
+    "/api/v1/roles/{name}/grants": {
+      "post": {
+        "description": "With {\"user_id\"} or {\"group_id\"}: give the role to a person, or to everyone in a group. Base roles (admin, agent, end_user) are set on the person instead.\n\nRequires the `roles:manage` permission.",
+        "operationId": "grantRole",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "group_id": {
+                    "format": "uuid",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "user_id": {
+                    "format": "uuid",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Grant"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Grant role",
+        "tags": [
+          "roles"
+        ],
+        "x-permissions": [
+          "roles:manage"
+        ]
+      }
+    },
+    "/api/v1/roles/{name}/grants/{id}": {
+      "delete": {
+        "description": "Take a role back from the person or group it was granted to.\n\nRequires the `roles:manage` permission.",
+        "operationId": "revokeRole",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Revoke role",
+        "tags": [
+          "roles"
+        ],
+        "x-permissions": [
+          "roles:manage"
         ]
       }
     },
@@ -3013,7 +3742,7 @@
         ]
       },
       "patch": {
-        "description": "Fields that are absent are left alone; \"assignee_id\": null unassigns and \"assignment_group_id\": null takes the ticket out of its group. Moving a ticket to a group its assignee is not in also unassigns it; naming an assignee outside the group is refused.\n\nRequires the admin or agent role.",
+        "description": "Fields that are absent are left alone; \"assignee_id\": null unassigns and \"assignment_group_id\": null takes the ticket out of its group. Moving a ticket to a group its assignee is not in also unassigns it; naming an assignee outside the group is refused.\n\nRequires the `tickets:update` permission.",
         "operationId": "updateTicket",
         "parameters": [
           {
@@ -3167,9 +3896,8 @@
         "tags": [
           "tickets"
         ],
-        "x-roles": [
-          "admin",
-          "agent"
+        "x-permissions": [
+          "tickets:update"
         ]
       }
     },
@@ -3416,7 +4144,7 @@
     },
     "/api/v1/tickets/{id}/transitions": {
       "post": {
-        "description": "With {\"to\": \"\u003cstatus\u003e\"}.\n\nRequires the admin or agent role.",
+        "description": "With {\"to\": \"\u003cstatus\u003e\"}.\n\nRequires the `tickets:update` permission.",
         "operationId": "transitionTicket",
         "parameters": [
           {
@@ -3534,15 +4262,14 @@
         "tags": [
           "tickets"
         ],
-        "x-roles": [
-          "admin",
-          "agent"
+        "x-permissions": [
+          "tickets:update"
         ]
       }
     },
     "/api/v1/users": {
       "get": {
-        "description": "The directory, for pickers such as group membership and the admin's user list. q matches a name or an email; deactivated people are left out unless include_deactivated=true.\n\nRequires the admin or agent role.",
+        "description": "The directory, for pickers such as group membership and the admin's user list. q matches a name or an email; deactivated people are left out unless include_deactivated=true.\n\nRequires the `users:read` permission.",
         "operationId": "listUsers",
         "parameters": [
           {
@@ -3683,13 +4410,12 @@
         "tags": [
           "users"
         ],
-        "x-roles": [
-          "admin",
-          "agent"
+        "x-permissions": [
+          "users:read"
         ]
       },
       "post": {
-        "description": "With {\"email\", \"name\", \"role\", \"password\"}: add someone who can sign in straight away.\n\nRequires the admin role.",
+        "description": "With {\"email\", \"name\", \"role\", \"password\"}: add someone who can sign in straight away.\n\nRequires the `users:manage` permission.",
         "operationId": "createUser",
         "requestBody": {
           "content": {
@@ -3808,14 +4534,14 @@
         "tags": [
           "users"
         ],
-        "x-roles": [
-          "admin"
+        "x-permissions": [
+          "users:manage"
         ]
       }
     },
     "/api/v1/users/staff": {
       "get": {
-        "description": "Active agents and admins, for assignee pickers.\n\nRequires the admin or agent role.",
+        "description": "Active agents and admins, for assignee pickers.\n\nRequires the `users:read` permission.",
         "operationId": "listStaff",
         "responses": {
           "200": {
@@ -3919,15 +4645,14 @@
         "tags": [
           "users"
         ],
-        "x-roles": [
-          "admin",
-          "agent"
+        "x-permissions": [
+          "users:read"
         ]
       }
     },
     "/api/v1/users/{id}": {
       "delete": {
-        "description": "Remove someone who has no history. Anyone who has filed, worked on or commented on a ticket, or been asked to approve something, is deactivated instead, so the record of what they did stays whole.\n\nRequires the admin role.",
+        "description": "Remove someone who has no history. Anyone who has filed, worked on or commented on a ticket, or been asked to approve something, is deactivated instead, so the record of what they did stays whole.\n\nRequires the `users:manage` permission.",
         "operationId": "deleteUser",
         "parameters": [
           {
@@ -4024,12 +4749,12 @@
         "tags": [
           "users"
         ],
-        "x-roles": [
-          "admin"
+        "x-permissions": [
+          "users:manage"
         ]
       },
       "get": {
-        "description": "Someone, and the groups they are in.\n\nRequires the admin role.",
+        "description": "Someone, and the groups they are in.\n\nRequires the `users:manage` permission.",
         "operationId": "getUser",
         "parameters": [
           {
@@ -4133,12 +4858,12 @@
         "tags": [
           "users"
         ],
-        "x-roles": [
-          "admin"
+        "x-permissions": [
+          "users:manage"
         ]
       },
       "patch": {
-        "description": "With {\"email\"?, \"name\"?, \"role\"?, \"deactivated\"?}. Deactivating signs them out everywhere and stops them signing in; their tickets and comments keep their name. Admins cannot demote or deactivate themselves, and there is always at least one active admin.\n\nRequires the admin role.",
+        "description": "With {\"email\"?, \"name\"?, \"role\"?, \"deactivated\"?}. Deactivating signs them out everywhere and stops them signing in; their tickets and comments keep their name. Admins cannot demote or deactivate themselves, and there is always at least one active admin.\n\nRequires the `users:manage` permission.",
         "operationId": "updateUser",
         "parameters": [
           {
@@ -4279,14 +5004,14 @@
         "tags": [
           "users"
         ],
-        "x-roles": [
-          "admin"
+        "x-permissions": [
+          "users:manage"
         ]
       }
     },
     "/api/v1/users/{id}/password": {
       "put": {
-        "description": "With {\"password\"}: set a new password. It signs them out everywhere (an admin setting their own keeps their sessions).\n\nRequires the admin role.",
+        "description": "With {\"password\"}: set a new password. It signs them out everywhere (an admin setting their own keeps their sessions).\n\nRequires the `users:manage` permission.",
         "operationId": "setUserPassword",
         "parameters": [
           {
@@ -4399,14 +5124,14 @@
         "tags": [
           "users"
         ],
-        "x-roles": [
-          "admin"
+        "x-permissions": [
+          "users:manage"
         ]
       }
     },
     "/api/v1/workflow-runs": {
       "get": {
-        "description": "Requires the admin or agent role.",
+        "description": "Requires the `workflows:read_all` permission.",
         "operationId": "listRuns",
         "parameters": [
           {
@@ -4561,13 +5286,12 @@
         "tags": [
           "workflow-runs"
         ],
-        "x-roles": [
-          "admin",
-          "agent"
+        "x-permissions": [
+          "workflows:read_all"
         ]
       },
       "post": {
-        "description": "With {\"workflow\": \"app/name\", \"ticket\": \"\u003cid or reference\u003e\"}.\n\nRequires the admin or agent role.",
+        "description": "With {\"workflow\": \"app/name\", \"ticket\": \"\u003cid or reference\u003e\"}.\n\nRequires the `workflows:run` permission.",
         "operationId": "startRun",
         "requestBody": {
           "content": {
@@ -4678,15 +5402,14 @@
         "tags": [
           "workflow-runs"
         ],
-        "x-roles": [
-          "admin",
-          "agent"
+        "x-permissions": [
+          "workflows:run"
         ]
       }
     },
     "/api/v1/workflow-runs/{id}": {
       "get": {
-        "description": "Requires the admin or agent role.",
+        "description": "Requires the `workflows:read_all` permission.",
         "operationId": "getRun",
         "parameters": [
           {
@@ -4790,15 +5513,14 @@
         "tags": [
           "workflow-runs"
         ],
-        "x-roles": [
-          "admin",
-          "agent"
+        "x-permissions": [
+          "workflows:read_all"
         ]
       }
     },
     "/api/v1/workflow-runs/{id}/cancel": {
       "post": {
-        "description": "Requires the admin or agent role.",
+        "description": "Requires the `workflows:run` permission.",
         "operationId": "cancelRun",
         "parameters": [
           {
@@ -4902,15 +5624,14 @@
         "tags": [
           "workflow-runs"
         ],
-        "x-roles": [
-          "admin",
-          "agent"
+        "x-permissions": [
+          "workflows:run"
         ]
       }
     },
     "/api/v1/workflows": {
       "get": {
-        "description": "What can be started by hand.\n\nRequires the admin or agent role.",
+        "description": "What can be started by hand.\n\nRequires the `workflows:read_all` permission.",
         "operationId": "listWorkflows",
         "responses": {
           "200": {
@@ -4964,9 +5685,8 @@
         "tags": [
           "workflows"
         ],
-        "x-roles": [
-          "admin",
-          "agent"
+        "x-permissions": [
+          "workflows:read_all"
         ]
       }
     }
@@ -4989,6 +5709,12 @@
     },
     {
       "name": "openapi"
+    },
+    {
+      "name": "permissions"
+    },
+    {
+      "name": "roles"
     },
     {
       "name": "tickets"

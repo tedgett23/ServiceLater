@@ -24,6 +24,8 @@ const (
 	EventCreate = "create"
 	EventUpdate = "update"
 
+	RunAsApp = "app" // run_as: an after rule acting as its app's principal
+
 	OnErrorBlock = "block" // a rule that cannot be evaluated stops the save (the default: fail closed)
 	OnErrorSkip  = "skip"  // ...or is skipped, for rules that are nice to have
 
@@ -130,7 +132,10 @@ type Rule struct {
 	Order      int      `json:"order"`
 	When       string   `json:"when,omitempty"`
 	OnError    string   `json:"on_error"`
-	Run        []Action `json:"run"`
+	// RunAs "app" makes an after rule act as its app's principal (with the permissions its manifest declares) instead
+	// of as the person saving. Async rules always run as the app; before rules always as the person.
+	RunAs string   `json:"run_as,omitempty"`
+	Run   []Action `json:"run"`
 
 	// App and Version say where the rule came from. They are set at runtime and are not part of the definition.
 	App     string `json:"-"`
@@ -151,6 +156,7 @@ type ruleFile struct {
 	Order      *int         `yaml:"order"`
 	When       string       `yaml:"when"`
 	OnError    string       `yaml:"on_error"`
+	RunAs      string       `yaml:"run_as"`
 	Run        []actionFile `yaml:"run"`
 }
 
@@ -177,7 +183,7 @@ func parseRule(file string, data []byte, p *Problems) *Rule {
 		p.add(file, "kind must be rule in this folder, got %q", f.Kind)
 		return nil
 	}
-	r := &Rule{Name: f.Name, RecordType: f.RecordType, Timing: f.Timing, On: f.On, Order: defaultOrder, When: f.When, OnError: f.OnError}
+	r := &Rule{Name: f.Name, RecordType: f.RecordType, Timing: f.Timing, On: f.On, Order: defaultOrder, When: f.When, OnError: f.OnError, RunAs: f.RunAs}
 	if f.Order != nil {
 		r.Order = *f.Order
 	}
@@ -258,6 +264,14 @@ func (r *Rule) validateStructure(file string, p *Problems) {
 	}
 	if r.OnError != OnErrorBlock && r.OnError != OnErrorSkip {
 		p.add(file, "on_error must be block or skip, got %q", r.OnError)
+	}
+	switch {
+	case r.RunAs != "" && r.RunAs != RunAsApp:
+		p.add(file, "run_as must be app, got %q", r.RunAs)
+	case r.RunAs == RunAsApp && r.Timing == TimingBefore:
+		p.add(file, "run_as: app is not supported for a before rule yet: it changes the record the person is saving")
+	case r.RunAs == RunAsApp && r.Timing == TimingAsync:
+		p.add(file, "run_as: app is how every async rule runs already, so leave it out")
 	}
 	if r.Timing == TimingAsync && r.OnError == OnErrorSkip {
 		p.add(file, "on_error: skip does not apply to an async rule: nothing waits for it, so a failing run is retried and then dead-lettered")

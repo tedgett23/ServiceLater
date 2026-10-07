@@ -8,8 +8,8 @@ import (
 
 func TestSlowClientIsKickedNotBlocking(t *testing.T) {
 	h := NewHub()
-	slow := &client{userID: uuid.New(), staff: true, send: make(chan []byte, 1), kicked: make(chan struct{}), down: make(chan struct{})}
-	fast := &client{userID: uuid.New(), staff: true, send: make(chan []byte, 8), kicked: make(chan struct{}), down: make(chan struct{})}
+	slow := &client{userID: uuid.New(), seesAll: true, send: make(chan []byte, 1), kicked: make(chan struct{}), down: make(chan struct{})}
+	fast := &client{userID: uuid.New(), seesAll: true, send: make(chan []byte, 8), kicked: make(chan struct{}), down: make(chan struct{})}
 	h.clients[slow], h.clients[fast] = struct{}{}, struct{}{}
 
 	all := func(*client) bool { return true }
@@ -39,7 +39,7 @@ func TestVisibleTo(t *testing.T) {
 	if visibleTo(&client{userID: me}, other) {
 		t.Error("end user must not see another user's ticket")
 	}
-	if !visibleTo(&client{userID: me, staff: true}, other) {
+	if !visibleTo(&client{userID: me, seesAll: true}, other) {
 		t.Error("staff see every ticket")
 	}
 }

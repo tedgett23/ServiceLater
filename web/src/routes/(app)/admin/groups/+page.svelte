@@ -88,7 +88,6 @@
 		overflow-y: auto;
 		padding: 1rem 1.25rem 2rem;
 		max-width: 44rem;
-		margin: 0 auto;
 	}
 	h1 {
 		font: 800 1.6rem/1.2 var(--font-display);

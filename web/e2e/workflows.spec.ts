@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { as, createTicket, details, openTicket, uid } from './helpers';
-import { servicelater, tempApp } from './apps';
+import { installApp, servicelater, tempApp } from './apps';
 
 // A rule that starts a workflow when this test's ticket is raised to Critical. Scoped to the ticket by its title tag,
 // because the server is shared with every other test.
@@ -46,7 +46,7 @@ test('a workflow started by a rule runs to the end and can be followed in the ru
 		'default/rules/start.yaml': startRule(tag, 'nap-flow')
 	});
 	try {
-		servicelater('install', app.dir);
+		installApp(app.dir);
 		await openTicket(page, t.number);
 		await details(page).getByLabel('Priority').selectOption('Critical');
 
@@ -101,7 +101,7 @@ steps:
 		'default/rules/start.yaml': startRule(tag, 'breaks')
 	});
 	try {
-		servicelater('install', app.dir);
+		installApp(app.dir);
 		await openTicket(page, t.number);
 		await details(page).getByLabel('Priority').selectOption('Critical');
 		await expect(page.locator('.activity li', { hasText: 'this step works' })).toBeVisible({ timeout: 15_000 });
@@ -145,7 +145,7 @@ steps:
 		'default/rules/start.yaml': startRule(tag, 'long-nap')
 	});
 	try {
-		servicelater('install', app.dir);
+		installApp(app.dir);
 		await openTicket(page, t.number);
 		await details(page).getByLabel('Priority').selectOption('Critical');
 		await page.goto('/runs');

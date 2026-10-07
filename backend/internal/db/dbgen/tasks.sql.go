@@ -15,7 +15,7 @@ import (
 const createComment = `-- name: CreateComment :one
 INSERT INTO task_comments (task_id, author_id, body, internal)
 VALUES ($1, $2, $3, $4)
-RETURNING id, task_id, author_id, body, internal, created_at
+RETURNING id, task_id, author_id, body, internal, created_at, on_behalf_of
 `
 
 type CreateCommentParams struct {
@@ -40,6 +40,7 @@ func (q *Queries) CreateComment(ctx context.Context, arg CreateCommentParams) (T
 		&i.Body,
 		&i.Internal,
 		&i.CreatedAt,
+		&i.OnBehalfOf,
 	)
 	return i, err
 }
@@ -108,14 +109,15 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 }
 
 const getCommentView = `-- name: GetCommentView :one
-SELECT c.id, c.task_id, c.author_id, c.body, c.internal, c.created_at, u.name AS author_name
-FROM task_comments c JOIN users u ON u.id = c.author_id
+SELECT c.id, c.task_id, c.author_id, c.body, c.internal, c.created_at, c.on_behalf_of, u.name AS author_name, b.name AS on_behalf_of_name
+FROM task_comments c JOIN users u ON u.id = c.author_id LEFT JOIN users b ON b.id = c.on_behalf_of
 WHERE c.id = $1
 `
 
 type GetCommentViewRow struct {
-	TaskComment TaskComment `json:"task_comment"`
-	AuthorName  string      `json:"author_name"`
+	TaskComment    TaskComment `json:"task_comment"`
+	AuthorName     string      `json:"author_name"`
+	OnBehalfOfName pgtype.Text `json:"on_behalf_of_name"`
 }
 
 func (q *Queries) GetCommentView(ctx context.Context, id uuid.UUID) (GetCommentViewRow, error) {
@@ -128,7 +130,9 @@ func (q *Queries) GetCommentView(ctx context.Context, id uuid.UUID) (GetCommentV
 		&i.TaskComment.Body,
 		&i.TaskComment.Internal,
 		&i.TaskComment.CreatedAt,
+		&i.TaskComment.OnBehalfOf,
 		&i.AuthorName,
+		&i.OnBehalfOfName,
 	)
 	return i, err
 }
@@ -294,15 +298,16 @@ func (q *Queries) GetTicketView(ctx context.Context, id uuid.UUID) (GetTicketVie
 }
 
 const listComments = `-- name: ListComments :many
-SELECT c.id, c.task_id, c.author_id, c.body, c.internal, c.created_at, u.name AS author_name
-FROM task_comments c JOIN users u ON u.id = c.author_id
+SELECT c.id, c.task_id, c.author_id, c.body, c.internal, c.created_at, c.on_behalf_of, u.name AS author_name, b.name AS on_behalf_of_name
+FROM task_comments c JOIN users u ON u.id = c.author_id LEFT JOIN users b ON b.id = c.on_behalf_of
 WHERE c.task_id = $1
 ORDER BY c.created_at, c.id
 `
 
 type ListCommentsRow struct {
-	TaskComment TaskComment `json:"task_comment"`
-	AuthorName  string      `json:"author_name"`
+	TaskComment    TaskComment `json:"task_comment"`
+	AuthorName     string      `json:"author_name"`
+	OnBehalfOfName pgtype.Text `json:"on_behalf_of_name"`
 }
 
 func (q *Queries) ListComments(ctx context.Context, taskID uuid.UUID) ([]ListCommentsRow, error) {
@@ -321,7 +326,9 @@ func (q *Queries) ListComments(ctx context.Context, taskID uuid.UUID) ([]ListCom
 			&i.TaskComment.Body,
 			&i.TaskComment.Internal,
 			&i.TaskComment.CreatedAt,
+			&i.TaskComment.OnBehalfOf,
 			&i.AuthorName,
+			&i.OnBehalfOfName,
 		); err != nil {
 			return nil, err
 		}

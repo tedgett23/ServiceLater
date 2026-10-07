@@ -21,7 +21,7 @@ This document settles how apps are structured, how their logic runs, and how we 
 | D6 | v1 apps are **data only**: no app-defined tables or SQL migrations. Apps extend records through validated custom fields (`fields jsonb`). | Proposed |
 | D7 | Definitions are stored as immutable, versioned rows in Postgres, cached per instance, and reloaded through `NOTIFY`. | Proposed |
 | D8 | Statuses come from a **lifecycle definition**; core logic depends on state *categories*, not names. | Proposed |
-| D9 | Before and after rules run as the acting user under their RLS. Async rules and workflows run as the app's service principal, with permissions declared in the manifest. | Proposed |
+| D9 | Before and after rules run as the acting user under their RLS. Async rules and workflows run as the app's service principal, with permissions declared in the manifest. | Built (§11.1) |
 | D10 | Uninstalling an app never deletes user data (tickets, comments). | Proposed |
 | D11 | Incident, change, request and problem each have **their own table**, defined in core (§9.2). | Decided |
 | D12 | Workflows are **interpreted by a durable engine written in Go**, not compiled to code. The step library is the extension surface. | Decided |
@@ -444,8 +444,8 @@ now). The engine is `internal/rules`; it does no database work, so the API appli
   division by zero, the cost limit) blocks the save with a fixed message and logs the details, unless it says
   `on_error: skip`. The 250 ms budget is checked between steps and inside expressions and is never skippable.
 - **Actor:** rules act as the person who saved, under RLS. A rule that does something that person may not (a requester's
-  create being auto-assigned, an internal note on their own ticket) fails the save. Service principals (roles slice)
-  lift this; until then such rules belong on staff-only paths.
+  create being auto-assigned, an internal note on their own ticket) fails the save. An after rule can say `run_as: app`
+  to act as its app instead (§11.1), and async rules always do.
 - **Async rules:** `timing: async` rules may only `comment.add` for now (`abort` and `set` are rejected at install:
   the save has already happened). A save queues them in its own transaction, after its after rules, so a save that
   rolls back queues nothing. The job carries ids only (app, rule, record, event, actor). Filters that cannot be
@@ -459,7 +459,7 @@ now). The engine is `internal/rules`; it does no database work, so the API appli
   nothing else writes to `tasks`. The api handlers only decode, call it and map its `*records.Error` to a status.
 - **`record.update`** (async only; `set` is its before-rule counterpart) takes the same fields as `set`. The run's
   actions change the record in memory, each seeing the earlier ones, and the difference is then saved as **one edit**
-  through `Service.Update`, as the person whose change set the rule off: they must be staff, the row is locked before
+  through `Service.Update`, as the app (for the person whose change set the rule off): the app must hold `tickets:update`, the row is locked before
   the rule reads it, and every before and after rule judges the change. A refusal (a before rule aborts, a value is
   not allowed) is recorded as failed and not retried, and undoes the run's comments too. It updates the triggering
   record only; other records arrive with `record.create` and friends.
@@ -726,8 +726,8 @@ execution's time is waiting for a free executor and for the database.
 **Not built yet, and why:** `notify.email` / `sms` / `slack` and
 `http.request` (need mail transport, secrets and host allow-lists, which arrive with the config and secrets work),
 `foreach` / `record.query` / `subflow` (a bounded list and calling another workflow), `record.create` / `record.delete`,
-and the `schedule` trigger. Steps run as the person who started the workflow: a workflow started by a requester cannot
-edit tickets (only staff can), which is the same rule as by hand; service principals lift this (roles slice). Live
+and the `schedule` trigger. Steps run as the workflow's app (its service principal, §11.1) on behalf of the person who
+started it: they can do what the app's manifest declares, whoever started it, and `user` is still that person. Live
 highlighting of the running step arrives with the visual builder; the viewer refreshes by polling.
 
 ## 8. Declarative UI
@@ -906,6 +906,32 @@ save, not built yet). `app install` takes several paths and installs dependencie
 - **Idempotency and retries**: jobs retry with backoff, so steps carry idempotency keys and built-in actions are
   safe to repeat.
 
+### 11.1 What is built (slice 7)
+
+- **Permissions under roles.** Code checks named permissions (`internal/authz`, `app_can` in SQL), never role names.
+  A role is a set of them. A person has one base role (admin, agent, end_user) plus any roles granted to them or to
+  a group they are in. Apps ship roles in `roles/*.yaml`:
+
+  ```yaml
+  kind: role
+  name: cab-member
+  label: CAB member
+  permissions: [tickets:read_all, comments:internal, workflows:read_all]
+  ```
+
+  Admins grant them from the admin section. Role names are global, so two apps cannot define the same one.
+  Escalation guards: changing who is in a group that holds a role, and making someone an admin, both need
+  `roles:manage`.
+- **Service principals.** Each installed app is an identity of its own (a `users` row with `app_name`, which cannot
+  sign in). Its permissions are its manifest's `permissions:`, shown in the install plan; new ones are refused
+  unless approved (`servicelater app install -approve-permissions`). Async rules and workflows run as it, on behalf
+  of the person who set them off; an after rule can opt in with `run_as: app` (before rules cannot yet). What it
+  writes records whom it acted for, and expressions still see that person as `user`.
+- **`role('name')`** in workflow expressions resolves to everyone holding the role, like `group('name')`, so an
+  approval step can ask `approvers: "role('cab-member')"`.
+- Not yet: per-record-type permissions (`changes:approve`), a role editor in the UI (roles are YAML), `run_as: app`
+  for before rules, and the outbound capabilities (`notify:email`, `http:`) that manifests may already declare.
+
 ## 12. Performance notes
 
 - Expressions are compiled once per definition version and cached; the cache key is the definition checksum, so a
@@ -922,8 +948,8 @@ save, not built yet). `app install` takes several paths and installs dependencie
 1. ~~App-declared record types.~~ **Resolved by D14.** An app-defined type is a `tasks` row plus `fields jsonb`.
    Apps declaring their own typed tables (runtime DDL, auto-applied RLS, queries alongside sqlc) stay deferred.
 2. ~~Polymorphic comments.~~ **Resolved by D14.** Comments reference `tasks.id` with a real foreign key.
-3. **Service principal and RLS.** RLS today keys off a user's role. An app principal needs a role concept, which
-   overlaps with custom RBAC. The permission model should be designed once for both.
+3. ~~Service principal and RLS.~~ **Resolved (§11.1).** One permission model for people and apps: RLS checks
+   permissions, people get them from roles, app principals from their manifest.
 4. **Lookups.** Resolved by the worked examples for v1: the `count` menu in §5 is enough. Revisit when real apps
    report a blocking rule it cannot express.
 5. **Step library.** The worked examples exercised `notify.email`, `wait`, `condition`, `approval`,
@@ -961,7 +987,7 @@ Each slice is shippable and leaves the product working.
 | **5. Rules** (done: job queue and worker, before/after/async rules, `action_runs` audit, one shared save path, `record.update` and loop protection) | Before, after and async rules with the built-in actions; job queue and worker role; transactional outbox; `action_runs` audit; loop protection. | Slices 2 and 3 |
 | **6. Workflow engine** (done: durable engine, `set` / `condition` / `wait` / `record.update` / `comment.add` / `end`, rule and manual triggers, run history API and viewer, load harness; the rest of the step library follows, see §7.6) | Durable execution, the v1 step library, workflows as YAML, run history API and a read-only run viewer. | Slice 5 |
 | **6b. SLAs** | First-class SLA definitions with pause and resume, business calendars and breach actions. | Slice 6 |
-| **7. Roles and permissions** | Custom RBAC and app service principals (open question 3). | Slice 5 |
+| **7. Roles and permissions** (done, §11.1) | Custom RBAC and app service principals (open question 3). | Slice 5 |
 | **8. Content kinds** | Catalog, knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
 | **9. Visual builder** | The Svelte Flow builder editing the same workflow files, with live execution highlighting. | Slice 6 |
 

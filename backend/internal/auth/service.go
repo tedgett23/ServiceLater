@@ -39,7 +39,11 @@ type User struct {
 	ID    uuid.UUID `json:"id"`
 	Email string    `json:"email"`
 	Name  string    `json:"name"`
-	Role  string    `json:"role"`
+	// Role is the base role: admin, agent or end_user.
+	Role string `json:"role"`
+	// Permissions are everything this person may do: their base role's, and those of roles granted to them or to
+	// their groups. The web shows and hides things by these.
+	Permissions []string `json:"permissions"`
 }
 
 // Session is what a successful login or refresh yields; the HTTP layer turns it into cookies.
@@ -249,6 +253,11 @@ func (s *Service) Cleanup(ctx context.Context) error {
 }
 
 func (s *Service) issue(ctx context.Context, q *dbgen.Queries, u User, family uuid.UUID) (*Session, error) {
+	perms, err := q.PermissionsOf(ctx, u.ID)
+	if err != nil {
+		return nil, err
+	}
+	u.Permissions = perms
 	access, accessExp, err := s.tokens.Issue(u.ID, u.Role)
 	if err != nil {
 		return nil, err

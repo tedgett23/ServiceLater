@@ -48,8 +48,8 @@
 
 	function access(e: Endpoint) {
 		if (e.op.security.length === 0) return 'No sign-in needed';
-		const roles = e.op['x-roles'];
-		return roles ? `Signed in as ${roles.join(' or ')}` : 'Signed in, any role';
+		const perms = e.op['x-permissions'];
+		return perms ? `Signed in, with the ${perms.join(' or ')} permission` : 'Signed in, anyone';
 	}
 
 	const ok = (code: string) => code.startsWith('2');

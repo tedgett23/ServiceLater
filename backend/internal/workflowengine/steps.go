@@ -33,11 +33,14 @@ func (e *Engine) run(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExe
 		return outcome{}, err
 	}
 	in := expr.Input{User: &expr.User{ID: user.ID.String(), Name: user.Name, Email: user.Email, Role: user.Role}, Vars: vars, Now: time.Now(),
-		Record: &expr.Record{}, Groups: groupMembers(q)}
+		Record: &expr.Record{}, Groups: groupMembers(q), Roles: roleHolders(q)}
 	var ticket *records.Ticket
 	if ex.RecordID.Valid {
 		t, err := records.Load(ctx, q, ex.RecordID.UUID)
 		if errors.Is(err, pgx.ErrNoRows) {
+			if ex.RunAs.Valid {
+				return outcome{}, failf("the ticket no longer exists, or the %s app may not see it (its manifest needs tickets:read_all)", ex.App)
+			}
 			return outcome{}, failf("the ticket no longer exists, or %s can no longer see it", user.Name)
 		}
 		if err != nil {
@@ -225,13 +228,21 @@ func (e *Engine) doUpdate(ctx context.Context, q *dbgen.Queries, ex dbgen.Workfl
 	if err != nil {
 		return out, err
 	}
-	if _, err := e.Svc.Update(ctx, q, records.Actor{ID: user.ID, Role: user.Role}, cause, t.ID, patch); err != nil {
+	runner := ex.StartedBy
+	if ex.RunAs.Valid {
+		runner = ex.RunAs.UUID
+	}
+	actor, err := records.ActorIn(ctx, q, runner)
+	if err != nil {
+		return out, err
+	}
+	if _, err := e.Svc.Update(ctx, q, actor, cause, t.ID, patch); err != nil {
 		var re *records.Error
 		if errors.As(err, &re) {
 			return out, failf("the change was refused: %s", re.Msg)
 		}
 		if isForbidden(err) {
-			return out, failf("%s is not allowed to make this change", user.Name)
+			return out, failf("the %s app is not allowed to make this change for %s: add the permission it needs to its manifest", ex.App, user.Name)
 		}
 		return out, err
 	}
@@ -306,9 +317,14 @@ func (e *Engine) doComment(ctx context.Context, q *dbgen.Queries, ex dbgen.Workf
 	if body == "" || len(body) > records.MaxComment {
 		return out, failf("the comment is empty or too long")
 	}
-	if _, err := q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: ex.RecordID.UUID, AuthorID: ex.StartedBy, Body: body, Internal: st.Internal}); err != nil {
+	// Written by the app, for the person who started the workflow (on_behalf_of is filled in by the database).
+	author := ex.StartedBy
+	if ex.RunAs.Valid {
+		author = ex.RunAs.UUID
+	}
+	if _, err := q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: ex.RecordID.UUID, AuthorID: author, Body: body, Internal: st.Internal}); err != nil {
 		if isForbidden(err) {
-			return out, failf("the person the workflow runs as may not write this comment")
+			return out, failf("the %s app may not write this comment: add the permission it needs to its manifest", ex.App)
 		}
 		return out, err
 	}
@@ -385,6 +401,25 @@ func groupMembers(q *dbgen.Queries) func(ctx context.Context, name string) ([]st
 			return nil, err
 		}
 		ids, err := q.ListGroupMemberIDsByName(ctx, name)
+		out := make([]string, len(ids))
+		for i, id := range ids {
+			out[i] = id.String()
+		}
+		return out, err
+	}
+}
+
+// roleHolders is what role('name') resolves to: everyone active who holds the role. A role that does not exist is an
+// error, never an empty list, like a missing group.
+func roleHolders(q *dbgen.Queries) func(ctx context.Context, name string) ([]string, error) {
+	return func(ctx context.Context, name string) ([]string, error) {
+		if _, err := q.GetRole(ctx, name); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, fmt.Errorf("there is no role named %q", name)
+			}
+			return nil, err
+		}
+		ids, err := q.ListRoleHolderIDs(ctx, name)
 		out := make([]string, len(ids))
 		for i, id := range ids {
 			out[i] = id.String()

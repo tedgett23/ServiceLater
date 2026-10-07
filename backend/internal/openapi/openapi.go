@@ -3,7 +3,7 @@
 //
 // It reads, from internal/api:
 //   - the routes, from the chi calls in NewRouter (Route, Group, Use, With and the method calls), and who may call
-//     them, from the Authenticate and auth.RequireRole middleware around them;
+//     them, from the Authenticate and auth.RequirePermission middleware around them;
 //   - each handler's doc comment, as the operation's description;
 //   - the request body, from the value passed to decode(w, r, &req);
 //   - query parameters, from url.Values.Get calls, and path parameters, from the route pattern;
@@ -81,14 +81,14 @@ type gen struct {
 type Route struct {
 	Method, Path string
 	Auth         bool
-	Roles        []string
+	Permissions  []string
 	handler      ast.Expr
 	stmtDoc      *ast.CommentGroup
 }
 
 type scope struct {
-	auth  bool
-	roles []string
+	auth        bool
+	permissions []string
 }
 
 func (g *gen) document() ([]byte, error) {
@@ -224,7 +224,7 @@ func (g *gen) call(c *ast.CallExpr, prefix string, sc *scope, cm ast.CommentMap,
 	}
 	// r.With(a, b).Get(...): the middleware applies to this one route.
 	local := *sc
-	local.roles = append([]string(nil), sc.roles...)
+	local.permissions = append([]string(nil), sc.permissions...)
 	recv := sel.X
 	for {
 		inner, ok := recv.(*ast.CallExpr)
@@ -273,7 +273,7 @@ func (g *gen) call(c *ast.CallExpr, prefix string, sc *scope, cm ast.CommentMap,
 	if err != nil {
 		return err
 	}
-	*out = append(*out, Route{Method: method, Path: joinPath(prefix, p), Auth: local.auth, Roles: local.roles,
+	*out = append(*out, Route{Method: method, Path: joinPath(prefix, p), Auth: local.auth, Permissions: local.permissions,
 		handler: c.Args[1], stmtDoc: doc})
 	return nil
 }
@@ -298,7 +298,7 @@ func (g *gen) isRouter(e ast.Expr) bool {
 	return n.Obj().Pkg() != nil && strings.HasPrefix(n.Obj().Pkg().Path(), "github.com/go-chi/chi")
 }
 
-// middleware records what a middleware means for the API's callers: sign-in, or a role.
+// middleware records what a middleware means for the API's callers: sign-in, or a permission.
 func (g *gen) middleware(e ast.Expr, sc *scope) {
 	switch m := e.(type) {
 	case *ast.SelectorExpr:
@@ -306,11 +306,11 @@ func (g *gen) middleware(e ast.Expr, sc *scope) {
 			sc.auth = true
 		}
 	case *ast.CallExpr:
-		if sel, ok := m.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "RequireRole" {
-			sc.roles = nil
+		if sel, ok := m.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "RequirePermission" {
+			sc.permissions = nil
 			for _, a := range m.Args {
 				if s, err := g.stringLit(a); err == nil {
-					sc.roles = append(sc.roles, s)
+					sc.permissions = append(sc.permissions, s)
 				}
 			}
 		}
@@ -341,17 +341,17 @@ func (g *gen) operation(rt Route) (map[string]any, error) {
 		"tags":        []string{tagOf(rt.Path)},
 	}
 	desc := describe(rt.Method, doc)
-	if len(rt.Roles) > 0 {
+	if len(rt.Permissions) > 0 {
 		if desc != "" {
 			desc += "\n\n"
 		}
-		desc += "Requires the " + strings.Join(rt.Roles, " or ") + " role."
+		desc += "Requires the `" + strings.Join(rt.Permissions, "` or `") + "` permission."
 	}
 	if desc != "" {
 		op["description"] = desc
 	}
-	if len(rt.Roles) > 0 {
-		op["x-roles"] = rt.Roles
+	if len(rt.Permissions) > 0 {
+		op["x-permissions"] = rt.Permissions
 	}
 	if rt.Auth {
 		op["security"] = []map[string][]string{{"cookieAuth": {}}}
@@ -399,7 +399,7 @@ func (g *gen) operation(rt Route) (map[string]any, error) {
 	if rt.Auth {
 		errs[http.StatusUnauthorized] = true
 	}
-	if len(rt.Roles) > 0 {
+	if len(rt.Permissions) > 0 {
 		errs[http.StatusForbidden] = true
 	}
 	for c := range errs {

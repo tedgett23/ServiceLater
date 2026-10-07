@@ -44,6 +44,10 @@ func Pool(t *testing.T) *pgxpool.Pool {
 	if _, err := pool.Exec(ctx, "TRUNCATE tasks, sessions, rate_limits, user_credentials, users, apps, jobs, action_runs, workflow_executions, groups CASCADE"); err != nil {
 		t.Fatal(err)
 	}
+	// apps cascades to roles, built-in ones included.
+	if _, err := pool.Exec(ctx, "SELECT app_seed_builtin_roles()"); err != nil {
+		t.Fatal(err)
+	}
 	// TRUNCATE leaves the per-type numbering alone, so restart it: every test starts at INC1, CHG1 and so on.
 	if _, err := pool.Exec(ctx, ResetNumbering); err != nil {
 		t.Fatal(err)

@@ -24,7 +24,8 @@ func (s *Service) StartWorkflow(ctx context.Context, q *dbgen.Queries, a Actor, 
 	if why := cause.BlocksWorkflow(); why != "" {
 		return uuid.Nil, Invalid("the workflow was not started: " + why)
 	}
-	return workflow.Start(ctx, q, workflow.StartParams{Def: wf, RecordID: &t.ID, UserID: a.ID, Cause: cause})
+	// Started for the person, even when an app's rule starts it: the workflow then runs as the app, for them.
+	return workflow.Start(ctx, q, workflow.StartParams{Def: wf, RecordID: &t.ID, UserID: a.Person(), Cause: cause})
 }
 
 // startFromRule starts what an after or async rule asked for. A start that cannot happen never blocks the save: the

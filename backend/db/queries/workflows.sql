@@ -1,7 +1,7 @@
 -- name: InsertExecution :one
-INSERT INTO workflow_executions (app, workflow, app_version, definition, record_id, started_by, cause, current_step)
+INSERT INTO workflow_executions (app, workflow, app_version, definition, record_id, started_by, cause, current_step, run_as)
 VALUES (sqlc.arg('app'), sqlc.arg('workflow'), sqlc.arg('app_version'), sqlc.arg('definition'), sqlc.narg('record_id'),
-        sqlc.arg('started_by'), sqlc.arg('cause'), sqlc.arg('current_step'))
+        sqlc.arg('started_by'), sqlc.arg('cause'), sqlc.arg('current_step'), app_principal(sqlc.arg('app')))
 RETURNING id;
 
 -- name: GetExecution :one
@@ -12,7 +12,7 @@ SELECT * FROM workflow_executions WHERE id = $1 FOR UPDATE;
 
 -- What the engine needs before it can open a transaction as the right person.
 -- name: GetExecutionOwner :one
-SELECT started_by, status FROM workflow_executions WHERE id = $1;
+SELECT started_by, run_as, status FROM workflow_executions WHERE id = $1;
 
 -- name: SaveExecution :exec
 UPDATE workflow_executions SET

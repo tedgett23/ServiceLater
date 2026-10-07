@@ -3,7 +3,7 @@
 -- name: GetLoginUser :one
 SELECT u.id, u.email, u.name, u.role, c.password_hash
 FROM users u JOIN user_credentials c ON c.user_id = u.id
-WHERE u.email = lower(sqlc.arg(email)::text) AND u.deactivated_at IS NULL;
+WHERE u.email = lower(sqlc.arg(email)::text) AND u.deactivated_at IS NULL AND u.app_name IS NULL;
 
 -- name: UpsertCredentials :exec
 INSERT INTO user_credentials (user_id, password_hash) VALUES ($1, $2)

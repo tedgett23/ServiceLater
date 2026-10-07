@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { api, as, createTicket, details, openTicket, uid } from './helpers';
-import { servicelater, tempApp } from './apps';
+import { installApp, servicelater, tempApp } from './apps';
 
 const startRule = (tag: string, workflow: string) => `kind: rule
 name: start-${workflow}
@@ -49,7 +49,7 @@ test('a pending approval shows up as a live notification, and reading it clears 
 		'default/rules/start.yaml': startRule(tag, 'ask')
 	});
 	try {
-		servicelater('install', app.dir);
+		installApp(app.dir);
 		await openTicket(agent.page, t.number);
 		await details(agent.page).getByLabel('Priority').selectOption('Critical');
 

@@ -1,0 +1,7 @@
+kind: role
+name: group-manager
+label: Group manager
+description: "Creates groups and changes who is in them. Groups that hold a role still need an admin, because their members get that role."
+permissions:
+  - groups:manage
+  - users:read

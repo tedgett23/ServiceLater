@@ -53,6 +53,8 @@ Groups are teams: a ticket's `assignment_group_id` routes it to one, and its ass
 
 People are notified in the app (the bell) when a ticket is assigned to them, and a team when a ticket lands in its queue with nobody on it. Both are ordinary app content in `core-itsm` (a rule plus a template in `notifications/`), so their wording and who hears about what can be changed in a local layer; see `docs/apps-platform.md` §6.5.
 
+What someone may do comes from permissions. Everyone has a base role (admin, agent or end user), and admins can grant more roles to people or to whole groups under Admin, then Roles. Roles come from apps (`roles/` in an app; `core-itsm` ships Ticket viewer and Group manager, `change-management` Change manager and CAB member). Each installed app also acts as an identity of its own, with exactly the permissions its manifest declares, which must be approved when it is installed (`servicelater app install -approve-permissions`): its async rules and workflows run with them, on behalf of the person who set them off.
+
 Admins also manage people under Admin, then Users: add someone with a password, change their name, email or role, reset a password, add them to groups, and deactivate them. A deactivated person cannot sign in, is signed out everywhere, and is no longer offered as an assignee or asked to approve; their tickets and comments keep their name. Only someone with no history can be deleted. There is always at least one active admin, and an admin cannot demote, deactivate or delete themselves.
 
 ## UI

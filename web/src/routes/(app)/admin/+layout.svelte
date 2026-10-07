@@ -1,15 +1,17 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { can, P } from '$lib/types';
 
-	let { children } = $props();
+	let { children, data } = $props();
 
 	const here = (path: string) => (page.url.pathname.startsWith(path) ? 'page' : undefined);
 </script>
 
 <div class="admin">
 	<nav aria-label="Admin">
-		<a href="/admin/users" aria-current={here('/admin/users')}>Users</a>
-		<a href="/admin/groups" aria-current={here('/admin/groups')}>Groups</a>
+		{#if can(data.user, P.usersManage)}<a href="/admin/users" aria-current={here('/admin/users')}>Users</a>{/if}
+		{#if can(data.user, P.groupsManage)}<a href="/admin/groups" aria-current={here('/admin/groups')}>Groups</a>{/if}
+		<a href="/admin/roles" aria-current={here('/admin/roles')}>Roles</a>
 		<!-- The API reference lives outside the app shell (it needs no sign-in), so this leaves the app. -->
 		<a href="/docs/api">API reference</a>
 	</nav>

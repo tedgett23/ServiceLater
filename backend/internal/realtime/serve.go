@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 )
 
 const (
@@ -24,9 +25,10 @@ const (
 )
 
 type client struct {
-	userID uuid.UUID
-	staff  bool
-	send   chan []byte
+	userID   uuid.UUID
+	seesAll  bool // tickets:read_all: every ticket, as tasks_select allows
+	internal bool // comments:internal: internal notes too
+	send     chan []byte
 
 	kicked   chan struct{}
 	kickOnce sync.Once
@@ -65,7 +67,7 @@ func (h *Hub) remove(c *client) {
 // the socket so a changed role or deleted user cannot keep receiving events beyond the token's lifetime.
 func (h *Hub) Serve(w http.ResponseWriter, r *http.Request, p auth.Principal) {
 	c := &client{
-		userID: p.UserID, staff: p.Role == "admin" || p.Role == "agent",
+		userID: p.UserID, seesAll: p.Can(authz.TicketsReadAll), internal: p.Can(authz.CommentsInternal),
 		send: make(chan []byte, sendBuffer), kicked: make(chan struct{}), down: make(chan struct{}),
 	}
 	if !h.add(c) {

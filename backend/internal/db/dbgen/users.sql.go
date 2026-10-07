@@ -12,10 +12,47 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const countUsers = `-- name: CountUsers :one
-SELECT count(*) FROM users
+const appPrincipal = `-- name: AppPrincipal :one
+SELECT app_principal($1::text)::uuid AS id
 `
 
+// An app's principal, created on first use.
+func (q *Queries) AppPrincipal(ctx context.Context, app string) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, appPrincipal, app)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const beginAs = `-- name: BeginAs :exec
+SELECT app_begin_as($1::uuid, $2::uuid)
+`
+
+type BeginAsParams struct {
+	Principal  uuid.UUID `json:"principal"`
+	OnBehalfOf uuid.UUID `json:"on_behalf_of"`
+}
+
+// Switching who a transaction acts as, for an after rule that runs as its app (run_as: app) and back.
+func (q *Queries) BeginAs(ctx context.Context, arg BeginAsParams) error {
+	_, err := q.db.Exec(ctx, beginAs, arg.Principal, arg.OnBehalfOf)
+	return err
+}
+
+const beginAsUser = `-- name: BeginAsUser :exec
+SELECT app_begin($1::uuid)
+`
+
+func (q *Queries) BeginAsUser(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, beginAsUser, userID)
+	return err
+}
+
+const countUsers = `-- name: CountUsers :one
+SELECT count(*) FROM users WHERE app_name IS NULL
+`
+
+// People, not app principals: the bootstrap admin is created when there are none.
 func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 	row := q.db.QueryRow(ctx, countUsers)
 	var count int64
@@ -26,7 +63,7 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (email, name, role)
 VALUES (lower($3::text), $1, $2)
-RETURNING id, email, name, role, created_at, deactivated_at
+RETURNING id, email, name, role, created_at, deactivated_at, app_name
 `
 
 type CreateUserParams struct {
@@ -45,8 +82,33 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Role,
 		&i.CreatedAt,
 		&i.DeactivatedAt,
+		&i.AppName,
 	)
 	return i, err
+}
+
+const currentOnBehalfOf = `-- name: CurrentOnBehalfOf :one
+SELECT app_on_behalf_of()::uuid AS id
+`
+
+// The person an app principal is acting for in this transaction, if any.
+func (q *Queries) CurrentOnBehalfOf(ctx context.Context) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, currentOnBehalfOf)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const currentPermissions = `-- name: CurrentPermissions :one
+SELECT coalesce(current_setting('app.permissions', true), '')::text AS permissions
+`
+
+// What the transaction's own person may do, as app_begin loaded it.
+func (q *Queries) CurrentPermissions(ctx context.Context) (string, error) {
+	row := q.db.QueryRow(ctx, currentPermissions)
+	var permissions string
+	err := row.Scan(&permissions)
+	return permissions, err
 }
 
 const deleteUser = `-- name: DeleteUser :execrows
@@ -63,7 +125,7 @@ func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) (int64, error) {
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, email, name, role, created_at, deactivated_at FROM users WHERE id = $1
+SELECT id, email, name, role, created_at, deactivated_at, app_name FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
@@ -76,12 +138,13 @@ func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.Role,
 		&i.CreatedAt,
 		&i.DeactivatedAt,
+		&i.AppName,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, name, role, created_at, deactivated_at FROM users WHERE email = lower($1::text)
+SELECT id, email, name, role, created_at, deactivated_at, app_name FROM users WHERE email = lower($1::text)
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -94,17 +157,18 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.Role,
 		&i.CreatedAt,
 		&i.DeactivatedAt,
+		&i.AppName,
 	)
 	return i, err
 }
 
 const listStaff = `-- name: ListStaff :many
-SELECT id, email, name, role, created_at, deactivated_at FROM users
-WHERE role IN ('admin', 'agent') AND deactivated_at IS NULL
+SELECT id, email, name, role, created_at, deactivated_at, app_name FROM users
+WHERE deactivated_at IS NULL AND app_name IS NULL AND app_user_can(id, 'tickets:update')
 ORDER BY name
 `
 
-// Who can be assigned a ticket: active agents and admins.
+// Who can be assigned a ticket: everyone active who may work tickets (tickets:update), whatever role gives it.
 func (q *Queries) ListStaff(ctx context.Context) ([]User, error) {
 	rows, err := q.db.Query(ctx, listStaff)
 	if err != nil {
@@ -121,6 +185,7 @@ func (q *Queries) ListStaff(ctx context.Context) ([]User, error) {
 			&i.Role,
 			&i.CreatedAt,
 			&i.DeactivatedAt,
+			&i.AppName,
 		); err != nil {
 			return nil, err
 		}
@@ -133,8 +198,9 @@ func (q *Queries) ListStaff(ctx context.Context) ([]User, error) {
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, name, role, created_at, deactivated_at FROM users
-WHERE ($1::text IS NULL OR name ILIKE '%' || $1 || '%' ESCAPE '\' OR email ILIKE '%' || $1 || '%' ESCAPE '\')
+SELECT id, email, name, role, created_at, deactivated_at, app_name FROM users
+WHERE app_name IS NULL
+  AND ($1::text IS NULL OR name ILIKE '%' || $1 || '%' ESCAPE '\' OR email ILIKE '%' || $1 || '%' ESCAPE '\')
   AND ($2::text IS NULL OR role = $2)
   AND ($3::bool OR deactivated_at IS NULL)
 ORDER BY name, id
@@ -173,6 +239,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.Role,
 			&i.CreatedAt,
 			&i.DeactivatedAt,
+			&i.AppName,
 		); err != nil {
 			return nil, err
 		}
@@ -184,12 +251,39 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 	return items, nil
 }
 
+const permissionsOf = `-- name: PermissionsOf :one
+SELECT app_permissions_of($1::uuid)::text[] AS permissions
+`
+
+func (q *Queries) PermissionsOf(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	row := q.db.QueryRow(ctx, permissionsOf, userID)
+	var permissions []string
+	err := row.Scan(&permissions)
+	return permissions, err
+}
+
 const revokeUserSessions = `-- name: RevokeUserSessions :exec
 SELECT app_revoke_sessions($1::uuid)
 `
 
 func (q *Queries) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, revokeUserSessions, userID)
+	return err
+}
+
+const setAppPrincipalActive = `-- name: SetAppPrincipalActive :exec
+UPDATE users SET deactivated_at = CASE WHEN $1::bool THEN NULL ELSE coalesce(deactivated_at, now()) END
+WHERE app_name = $2
+`
+
+type SetAppPrincipalActiveParams struct {
+	Active bool        `json:"active"`
+	App    pgtype.Text `json:"app"`
+}
+
+// Installing an app brings its principal back; uninstalling deactivates it (it stays for the history it wrote).
+func (q *Queries) SetAppPrincipalActive(ctx context.Context, arg SetAppPrincipalActiveParams) error {
+	_, err := q.db.Exec(ctx, setAppPrincipalActive, arg.Active, arg.App)
 	return err
 }
 
@@ -218,7 +312,7 @@ UPDATE users SET
         WHEN $4::bool THEN COALESCE(deactivated_at, now())
         ELSE NULL END
 WHERE id = $5
-RETURNING id, email, name, role, created_at, deactivated_at
+RETURNING id, email, name, role, created_at, deactivated_at, app_name
 `
 
 type UpdateUserParams struct {
@@ -246,6 +340,23 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.Role,
 		&i.CreatedAt,
 		&i.DeactivatedAt,
+		&i.AppName,
 	)
 	return i, err
+}
+
+const userCan = `-- name: UserCan :one
+SELECT app_user_can($1::uuid, $2::text)::bool AS can
+`
+
+type UserCanParams struct {
+	UserID     uuid.UUID `json:"user_id"`
+	Permission string    `json:"permission"`
+}
+
+func (q *Queries) UserCan(ctx context.Context, arg UserCanParams) (bool, error) {
+	row := q.db.QueryRow(ctx, userCan, arg.UserID, arg.Permission)
+	var can bool
+	err := row.Scan(&can)
+	return can, err
 }

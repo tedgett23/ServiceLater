@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 )
 
@@ -43,10 +44,11 @@ type groupRefDTO struct {
 	Name string    `json:"name"`
 }
 
-// userDetailDTO is someone and the groups they are in.
+// userDetailDTO is someone, the groups they are in, and the roles they hold on top of their base role.
 type userDetailDTO struct {
 	personDTO
 	Groups []groupRefDTO `json:"groups"`
+	Roles  []heldRoleDTO `json:"roles"`
 }
 
 // GET /users/staff (staff): active agents and admins, for assignee pickers.
@@ -124,6 +126,18 @@ func hashPassword(pw string) (string, error) {
 	return hash, err
 }
 
+// notAnApp refuses changes to an app's principal: it is managed by installing and removing its app.
+func notAnApp(q *dbgen.Queries, r *http.Request, id uuid.UUID) error {
+	u, err := q.GetUser(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	if u.AppName.Valid {
+		return invalid("this is the " + u.AppName.String + " app's identity, which installing and removing the app manages")
+	}
+	return nil
+}
+
 // userConflict turns the database's refusals of a user change into answers an admin can act on.
 func userConflict(err error) error {
 	var pe *pgconn.PgError
@@ -170,7 +184,10 @@ func (h *handlers) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out personDTO
-	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
+		if req.Role == "admin" && !p.Can(authz.RolesManage) {
+			return forbidden("making someone an admin needs the roles:manage permission")
+		}
 		u, err := q.CreateUser(r.Context(), dbgen.CreateUserParams{Email: email, Name: req.Name, Role: req.Role})
 		if err != nil {
 			return userConflict(err)
@@ -197,7 +214,10 @@ func (h *handlers) getUser(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		out.personDTO = toPerson(u)
-		out.Groups, err = userGroups(r, q, id)
+		if out.Groups, err = userGroups(r, q, id); err != nil {
+			return err
+		}
+		out.Roles, err = userRoles(r, q, id)
 		return err
 	}) {
 		return
@@ -234,6 +254,9 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	var out personDTO
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
+		if err := notAnApp(q, r, id); err != nil {
+			return err
+		}
 		args := dbgen.UpdateUserParams{ID: id}
 		if req.Email != nil {
 			email, err := cleanEmail(*req.Email)
@@ -255,6 +278,15 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 			}
 			if id == p.UserID && *req.Role != "admin" {
 				return invalid("you cannot take away your own admin role")
+			}
+			if !p.Can(authz.RolesManage) {
+				cur, err := q.GetUser(r.Context(), id)
+				if err != nil {
+					return err
+				}
+				if (*req.Role == "admin") != (cur.Role == "admin") {
+					return forbidden("making someone an admin, or taking it away, needs the roles:manage permission")
+				}
 			}
 			args.Role = pgtype.Text{String: *req.Role, Valid: true}
 		}
@@ -278,6 +310,7 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 	}) {
 		return
 	}
+	h.perms.Forget() // anyone's permissions may have changed
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -301,7 +334,7 @@ func (h *handlers) setUserPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
-		if _, err := q.GetUser(r.Context(), id); err != nil {
+		if err := notAnApp(q, r, id); err != nil {
 			return err
 		}
 		if err := q.SetUserPassword(r.Context(), dbgen.SetUserPasswordParams{UserID: id, PasswordHash: hash}); err != nil || id == p.UserID {
@@ -325,6 +358,9 @@ func (h *handlers) deleteUser(w http.ResponseWriter, r *http.Request) {
 		if id == p.UserID {
 			return invalid("you cannot delete yourself")
 		}
+		if err := notAnApp(q, r, id); err != nil {
+			return err
+		}
 		n, err := q.DeleteUser(r.Context(), id)
 		var pe *pgconn.PgError
 		switch {
@@ -339,5 +375,6 @@ func (h *handlers) deleteUser(w http.ResponseWriter, r *http.Request) {
 	}) {
 		return
 	}
+	h.perms.Forget() // anyone's permissions may have changed
 	w.WriteHeader(http.StatusNoContent)
 }

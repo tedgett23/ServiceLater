@@ -11,11 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/expr"
@@ -52,16 +54,31 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 		if rule == nil || rule.Timing != apps.TimingAsync {
 			return done(ruleruns.Skipped, "the rule is no longer installed", nil)
 		}
-		err := db.WithUser(ctx, pool, p.UserID, func(tx pgx.Tx) error {
+		// The rule runs as its app's principal, on behalf of the person whose change set it off: what it may do is
+		// what the app's manifest declares (approved at install), not what that person may.
+		var principal uuid.UUID
+		if err := db.WithSystem(ctx, pool, func(tx pgx.Tx) error {
+			var err error
+			principal, err = dbgen.New(tx).AppPrincipal(ctx, p.App)
+			return err
+		}); err != nil {
+			return done(ruleruns.Failed, err.Error(), err)
+		}
+		err := db.WithPrincipal(ctx, pool, principal, p.UserID, func(tx pgx.Tx) error {
 			q := dbgen.New(tx)
+			// `user` in the rule's expressions is still the person.
 			u, err := q.GetUser(ctx, p.UserID)
 			if err != nil {
 				return err
 			}
-			// Locked before it is read, so what the rule sees is what its update is applied to. Only staff can edit
-			// tickets, and only they can lock one under RLS; a requester's run reads it plainly and any update it
-			// asks for is refused by the save.
-			if records.IsStaff(u.Role) {
+			actor, err := records.ActorIn(ctx, q, principal)
+			if err != nil {
+				return err
+			}
+			// Locked before it is read, so what the rule sees is what its update is applied to. Only an app that may
+			// edit tickets can lock one under RLS; any other's run reads it plainly and any update it asks for is
+			// refused by the save.
+			if actor.Can(authz.TicketsUpdate) {
 				if _, err := q.GetTaskForUpdate(ctx, p.RecordID); err != nil {
 					return err
 				}
@@ -84,14 +101,14 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 				if body == "" || len(body) > records.MaxComment {
 					return jobs.Permanent(errors.New("the rule wrote a comment that is empty or too long"))
 				}
-				if _, err := q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: p.RecordID, AuthorID: p.UserID, Body: body, Internal: c.Internal}); err != nil {
+				if _, err := q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: p.RecordID, AuthorID: principal, Body: body, Internal: c.Internal}); err != nil {
 					return err
 				}
 			}
 			// Started after the comments and before the update, so a workflow that begins on this record begins on it
 			// as it is when the rule ran, and is not raced by the rule's own edit (its steps read the record afresh).
 			for _, st := range fx.Starts {
-				if err := svc.StartFromAsyncRule(ctx, q, records.Actor{ID: u.ID, Role: u.Role}, p.Cause, t, st); err != nil {
+				if err := svc.StartFromAsyncRule(ctx, q, actor, p.Cause, t, st); err != nil {
 					return err
 				}
 			}
@@ -104,7 +121,7 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 			if err != nil || patch.Empty() {
 				return err
 			}
-			_, err = svc.Update(ctx, q, records.Actor{ID: u.ID, Role: u.Role}, p.Cause, p.RecordID, patch)
+			_, err = svc.Update(ctx, q, actor, p.Cause, p.RecordID, patch)
 			return err
 		})
 
@@ -114,9 +131,9 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 		case err == nil:
 			return done(ruleruns.OK, "", nil)
 		case errors.Is(err, pgx.ErrNoRows):
-			return done(ruleruns.Skipped, "the ticket no longer exists, or the person who changed it can no longer see it", nil)
+			return done(ruleruns.Skipped, "the ticket no longer exists, or the app may not see it (its manifest lacks tickets:read_all)", nil)
 		case errors.As(err, &pe) && pe.Code == "42501":
-			return done(ruleruns.Failed, "the person who made the change is not allowed to do what the rule does", jobs.Permanent(err))
+			return done(ruleruns.Failed, "the app is not allowed to do what the rule does: add the permission to its manifest", jobs.Permanent(err))
 		case errors.As(err, &re):
 			// The save refused the rule's change (a before rule said no, a value was not allowed). Trying again
 			// would be refused the same way.

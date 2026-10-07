@@ -76,9 +76,14 @@ func (h *handlers) logout(w http.ResponseWriter, r *http.Request) {
 func (h *handlers) me(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFrom(r.Context())
 	var u dbgen.User
+	var perms []string
 	err := db.WithUser(r.Context(), h.pool, p.UserID, func(tx pgx.Tx) error {
+		q := dbgen.New(tx)
 		var err error
-		u, err = dbgen.New(tx).GetUser(r.Context(), p.UserID)
+		if u, err = q.GetUser(r.Context(), p.UserID); err != nil {
+			return err
+		}
+		perms, err = q.PermissionsOf(r.Context(), p.UserID)
 		return err
 	})
 	if errors.Is(err, pgx.ErrNoRows) || u.DeactivatedAt.Valid {
@@ -90,7 +95,7 @@ func (h *handlers) me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
-	writeJSON(w, http.StatusOK, auth.User{ID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role})
+	writeJSON(w, http.StatusOK, auth.User{ID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role, Permissions: perms})
 }
 
 func (h *handlers) authError(w http.ResponseWriter, err error) {

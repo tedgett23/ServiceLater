@@ -394,3 +394,47 @@ func mustCompile(t *testing.T, e *Env, src string) *Program {
 	}
 	return p
 }
+
+// role('name') works like group('name'): looked up just before it runs, by a name written in quotes, and only in
+// workflows. It and group() can share one expression.
+func TestRoleResolvesRoleHoldersInWorkflows(t *testing.T) {
+	wf, err := Workflow()
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := sample()
+	in.Groups = func(context.Context, string) ([]string, error) { return []string{"u-ann"}, nil }
+	in.Roles = func(_ context.Context, name string) ([]string, error) {
+		if name == "cab-member" {
+			return []string{"u-bob", "u-cy"}, nil
+		}
+		return nil, fmt.Errorf("there is no role named %q", name)
+	}
+	got, err := mustCompileAs(t, wf, `role('cab-member') + group('CAB')`).EvalStringList(context.Background(), in)
+	if err != nil || strings.Join(got, ",") != "u-bob,u-cy,u-ann" {
+		t.Errorf("got %v, %v", got, err)
+	}
+	if _, err := mustCompile(t, wf, `size(role('nobody')) == 0`).Eval(context.Background(), in); err == nil || !strings.Contains(err.Error(), "nobody") {
+		t.Errorf("missing role: %v", err)
+	}
+	if _, err := wf.CompileAs(`role(record.title)`, StringList); err == nil || !strings.Contains(err.Error(), "role() takes a name in quotes") {
+		t.Errorf("a role name that is not a literal: %v", err)
+	}
+	r, _ := Rule()
+	if _, err := r.Compile(`size(role('cab-member')) > 0`); err == nil {
+		t.Error("role() compiled outside a workflow")
+	}
+	in.Roles = nil
+	if _, err := mustCompile(t, wf, `size(role('cab-member')) > 0`).Eval(context.Background(), in); err == nil {
+		t.Error("evaluated role() without a resolver")
+	}
+}
+
+func mustCompileAs(t *testing.T, e *Env, src string) *Program {
+	t.Helper()
+	p, err := e.CompileAs(src, StringList)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}

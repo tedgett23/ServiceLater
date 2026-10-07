@@ -55,7 +55,7 @@ func (q *Queries) CountExecutionsByStatus(ctx context.Context) ([]CountExecution
 }
 
 const getExecution = `-- name: GetExecution :one
-SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at FROM workflow_executions WHERE id = $1
+SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as FROM workflow_executions WHERE id = $1
 `
 
 func (q *Queries) GetExecution(ctx context.Context, id uuid.UUID) (WorkflowExecution, error) {
@@ -82,12 +82,13 @@ func (q *Queries) GetExecution(ctx context.Context, id uuid.UUID) (WorkflowExecu
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FinishedAt,
+		&i.RunAs,
 	)
 	return i, err
 }
 
 const getExecutionForUpdate = `-- name: GetExecutionForUpdate :one
-SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at FROM workflow_executions WHERE id = $1 FOR UPDATE
+SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as FROM workflow_executions WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetExecutionForUpdate(ctx context.Context, id uuid.UUID) (WorkflowExecution, error) {
@@ -114,29 +115,31 @@ func (q *Queries) GetExecutionForUpdate(ctx context.Context, id uuid.UUID) (Work
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FinishedAt,
+		&i.RunAs,
 	)
 	return i, err
 }
 
 const getExecutionOwner = `-- name: GetExecutionOwner :one
-SELECT started_by, status FROM workflow_executions WHERE id = $1
+SELECT started_by, run_as, status FROM workflow_executions WHERE id = $1
 `
 
 type GetExecutionOwnerRow struct {
-	StartedBy uuid.UUID `json:"started_by"`
-	Status    string    `json:"status"`
+	StartedBy uuid.UUID     `json:"started_by"`
+	RunAs     uuid.NullUUID `json:"run_as"`
+	Status    string        `json:"status"`
 }
 
 // What the engine needs before it can open a transaction as the right person.
 func (q *Queries) GetExecutionOwner(ctx context.Context, id uuid.UUID) (GetExecutionOwnerRow, error) {
 	row := q.db.QueryRow(ctx, getExecutionOwner, id)
 	var i GetExecutionOwnerRow
-	err := row.Scan(&i.StartedBy, &i.Status)
+	err := row.Scan(&i.StartedBy, &i.RunAs, &i.Status)
 	return i, err
 }
 
 const getExecutionView = `-- name: GetExecutionView :one
-SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, COALESCE(tt.prefix || t.number::text, '')::text AS reference
+SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, e.run_as, COALESCE(tt.prefix || t.number::text, '')::text AS reference
 FROM workflow_executions e
 LEFT JOIN tasks t ON t.id = e.record_id
 LEFT JOIN task_types tt ON tt.type = t.type
@@ -172,15 +175,16 @@ func (q *Queries) GetExecutionView(ctx context.Context, id uuid.UUID) (GetExecut
 		&i.WorkflowExecution.CreatedAt,
 		&i.WorkflowExecution.UpdatedAt,
 		&i.WorkflowExecution.FinishedAt,
+		&i.WorkflowExecution.RunAs,
 		&i.Reference,
 	)
 	return i, err
 }
 
 const insertExecution = `-- name: InsertExecution :one
-INSERT INTO workflow_executions (app, workflow, app_version, definition, record_id, started_by, cause, current_step)
+INSERT INTO workflow_executions (app, workflow, app_version, definition, record_id, started_by, cause, current_step, run_as)
 VALUES ($1, $2, $3, $4, $5,
-        $6, $7, $8)
+        $6, $7, $8, app_principal($1))
 RETURNING id
 `
 
@@ -243,7 +247,7 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 }
 
 const listExecutionViews = `-- name: ListExecutionViews :many
-SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, COALESCE(tt.prefix || t.number::text, '')::text AS reference
+SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, e.run_as, COALESCE(tt.prefix || t.number::text, '')::text AS reference
 FROM workflow_executions e
 LEFT JOIN tasks t ON t.id = e.record_id
 LEFT JOIN task_types tt ON tt.type = t.type
@@ -304,6 +308,7 @@ func (q *Queries) ListExecutionViews(ctx context.Context, arg ListExecutionViews
 			&i.WorkflowExecution.CreatedAt,
 			&i.WorkflowExecution.UpdatedAt,
 			&i.WorkflowExecution.FinishedAt,
+			&i.WorkflowExecution.RunAs,
 			&i.Reference,
 		); err != nil {
 			return nil, err
@@ -317,7 +322,7 @@ func (q *Queries) ListExecutionViews(ctx context.Context, arg ListExecutionViews
 }
 
 const listExecutions = `-- name: ListExecutions :many
-SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at FROM workflow_executions
+SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as FROM workflow_executions
 WHERE ($1::text IS NULL OR status = $1)
   AND ($2::uuid IS NULL OR record_id = $2)
   AND ($3::text IS NULL OR workflow = $3)
@@ -369,6 +374,7 @@ func (q *Queries) ListExecutions(ctx context.Context, arg ListExecutionsParams) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.FinishedAt,
+			&i.RunAs,
 		); err != nil {
 			return nil, err
 		}

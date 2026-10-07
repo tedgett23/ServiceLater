@@ -103,8 +103,6 @@ func (d Ticket) ExprRecord() *expr.Record {
 	return r
 }
 
-func IsStaff(role string) bool { return role == "admin" || role == "agent" }
-
 func validTitle(s string) error {
 	if n := utf8.RuneCountInString(strings.TrimSpace(s)); n < 1 || n > MaxTitle {
 		return Invalid("title must be 1 to 200 characters")

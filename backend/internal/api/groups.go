@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 )
 
@@ -43,10 +44,11 @@ type memberDTO struct {
 	DeactivatedAt *time.Time `json:"deactivated_at"`
 }
 
-// groupDetailDTO is a group with everyone in it.
+// groupDetailDTO is a group with everyone in it, and the roles it gives them.
 type groupDetailDTO struct {
 	groupDTO
-	Members []memberDTO `json:"members"`
+	Members []memberDTO   `json:"members"`
+	Roles   []heldRoleDTO `json:"roles"`
 }
 
 func toGroup(g dbgen.Group, members int64) groupDTO {
@@ -135,7 +137,10 @@ func (h *handlers) getGroup(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		out.groupDTO = toGroup(dbgen.Group{ID: g.ID, Name: g.Name, Description: g.Description, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt}, g.MemberCount)
-		out.Members, err = groupMembers(r, q, id)
+		if out.Members, err = groupMembers(r, q, id); err != nil {
+			return err
+		}
+		out.Roles, err = groupRoles(r, q, id)
 		return err
 	}) {
 		return
@@ -218,6 +223,7 @@ func (h *handlers) deleteGroup(w http.ResponseWriter, r *http.Request) {
 	}) {
 		return
 	}
+	h.perms.Forget() // anyone's permissions may have changed
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -251,17 +257,23 @@ func (h *handlers) addGroupMember(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		if _, err := q.GetGroup(r.Context(), id); err != nil {
 			return err
 		}
-		if _, err := q.GetUser(r.Context(), userID); err != nil {
+		if u, err := q.GetUser(r.Context(), userID); err != nil {
+			return err
+		} else if u.AppName.Valid {
+			return invalid("an app's identity cannot join a group: its permissions come from its manifest")
+		}
+		if err := membershipGuard(r, q, p, id); err != nil {
 			return err
 		}
 		return q.AddGroupMember(r.Context(), dbgen.AddGroupMemberParams{GroupID: id, UserID: userID})
 	}) {
 		return
 	}
+	h.perms.Forget() // anyone's permissions may have changed
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -276,7 +288,10 @@ func (h *handlers) removeGroupMember(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
+		if err := membershipGuard(r, q, p, id); err != nil {
+			return err
+		}
 		n, err := q.RemoveGroupMember(r.Context(), dbgen.RemoveGroupMemberParams{GroupID: id, UserID: userID})
 		if err == nil && n == 0 {
 			return notFound()
@@ -285,5 +300,22 @@ func (h *handlers) removeGroupMember(w http.ResponseWriter, r *http.Request) {
 	}) {
 		return
 	}
+	h.perms.Forget() // anyone's permissions may have changed
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// membershipGuard explains what RLS would refuse anyway: a group that holds roles gives them to its members, so
+// changing who is in it needs roles:manage as well (migration 00020).
+func membershipGuard(r *http.Request, q *dbgen.Queries, p auth.Principal, groupID uuid.UUID) error {
+	if p.Can(authz.RolesManage) {
+		return nil
+	}
+	roles, err := q.ListGroupRoles(r.Context(), uuid.NullUUID{UUID: groupID, Valid: true})
+	if err != nil {
+		return err
+	}
+	if len(roles) > 0 {
+		return forbidden("this group holds roles, so changing who is in it needs the roles:manage permission")
+	}
+	return nil
 }

@@ -53,6 +53,8 @@ type Definition struct {
 	Workflow  *Workflow
 	// Notification is a message template (notifications/).
 	Notification *Notification
+	// Role is a named set of permissions (roles/).
+	Role *Role
 }
 
 // Source is the layers joined for storage and display, for example "default+local".
@@ -73,7 +75,7 @@ var definitionDirs = map[string]struct{ kind, unsupported string }{
 	"catalog":       {unsupported: "catalog items are not supported yet"},
 	"knowledge":     {unsupported: "knowledge articles are not supported yet"},
 	"notifications": {kind: "notification"},
-	"roles":         {unsupported: "roles are not supported yet"},
+	"roles":         {kind: "role"},
 	"ui":            {unsupported: "declarative views are not supported yet"},
 }
 
@@ -387,6 +389,14 @@ func compileDefinition(kind, file string, data []byte, p *Problems) *Definition 
 		body, _ := json.Marshal(n)
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: n.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Notification: n}
+	case "role":
+		r := parseRole(file, data, p)
+		if r == nil {
+			return nil
+		}
+		body, _ := json.Marshal(r)
+		sum := sha256.Sum256(body)
+		return &Definition{Kind: kind, Name: r.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Role: r}
 	}
 	return nil
 }

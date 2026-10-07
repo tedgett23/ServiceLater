@@ -89,12 +89,12 @@ VALUES ($1, $2, $3, $4)
 RETURNING *;
 
 -- name: GetCommentView :one
-SELECT sqlc.embed(c), u.name AS author_name
-FROM task_comments c JOIN users u ON u.id = c.author_id
+SELECT sqlc.embed(c), u.name AS author_name, b.name AS on_behalf_of_name
+FROM task_comments c JOIN users u ON u.id = c.author_id LEFT JOIN users b ON b.id = c.on_behalf_of
 WHERE c.id = $1;
 
 -- name: ListComments :many
-SELECT sqlc.embed(c), u.name AS author_name
-FROM task_comments c JOIN users u ON u.id = c.author_id
+SELECT sqlc.embed(c), u.name AS author_name, b.name AS on_behalf_of_name
+FROM task_comments c JOIN users u ON u.id = c.author_id LEFT JOIN users b ON b.id = c.on_behalf_of
 WHERE c.task_id = $1
 ORDER BY c.created_at, c.id;

@@ -101,6 +101,25 @@ type RateLimit struct {
 	WindowStart pgtype.Timestamptz `json:"window_start"`
 }
 
+type Role struct {
+	Name        string             `json:"name"`
+	Label       string             `json:"label"`
+	Description string             `json:"description"`
+	Permissions []string           `json:"permissions"`
+	AppName     pgtype.Text        `json:"app_name"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type RoleGrant struct {
+	ID        uuid.UUID          `json:"id"`
+	Role      string             `json:"role"`
+	UserID    uuid.NullUUID      `json:"user_id"`
+	GroupID   uuid.NullUUID      `json:"group_id"`
+	GrantedBy uuid.NullUUID      `json:"granted_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type Session struct {
 	ID        uuid.UUID          `json:"id"`
 	UserID    uuid.UUID          `json:"user_id"`
@@ -128,12 +147,13 @@ type Task struct {
 }
 
 type TaskComment struct {
-	ID        uuid.UUID          `json:"id"`
-	TaskID    uuid.UUID          `json:"task_id"`
-	AuthorID  uuid.UUID          `json:"author_id"`
-	Body      string             `json:"body"`
-	Internal  bool               `json:"internal"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID         uuid.UUID          `json:"id"`
+	TaskID     uuid.UUID          `json:"task_id"`
+	AuthorID   uuid.UUID          `json:"author_id"`
+	Body       string             `json:"body"`
+	Internal   bool               `json:"internal"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	OnBehalfOf uuid.NullUUID      `json:"on_behalf_of"`
 }
 
 type TaskType struct {
@@ -149,6 +169,7 @@ type User struct {
 	Role          string             `json:"role"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	DeactivatedAt pgtype.Timestamptz `json:"deactivated_at"`
+	AppName       pgtype.Text        `json:"app_name"`
 }
 
 type UserCredential struct {
@@ -189,6 +210,7 @@ type WorkflowExecution struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
+	RunAs         uuid.NullUUID      `json:"run_as"`
 }
 
 type WorkflowStep struct {

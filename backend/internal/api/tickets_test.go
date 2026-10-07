@@ -301,6 +301,7 @@ type comment struct {
 	Body     string `json:"body"`
 	Internal bool   `json:"internal"`
 	Author   string `json:"author_name"`
+	Behalf   string `json:"on_behalf_of_name"`
 }
 
 func TestComments(t *testing.T) {

@@ -98,8 +98,9 @@ func appInstall(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	dry := fs.Bool("dry-run", false, "")
+	approve := fs.Bool("approve-permissions", false, "")
 	if err := fs.Parse(args); err != nil || fs.NArg() == 0 {
-		return errors.New("usage: servicelater app install [-dry-run] <path> [<path> ...]")
+		return errors.New("usage: servicelater app install [-dry-run] [-approve-permissions] <path> [<path> ...]")
 	}
 
 	// Validate everything before writing anything, so a typo in the last app does not leave the first half installed.
@@ -121,7 +122,7 @@ func appInstall(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	defer pool.Close()
-	plans, err := apps.InstallAll(ctx, pool, ordered, apps.InstallOptions{DryRun: *dry, InstalledBy: "cli"})
+	plans, err := apps.InstallAll(ctx, pool, ordered, apps.InstallOptions{DryRun: *dry, InstalledBy: "cli", ApprovePermissions: *approve})
 	if err != nil {
 		return err
 	}
@@ -175,7 +176,7 @@ func appSync(ctx context.Context, args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		plans, err := apps.InstallAll(ctx, pool, ordered, apps.InstallOptions{DryRun: true})
+		plans, err := apps.InstallAll(ctx, pool, ordered, apps.InstallOptions{DryRun: true, ApprovePermissions: true})
 		if err != nil {
 			return err
 		}

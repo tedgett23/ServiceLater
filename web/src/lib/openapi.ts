@@ -29,7 +29,7 @@ export interface Operation {
 	requestBody?: { content: { 'application/json': { schema: Schema } } };
 	responses: Record<string, { description: string; content?: { 'application/json': { schema: Schema } } }>;
 	security: Record<string, string[]>[];
-	'x-roles'?: string[];
+	'x-permissions'?: string[];
 }
 
 export interface Document {

@@ -112,7 +112,7 @@ test('an admin cannot demote, deactivate or delete themselves', async ({ browser
 	const me = await (await admin.context.request.get('/api/v1/auth/me')).json();
 	await admin.page.goto(`/admin/users/${me.id}`);
 	await expect(admin.page.getByRole('heading', { name: USERS.admin.name })).toBeVisible();
-	await expect(admin.page.getByLabel('Role')).toBeDisabled();
+	await expect(admin.page.getByRole('combobox', { name: /^Role/ })).toBeDisabled();
 	await expect(admin.page.getByRole('button', { name: 'Deactivate' })).toHaveCount(0);
 	await expect(admin.page.getByRole('button', { name: 'Delete user' })).toHaveCount(0);
 });

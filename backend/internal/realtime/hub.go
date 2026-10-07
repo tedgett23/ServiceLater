@@ -116,10 +116,10 @@ func (h *Hub) DefinitionsChanged() {
 	h.broadcast(mustJSON(resyncEvent{Type: "definitions.changed"}), func(*client) bool { return true })
 }
 
-// Routing mirrors the tickets_select policy: staff see every ticket, everyone else only their own.
-// It is only a routing hint; the data itself is always read through RLS.
+// Routing mirrors the tasks_select policy: whoever has tickets:read_all sees every ticket, everyone else only their
+// own. It is only a routing hint; the data itself is always read through RLS.
 func visibleTo(c *client, requester uuid.UUID) bool {
-	return c.staff || c.userID == requester
+	return c.seesAll || c.userID == requester
 }
 
 func (h *Hub) onTicket(payload string) {
@@ -139,8 +139,8 @@ func (h *Hub) onComment(payload string) {
 		return
 	}
 	h.broadcast(mustJSON(commentEvent{Type: "comment.added", TicketID: n.TicketID}), func(c *client) bool {
-		if n.Internal && !c.staff {
-			return false // even the existence of an internal note is staff-only
+		if n.Internal && !c.internal {
+			return false // even the existence of an internal note is for those who may read them
 		}
 		return visibleTo(c, *n.RequesterID)
 	})

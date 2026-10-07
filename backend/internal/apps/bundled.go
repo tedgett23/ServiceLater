@@ -128,7 +128,8 @@ func SyncBundled(ctx context.Context, pool *pgxpool.Pool, names []string, localR
 		return append(results, SyncResult{Err: err})
 	}
 	for _, c := range ordered {
-		plan, err := Install(ctx, pool, c, InstallOptions{InstalledBy: "bundled"})
+		// First-party apps ship with the binary, so the operator approved their permissions by deploying it.
+		plan, err := Install(ctx, pool, c, InstallOptions{InstalledBy: "bundled", ApprovePermissions: true})
 		results = append(results, SyncResult{App: c.Manifest.Name, Plan: plan, Err: err})
 	}
 	return results

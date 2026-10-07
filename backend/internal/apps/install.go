@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/servicelater/servicelater/backend/internal/db"
@@ -45,11 +46,20 @@ type Plan struct {
 	Renames     []Rename
 	affected    map[DefRef][]string // the task types each new or changed lifecycle governs
 	Notes       []string
+	// Permissions are what the app's principal will hold: its async rules, its workflows and its run_as: app rules
+	// act with them. NewPermissions are those the installed version does not have yet, which need approving.
+	Permissions    []string
+	NewPermissions []string
+	// RunsAsApp lists the after rules that act as the app (run_as: app) rather than as the person saving.
+	RunsAsApp []string
+	// permissionsChanged is set when the app's permissions differ from the installed version's, which is a change
+	// even when no definition is.
+	permissionsChanged bool
 }
 
 // NoChange reports that installing would leave everything as it is.
 func (p *Plan) NoChange() bool {
-	return p.FromVersion == p.ToVersion && len(p.Added)+len(p.Changed)+len(p.Removed) == 0
+	return p.FromVersion == p.ToVersion && len(p.Added)+len(p.Changed)+len(p.Removed) == 0 && !p.permissionsChanged
 }
 
 // layers describes a definition's origin when it is anything other than the shipped layer alone.
@@ -81,6 +91,15 @@ func (p *Plan) String() string {
 	for _, r := range p.Renames {
 		fmt.Fprintf(&b, "  %-10s %s status %q -> %q (%d records)\n", "rename", r.RecordType, r.From, r.To, r.Records)
 	}
+	if len(p.Permissions) > 0 {
+		fmt.Fprintf(&b, "  %-10s %s\n", "permits", strings.Join(p.Permissions, ", "))
+	}
+	if len(p.NewPermissions) > 0 {
+		fmt.Fprintf(&b, "  %-10s %s (needs approval)\n", "new", strings.Join(p.NewPermissions, ", "))
+	}
+	for _, r := range p.RunsAsApp {
+		fmt.Fprintf(&b, "  %-10s rule %s acts as the app\n", "run_as", r)
+	}
 	for _, n := range p.Notes {
 		fmt.Fprintf(&b, "  note: %s\n", n)
 	}
@@ -90,6 +109,9 @@ func (p *Plan) String() string {
 type InstallOptions struct {
 	DryRun      bool
 	InstalledBy string
+	// ApprovePermissions accepts the permissions an app asks for that its installed version does not have. Without
+	// it such an install is refused (a dry run just shows them). First-party bundled apps are approved by shipping.
+	ApprovePermissions bool
 }
 
 // Install validates against the database, then applies a compiled app in one transaction. Any failure rolls back
@@ -120,6 +142,10 @@ func InstallAll(ctx context.Context, pool *pgxpool.Pool, apps []*Compiled, opts 
 				return fmt.Errorf("installing %s: %w", c.Manifest.Name, err)
 			}
 			plans = append(plans, plan)
+			if len(plan.NewPermissions) > 0 && !opts.ApprovePermissions && !opts.DryRun {
+				return fmt.Errorf("%s asks for permissions it does not have yet: %s. Its async rules, workflows and run_as: app rules act with them for anyone. Review them, then install again approving them (-approve-permissions)",
+					c.Manifest.Name, strings.Join(plan.NewPermissions, ", "))
+			}
 			if !plan.NoChange() {
 				if err := apply(ctx, tx, q, c, plan, opts.InstalledBy); err != nil {
 					return err
@@ -167,6 +193,30 @@ func buildPlan(ctx context.Context, q *dbgen.Queries, c *Compiled) (*Plan, error
 			problems = append(problems, fmt.Sprintf("%s needs %s (%s), but %s is installed", m.Name, d.Name, d.Constraint, dep.Version))
 		}
 	}
+
+	plan.Permissions = append([]string(nil), m.Permissions...)
+	sort.Strings(plan.Permissions)
+	held := map[string]bool{}
+	if cur, err := q.GetApp(ctx, m.Name); err == nil {
+		var was Manifest
+		if json.Unmarshal(cur.Manifest, &was) == nil {
+			for _, p := range was.Permissions {
+				held[p] = true
+			}
+		}
+	}
+	for _, p := range plan.Permissions {
+		if !held[p] {
+			plan.NewPermissions = append(plan.NewPermissions, p)
+		}
+	}
+	plan.permissionsChanged = len(plan.NewPermissions) > 0 || len(held) != len(plan.Permissions)
+	for _, d := range c.Definitions {
+		if d.Rule != nil && d.Rule.RunAs == RunAsApp {
+			plan.RunsAsApp = append(plan.RunsAsApp, d.Rule.Name)
+		}
+	}
+	sort.Strings(plan.RunsAsApp)
 
 	if cur, err := q.GetApp(ctx, m.Name); err == nil {
 		plan.FromVersion = cur.Version
@@ -218,9 +268,9 @@ func buildPlan(ctx context.Context, q *dbgen.Queries, c *Compiled) (*Plan, error
 		ref := DefRef{d.Kind, d.Name}
 		seen[ref] = true
 		plan.Sources[ref] = d.Source()
-		// A record type has one lifecycle, so two apps cannot both provide it. Rules do not compete: each is named
-		// within its own app, and every applicable rule runs.
-		if d.Kind == "lifecycle" {
+		// A record type has one lifecycle, and a role name means one set of permissions, so two apps cannot both
+		// provide either. Rules do not compete: each is named within its own app, and every applicable rule runs.
+		if d.Kind == "lifecycle" || d.Kind == "role" {
 			if other, err := q.FindDefinitionProvider(ctx, dbgen.FindDefinitionProviderParams{Kind: d.Kind, Name: d.Name, AppName: m.Name}); err == nil {
 				problems = append(problems, fmt.Sprintf("the %s is already provided by %s: uninstall it first, or remove it from one of the apps", ref, other))
 				continue
@@ -252,6 +302,9 @@ func buildPlan(ctx context.Context, q *dbgen.Queries, c *Compiled) (*Plan, error
 	for ref := range have {
 		if !seen[ref] {
 			plan.Removed = append(plan.Removed, ref)
+			if ref.Kind == "role" {
+				plan.Notes = append(plan.Notes, fmt.Sprintf("removing the role %s takes it away from everyone it was granted to", ref.Name))
+			}
 		}
 	}
 	for _, refs := range [][]DefRef{plan.Added, plan.Changed, plan.Unchanged, plan.Removed} {
@@ -322,6 +375,13 @@ func apply(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, c *Compiled, plan *
 	if err := q.UpsertApp(ctx, dbgen.UpsertAppParams{Name: c.Manifest.Name, Version: c.Manifest.Version, Manifest: manifest, InstalledBy: by}); err != nil {
 		return err
 	}
+	// The app's principal: created on first install, brought back on a reinstall.
+	if _, err := q.AppPrincipal(ctx, c.Manifest.Name); err != nil {
+		return err
+	}
+	if err := q.SetAppPrincipalActive(ctx, dbgen.SetAppPrincipalActiveParams{App: pgtype.Text{String: c.Manifest.Name, Valid: true}, Active: true}); err != nil {
+		return err
+	}
 
 	byRef := map[DefRef]Definition{}
 	for _, d := range c.Definitions {
@@ -345,6 +405,20 @@ func apply(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, c *Compiled, plan *
 	for _, ref := range plan.Removed {
 		if err := q.DeleteDefinitions(ctx, dbgen.DeleteDefinitionsParams{AppName: c.Manifest.Name, Kind: ref.Kind, Name: ref.Name}); err != nil {
 			return err
+		}
+		if ref.Kind == "role" {
+			if err := q.DeleteAppRole(ctx, dbgen.DeleteAppRoleParams{Name: ref.Name, AppName: pgtype.Text{String: c.Manifest.Name, Valid: true}}); err != nil {
+				return err
+			}
+		}
+	}
+	// Roles live in their own table too, which RLS and grants refer to; the definition is the source.
+	for _, ref := range append(append([]DefRef{}, plan.Added...), plan.Changed...) {
+		if r := byRef[ref].Role; r != nil {
+			if err := q.UpsertAppRole(ctx, dbgen.UpsertAppRoleParams{Name: r.Name, Label: r.Label, Description: r.Description,
+				Permissions: r.Permissions, AppName: pgtype.Text{String: c.Manifest.Name, Valid: true}}); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -414,7 +488,11 @@ func Uninstall(ctx context.Context, pool *pgxpool.Pool, name string) (removed []
 		for _, d := range defs {
 			removed = append(removed, DefRef{d.Kind, d.Name})
 		}
-		if err := q.DeleteApp(ctx, name); err != nil { // cascades to its definitions
+		if err := q.DeleteApp(ctx, name); err != nil { // cascades to its definitions and roles
+			return err
+		}
+		// Its principal stays, deactivated, for the comments and runs it wrote.
+		if err := q.SetAppPrincipalActive(ctx, dbgen.SetAppPrincipalActiveParams{App: pgtype.Text{String: name, Valid: true}, Active: false}); err != nil {
 			return err
 		}
 		_, err = tx.Exec(ctx, "SELECT pg_notify($1, $2)", NotifyChannel, name)

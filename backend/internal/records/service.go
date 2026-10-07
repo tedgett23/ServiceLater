@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/expr"
 	"github.com/servicelater/servicelater/backend/internal/ruleruns"
@@ -34,8 +35,38 @@ type Service struct {
 
 // Actor is who is saving. Rules and permissions are judged as them, and the database applies RLS as them.
 type Actor struct {
-	ID   uuid.UUID
-	Role string
+	ID    uuid.UUID
+	Perms authz.Set
+	// OnBehalfOf is set when the actor is an app's principal acting for a person (an async rule, a workflow, a
+	// run_as: app rule): the person whose change set it off.
+	OnBehalfOf uuid.UUID
+}
+
+// Can reports whether the actor has a permission.
+func (a Actor) Can(perm string) bool { return a.Perms.Has(perm) }
+
+// Person is who a change is for: the person acting, or the one an app acts for.
+func (a Actor) Person() uuid.UUID {
+	if a.OnBehalfOf != uuid.Nil {
+		return a.OnBehalfOf
+	}
+	return a.ID
+}
+
+// ActorIn is who a transaction made by db.WithUser or db.WithPrincipal runs as, with the permissions it loaded. The
+// worker and the workflow engine use it; a request already knows its caller's.
+func ActorIn(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (Actor, error) {
+	s, err := q.CurrentPermissions(ctx)
+	if err != nil {
+		return Actor{}, err
+	}
+	behalf, err := q.CurrentOnBehalfOf(ctx)
+	return Actor{ID: id, Perms: authz.Parse(s), OnBehalfOf: behalf}, err
+}
+
+// assignable reports whether someone may be given a ticket: they must be able to work tickets.
+func assignable(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (bool, error) {
+	return q.UserCan(ctx, dbgen.UserCanParams{UserID: id, Permission: authz.TicketsUpdate})
 }
 
 // CreateInput is a new incident as asked for.
@@ -107,8 +138,8 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	}
 	requester := a.ID
 	if in.RequesterID != nil && *in.RequesterID != a.ID {
-		if !IsStaff(a.Role) {
-			return Ticket{}, Forbidden("only staff can file on behalf of others")
+		if !a.Can(authz.TicketsUpdate) {
+			return Ticket{}, Forbidden("filing a ticket for someone else needs the tickets:update permission")
 		}
 		requester = *in.RequesterID
 	}
@@ -149,8 +180,8 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 // Update edits a ticket. It locks the row first, so rules see the ticket as it is and two edits cannot both act on
 // the same state.
 func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, id uuid.UUID, p Patch) (Ticket, error) {
-	if !IsStaff(a.Role) {
-		return Ticket{}, Forbidden("only staff can edit tickets")
+	if !a.Can(authz.TicketsUpdate) {
+		return Ticket{}, Forbidden("editing tickets needs the tickets:update permission")
 	}
 	if p.Title != nil {
 		if err := validTitle(*p.Title); err != nil {
@@ -192,8 +223,10 @@ func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 			if err != nil {
 				return Ticket{}, Invalid("assignee does not exist")
 			}
-			if !IsStaff(u.Role) {
-				return Ticket{}, Invalid("assignee must be an agent or admin")
+			if ok, err := assignable(ctx, q, u.ID); err != nil {
+				return Ticket{}, err
+			} else if !ok {
+				return Ticket{}, Invalid("assignee must be someone who works tickets")
 			}
 			if u.DeactivatedAt.Valid {
 				return Ticket{}, Invalid("assignee is deactivated")
@@ -234,8 +267,8 @@ func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 
 // Transition moves a ticket to another status, if its lifecycle allows the move and its guard agrees.
 func (s *Service) Transition(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, id uuid.UUID, to string) (Ticket, error) {
-	if !IsStaff(a.Role) {
-		return Ticket{}, Forbidden("only staff can move tickets")
+	if !a.Can(authz.TicketsUpdate) {
+		return Ticket{}, Forbidden("moving tickets needs the tickets:update permission")
 	}
 	// Lock the row so two concurrent transitions can't both pass the check against the same state.
 	t, err := q.GetTaskForUpdate(ctx, id)
@@ -437,8 +470,10 @@ func validateRuleChanges(ctx context.Context, q *dbgen.Queries, before, after Ti
 		if err != nil {
 			return Invalid("a rule set an assignee who does not exist")
 		}
-		if !IsStaff(u.Role) {
-			return Invalid("a rule set an assignee who is not an agent or admin")
+		if ok, err := assignable(ctx, q, u.ID); err != nil {
+			return err
+		} else if !ok {
+			return Invalid("a rule set an assignee who does not work tickets")
 		}
 	}
 	return nil
@@ -560,26 +595,66 @@ func (s *Service) runAfterRules(ctx context.Context, q *dbgen.Queries, a Actor, 
 	if err != nil {
 		return s.ruleError(ctx, err, apps.TimingAfter, event, &saved.ID, saved.Reference)
 	}
+	// Each effect is carried out as its rule says: as the person saving, or (run_as: app) as the rule's app.
+	who := func(app, rule string, fn func(Actor) error) error {
+		if r := s.Apps.Rule(app, rule); r != nil && r.RunAs == apps.RunAsApp {
+			return asApp(ctx, q, a, app, fn)
+		}
+		return fn(a)
+	}
 	for _, c := range fx.Comments {
 		body := strings.TrimSpace(c.Body)
 		if body == "" || len(body) > MaxComment {
 			return Invalid(fmt.Sprintf("the rule %s wrote a comment that is empty or too long", c.Rule))
 		}
-		if _, err := q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: saved.ID, AuthorID: a.ID, Body: body, Internal: c.Internal}); err != nil {
+		if err := who(c.App, c.Rule, func(by Actor) error {
+			_, err := q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: saved.ID, AuthorID: by.ID, Body: body, Internal: c.Internal})
+			return err
+		}); err != nil {
 			return err
 		}
 	}
 	for _, st := range fx.Starts {
-		if err := s.startFromRule(ctx, q, a, cause, apps.TimingAfter, saved, st); err != nil {
+		if err := who(st.App, st.Rule, func(by Actor) error {
+			return s.startFromRule(ctx, q, by, cause, apps.TimingAfter, saved, st)
+		}); err != nil {
 			return err
 		}
 	}
 	for _, n := range fx.Notifies {
-		if err := s.notifyFromRule(ctx, q, apps.TimingAfter, saved, n); err != nil {
+		if err := who(n.App, n.Rule, func(Actor) error {
+			return s.notifyFromRule(ctx, q, apps.TimingAfter, saved, n)
+		}); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// asApp runs fn, inside the save's transaction, as an app's principal acting for the person saving, then switches
+// the transaction back to whoever it was. RLS checks the app's permissions for what fn does.
+func asApp(ctx context.Context, q *dbgen.Queries, a Actor, app string, fn func(Actor) error) error {
+	principal, err := q.AppPrincipal(ctx, app)
+	if err != nil {
+		return err
+	}
+	if err := q.BeginAs(ctx, dbgen.BeginAsParams{Principal: principal, OnBehalfOf: a.Person()}); err != nil {
+		return err
+	}
+	by, err := ActorIn(ctx, q, principal)
+	if err == nil {
+		err = fn(by)
+	}
+	var back error
+	if a.OnBehalfOf != uuid.Nil {
+		back = q.BeginAs(ctx, dbgen.BeginAsParams{Principal: a.ID, OnBehalfOf: a.OnBehalfOf})
+	} else {
+		back = q.BeginAsUser(ctx, a.ID)
+	}
+	if err != nil {
+		return err
+	}
+	return back
 }
 
 // queueAsync fires the async rules the change sets off. They are queued in this transaction, so a save that rolls

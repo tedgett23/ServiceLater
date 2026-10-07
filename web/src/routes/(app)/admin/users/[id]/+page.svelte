@@ -4,7 +4,7 @@
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import { groups } from '$lib/groups.svelte';
-	import { roleLabel, type PersonDetail, type Role } from '$lib/types';
+	import { can, P, roleLabel, type PersonDetail, type Role, type RoleInfo } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let { data } = $props();
@@ -26,6 +26,12 @@
 	const joinable = $derived(groups.list.filter((g) => !person?.groups.some((m) => m.id === g.id)));
 	let confirmingDelete = $state(false);
 
+	// Roles on top of the base role.
+	const manageRoles = $derived(can(data.user, P.rolesManage));
+	let allRoles = $state<RoleInfo[]>([]);
+	let addRole = $state('');
+	const grantable = $derived(allRoles.filter((r) => !r.built_in && !person?.roles.some((h) => h.role === r.name && !h.group_id)));
+
 	async function load() {
 		try {
 			person = await api<PersonDetail>(`/api/v1/users/${page.params.id}`);
@@ -41,7 +47,17 @@
 	onMount(() => {
 		void load();
 		void groups.reload().catch(() => {});
+		void api<{ items: RoleInfo[] }>('/api/v1/roles')
+			.then((r) => (allRoles = r.items))
+			.catch(() => {});
 	});
+
+	async function grantRole(e: Event) {
+		e.preventDefault();
+		const r = allRoles.find((x) => x.name === addRole);
+		if (r && (await act(() => api(`/api/v1/roles/${r.name}/grants`, { method: 'POST', body: { user_id: page.params.id } }), `${r.label} granted`)))
+			addRole = '';
+	}
 
 	/** Run a change, then reload this person and announce it. */
 	async function act(request: () => Promise<unknown>, done: string) {
@@ -143,7 +159,7 @@
 				<select bind:value={role} disabled={self}>
 					<option value="end_user">End user</option>
 					<option value="agent">Agent</option>
-					<option value="admin">Admin</option>
+					<option value="admin" disabled={!manageRoles && person.role !== 'admin'}>Admin</option>
 				</select>
 			</label>
 			{#if self}<p class="hint">You cannot change your own role. Another admin can.</p>{/if}
@@ -180,6 +196,46 @@
 						</select>
 					</label>
 					<button class="btn" disabled={!addTo || busy}>Add</button>
+				</form>
+			{/if}
+		</section>
+
+		<section class="block" aria-labelledby="roles-h">
+			<h2 id="roles-h">Roles</h2>
+			<p class="hint">Base role: {roleLabel[person.role]}. These add to it.</p>
+			{#if person.roles.length === 0}
+				<p class="msg">No other roles.</p>
+			{/if}
+			<ul class="groups">
+				{#each person.roles as r (r.grant_id)}
+					<li>
+						<span>
+							<a href="/admin/roles/{r.role}">{r.label}</a>
+							{#if r.group_name}<span class="via">through {r.group_name}</span>{/if}
+						</span>
+						{#if manageRoles && !r.group_id}
+							<button
+								class="btn quiet-btn"
+								disabled={busy}
+								onclick={() => act(() => api(`/api/v1/roles/${r.role}/grants/${r.grant_id}`, { method: 'DELETE' }), `${r.label} revoked`)}
+								aria-label="Revoke {r.label}">Revoke</button
+							>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+			{#if manageRoles && grantable.length > 0}
+				<form class="row" onsubmit={grantRole}>
+					<label class="field grow">
+						<span>Grant a role</span>
+						<select bind:value={addRole}>
+							<option value="" disabled>Choose a role</option>
+							{#each grantable as r (r.name)}
+								<option value={r.name}>{r.label}</option>
+							{/each}
+						</select>
+					</label>
+					<button class="btn" disabled={!addRole || busy}>Grant</button>
 				</form>
 			{/if}
 		</section>
@@ -275,6 +331,11 @@
 		gap: 0.75rem;
 		padding: 0.45rem 0;
 		border-bottom: 1px solid var(--rule);
+	}
+	.via {
+		margin-left: 0.4rem;
+		color: var(--ink-2);
+		font-size: 0.85rem;
 	}
 	.groups a {
 		font-weight: 600;

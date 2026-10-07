@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/servicelater/servicelater/backend/internal/authz"
 )
 
 const (
@@ -17,12 +18,17 @@ const (
 
 type ctxKey struct{}
 
-// Principal is the authenticated caller, taken from a verified access token.
+// Principal is the authenticated caller, taken from a verified access token. Perms is filled by
+// PermissionCache.Load from the database; Role (the base role, from the token) is for display only.
 type Principal struct {
 	UserID  uuid.UUID
 	Role    string
+	Perms   authz.Set
 	Expires time.Time // when the access token stops being valid
 }
+
+// Can reports whether the caller has a permission. It is the fast check in Go; RLS checks again.
+func (p Principal) Can(perm string) bool { return p.Perms.Has(perm) }
 
 func PrincipalFrom(ctx context.Context) (Principal, bool) {
 	p, ok := ctx.Value(ctxKey{}).(Principal)
@@ -46,12 +52,13 @@ func (t *Tokens) Authenticate(next http.Handler) http.Handler {
 	})
 }
 
-// RequireRole is a fast pre-check before the database. RLS remains the authoritative check.
-func RequireRole(roles ...string) func(http.Handler) http.Handler {
+// RequirePermission is a fast pre-check before the database: the caller needs at least one of perms. RLS remains
+// the authoritative check. It needs PermissionCache.Load earlier in the chain.
+func RequirePermission(perms ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p, ok := PrincipalFrom(r.Context())
-			if !ok || !slices.Contains(roles, p.Role) {
+			if !ok || !p.Perms.Any(perms...) {
 				deny(w, http.StatusForbidden, "forbidden")
 				return
 			}

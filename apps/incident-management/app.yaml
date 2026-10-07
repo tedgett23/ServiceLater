@@ -6,7 +6,3 @@ description: "Incident lifecycle, forms and SLA workflows."
 ServiceLater_min_version: 0.1.0
 dependencies:
   - core-itsm: ">=0.1.0"
-permissions:
-  - incidents:read
-  - incidents:update
-  - comments:create

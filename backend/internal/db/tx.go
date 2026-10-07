@@ -12,8 +12,9 @@ import (
 // WithUser runs fn in a transaction with Postgres RLS enforced for userID.
 //
 // The pool connects as the table owner, which bypasses RLS, so the transaction first drops to the
-// servicelater_app role and sets app.current_user_id. Both are transaction-local (SET LOCAL semantics) and
-// vanish at commit/rollback, so a pooled connection never leaks identity to the next caller.
+// servicelater_app role, then app_begin sets app.current_user_id and app.permissions (what app_can checks). All of
+// it is transaction-local (SET LOCAL semantics) and vanishes at commit/rollback, so a pooled connection never leaks
+// identity to the next caller.
 //
 // All queries on behalf of a user must go through here. Do not use the pool directly for user data.
 func WithUser(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID, fn func(pgx.Tx) error) error {
@@ -21,8 +22,23 @@ func WithUser(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID, fn func
 		if _, err := tx.Exec(ctx, "SET LOCAL ROLE servicelater_app"); err != nil {
 			return fmt.Errorf("db: set role: %w", err)
 		}
-		if _, err := tx.Exec(ctx, "SELECT set_config('app.current_user_id', $1, true)", userID.String()); err != nil {
+		if _, err := tx.Exec(ctx, "SELECT app_begin($1)", userID); err != nil {
 			return fmt.Errorf("db: set user: %w", err)
+		}
+		return fn(tx)
+	})
+}
+
+// WithPrincipal runs fn as an app's service principal acting on behalf of a person: RLS checks the principal's
+// permissions (its app's manifest), and what it writes records whom it acted for (app_on_behalf_of). Async rules and
+// workflows run this way.
+func WithPrincipal(ctx context.Context, pool *pgxpool.Pool, principal, onBehalfOf uuid.UUID, fn func(pgx.Tx) error) error {
+	return inTx(ctx, pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "SET LOCAL ROLE servicelater_app"); err != nil {
+			return fmt.Errorf("db: set role: %w", err)
+		}
+		if _, err := tx.Exec(ctx, "SELECT app_begin_as($1, $2)", principal, onBehalfOf); err != nil {
+			return fmt.Errorf("db: set principal: %w", err)
 		}
 		return fn(tx)
 	})

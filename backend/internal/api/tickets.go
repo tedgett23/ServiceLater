@@ -56,8 +56,6 @@ func likeEscape(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
-func isStaff(role string) bool { return records.IsStaff(role) }
-
 var referenceRE = regexp.MustCompile(`^([A-Za-z]{2,5})([0-9]+)$`)
 
 // loadTicket resolves the {id} path segment: see resolveTicket.
@@ -234,7 +232,7 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, out)
 }
 
-func actorOf(p auth.Principal) records.Actor { return records.Actor{ID: p.UserID, Role: p.Role} }
+func actorOf(p auth.Principal) records.Actor { return records.Actor{ID: p.UserID, Perms: p.Perms} }
 
 // GET /tickets/{id}: one ticket, by id, reference (INC42) or incident number, with the moves the caller may make.
 func (h *handlers) getTicket(w http.ResponseWriter, r *http.Request) {

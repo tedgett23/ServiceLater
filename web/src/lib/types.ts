@@ -9,7 +9,9 @@ export interface User {
 	id: string;
 	email: string;
 	name: string;
+	/** The base role. What someone may do is `permissions`, which roles granted to them or their groups add to. */
 	role: Role;
+	permissions?: string[];
 }
 
 export interface Ticket {
@@ -51,13 +53,31 @@ export interface Comment {
 	ticket_id: string;
 	author_id: string;
 	author_name: string;
+	/** Set when an app wrote the comment: the person it acted for (author_name is then the app). */
+	on_behalf_of_name?: string;
 	body: string;
 	internal: boolean;
 	created_at: string;
 	pending?: boolean;
 }
 
-export const isStaff = (u: User | null | undefined) => u?.role === 'admin' || u?.role === 'agent';
+/** Permission names, as the server checks them (internal/authz). */
+export const P = {
+	ticketsReadAll: 'tickets:read_all',
+	ticketsUpdate: 'tickets:update',
+	commentsInternal: 'comments:internal',
+	workflowsReadAll: 'workflows:read_all',
+	usersManage: 'users:manage',
+	groupsManage: 'groups:manage',
+	rolesManage: 'roles:manage'
+} as const;
+
+/** Whether someone may do something. The server decides for real; this only shows and hides things. */
+export const can = (u: User | null | undefined, perm: string) => !!u?.permissions?.includes(perm);
+
+/** Whether someone may reach anything in the admin section. */
+export const canAdmin = (u: User | null | undefined) =>
+	can(u, P.usersManage) || can(u, P.groupsManage) || can(u, P.rolesManage);
 
 export interface LifecycleState {
 	id: string;
@@ -187,10 +207,54 @@ export interface Person extends User {
 
 export interface PersonDetail extends Person {
 	groups: { id: string; name: string }[];
+	roles: HeldRole[];
 }
 
 export const roleLabel: Record<Role, string> = { admin: 'Admin', agent: 'Agent', end_user: 'End user' };
 
 export interface GroupDetail extends Group {
 	members: Member[];
+	/** Roles granted to the group: everyone in it holds them. */
+	roles: HeldRole[];
+}
+
+/** A named set of permissions: a built-in base role, or one an app ships in roles/. */
+export interface RoleInfo {
+	name: string;
+	label: string;
+	description: string;
+	permissions: string[];
+	/** The app that defines it; empty for built-in roles. */
+	app: string;
+	/** Base roles are set on each person, never granted. */
+	built_in: boolean;
+	grants: number;
+}
+
+export interface Grant {
+	id: string;
+	user_id?: string;
+	user_name?: string;
+	user_email?: string;
+	group_id?: string;
+	group_name?: string;
+	created_at: string;
+}
+
+export interface RoleDetail extends RoleInfo {
+	granted_to: Grant[];
+}
+
+/** A role someone holds on top of their base role: granted to them, or (group_id set) through a group. */
+export interface HeldRole {
+	grant_id: string;
+	role: string;
+	label: string;
+	group_id?: string;
+	group_name?: string;
+}
+
+export interface PermissionInfo {
+	name: string;
+	description: string;
 }

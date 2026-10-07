@@ -4,7 +4,7 @@ import { USERS } from './users';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { bumpVersion, installFirstParty, modifiedIncidentApp, servicelater, tempApp, writeLocalOverride } from './apps';
+import { APP_PERMISSIONS, bumpVersion, installApp, installFirstParty, modifiedIncidentApp, servicelater, tempApp, writeLocalOverride } from './apps';
 
 // These tests change the installed apps, so they put the first-party versions back afterwards.
 test.afterEach(() => {
@@ -25,7 +25,7 @@ test('changing an app updates screens that are already open, with no reload', as
 			text.replace('label: New,', 'label: Fresh,').replace('verb: Start work', 'verb: Pick it up')
 	});
 	try {
-		servicelater('install', app.dir);
+		installApp(app.dir);
 		// The open page picks it up through the live connection.
 		await expect(page.getByRole('button', { name: 'Pick it up' })).toBeVisible();
 		await expect(details(page).getByText('Fresh', { exact: true })).toBeVisible();
@@ -60,7 +60,7 @@ test('an update that would strand tickets is refused, and nothing changes', asyn
 				.replace(/^.*from: on_hold.*\n/gm, '')
 	});
 	try {
-		expect(() => servicelater('install', app.dir)).toThrow(/on_hold.*renamed_from|renamed_from.*on_hold/s);
+		expect(() => installApp(app.dir)).toThrow(/on_hold.*renamed_from|renamed_from.*on_hold/s);
 	} finally {
 		app.cleanup();
 	}
@@ -137,7 +137,7 @@ test('a guard blocks a move, says why, and lifts as soon as the ticket is fixed'
 			)
 	});
 	try {
-		servicelater('install', app.dir);
+		installApp(app.dir);
 
 		// The open page learns of it live: the button is disabled and the reason sits under it.
 		await expect(start).toBeDisabled();
@@ -166,7 +166,7 @@ test('an app with a mistake in a guard is refused before it can do any harm', as
 			text.replace(/verb: Start work,\s+primary: true \}/, "verb: Start work, primary: true, when: 'record.prioity <= 2', error: Nope }")
 	});
 	try {
-		expect(() => servicelater('install', app.dir)).toThrow(/undefined field 'prioity'/);
+		expect(() => installApp(app.dir)).toThrow(/undefined field 'prioity'/);
 	} finally {
 		app.cleanup();
 	}
@@ -191,7 +191,7 @@ test('a guard can require resolution notes, and writing them unlocks the move', 
 			)
 	});
 	try {
-		servicelater('install', app.dir);
+		installApp(app.dir);
 		await expect(resolve).toBeDisabled();
 		await expect(page.getByText('Add resolution notes before resolving.')).toBeVisible();
 
@@ -219,7 +219,7 @@ test('a rule that says no shows its own message, and the edit is put back', asyn
 	fs.mkdirSync(path.join(dir, 'default/rules'), { recursive: true });
 	fs.writeFileSync(
 		path.join(dir, 'app.yaml'),
-		'apiVersion: 1\nname: e2e-house-rules\nversion: 1.0.0\nauthor: e2e\ndescription: "Rules for a test."\n'
+		'apiVersion: 1\nname: e2e-house-rules\nversion: 1.0.0\nauthor: e2e\ndescription: "Rules for a test."\n' + APP_PERMISSIONS
 	);
 	fs.writeFileSync(
 		path.join(dir, 'default/rules/critical.yaml'),
@@ -235,7 +235,7 @@ run:
 `
 	);
 	try {
-		servicelater('install', dir);
+		installApp(dir);
 		const before = await details(page).getByLabel('Priority').inputValue();
 		await details(page).getByLabel('Priority').selectOption('Critical');
 		await expect(page.getByText('Critical incidents need an assignee.')).toBeVisible();
@@ -263,7 +263,7 @@ test('an async rule adds its note after the save, and the open page shows it liv
 	fs.mkdirSync(path.join(dir, 'default/rules'), { recursive: true });
 	fs.writeFileSync(
 		path.join(dir, 'app.yaml'),
-		'apiVersion: 1\nname: e2e-async-rules\nversion: 1.0.0\nauthor: e2e\ndescription: "Rules for a test."\n'
+		'apiVersion: 1\nname: e2e-async-rules\nversion: 1.0.0\nauthor: e2e\ndescription: "Rules for a test."\n' + APP_PERMISSIONS
 	);
 	fs.writeFileSync(
 		path.join(dir, 'default/rules/escalated.yaml'),
@@ -279,12 +279,17 @@ run:
 `
 	);
 	try {
-		servicelater('install', dir);
+		installApp(dir);
 		await details(page).getByLabel('Priority').selectOption('Critical');
 		// Nothing reloads the page: the worker writes the note after the save, and the live connection delivers it.
 		await expect(page.locator('.activity li', { hasText: 'was escalated to critical by' })).toBeVisible();
 		await page.reload();
-		await expect(page.locator('.activity li', { hasText: `INC${t.number} was escalated` })).toHaveCount(1);
+		const note = page.locator('.activity li', { hasText: `INC${t.number} was escalated` });
+		await expect(note).toHaveCount(1);
+		// Written by the app (it runs as its own principal), for the person whose change set it off. Regressed once: the
+		// space before "for" was trimmed, so it read "e2e-async-rulesfor Priya".
+		await expect(note).toContainText(`e2e-async-rules for ${USERS.agent.name}`);
+		await expect(note).toContainText(`escalated to critical by ${USERS.agent.name}`);
 	} finally {
 		servicelater('uninstall', 'e2e-async-rules');
 		fs.rmSync(dir, { recursive: true, force: true });
@@ -303,7 +308,7 @@ test('an async rule can change the ticket, and the open page shows the new assig
 	fs.mkdirSync(path.join(dir, 'default/rules'), { recursive: true });
 	fs.writeFileSync(
 		path.join(dir, 'app.yaml'),
-		'apiVersion: 1\nname: e2e-update-rules\nversion: 1.0.0\nauthor: e2e\ndescription: "Rules for a test."\n'
+		'apiVersion: 1\nname: e2e-update-rules\nversion: 1.0.0\nauthor: e2e\ndescription: "Rules for a test."\n' + APP_PERMISSIONS
 	);
 	fs.writeFileSync(
 		path.join(dir, 'default/rules/claim.yaml'),
@@ -320,7 +325,7 @@ run:
 `
 	);
 	try {
-		servicelater('install', dir);
+		installApp(dir);
 		await details(page).getByLabel('Priority').selectOption('Critical');
 		// The worker saves the assignee after the priority change committed; nothing reloads the page.
 		await expect(details(page).getByLabel('Assignee').locator('option:checked')).toHaveText(USERS.agent.name);
@@ -354,7 +359,7 @@ run:
 `
 	});
 	try {
-		servicelater('install', app.dir);
+		installApp(app.dir);
 		await openTicket(page, t.number);
 		// Hold the edit's response back long enough for the worker to finish first.
 		// The server handles the edit at once, and the response then waits: the worker's change commits in the meantime.

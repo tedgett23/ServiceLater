@@ -11,7 +11,7 @@
 	import { session } from '$lib/session.svelte';
 	import { staff } from '$lib/staff.svelte';
 	import type { Comment, Status as StatusT, Ticket } from '$lib/types';
-	import { isStaff } from '$lib/types';
+	import { can, P } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let props: { ticket: Ticket; comments: Comment[] } = $props();
@@ -25,7 +25,8 @@
 	let inflight = $state(0); // local edits awaiting the server; live refetches wait so they can't undo them, and actions pause
 	let stale = false; // a live update arrived while an edit was in flight: refetch as soon as the edit settles
 
-	const canEdit = $derived(isStaff(session.user));
+	const canEdit = $derived(can(session.user, P.ticketsUpdate));
+	const canInternal = $derived(can(session.user, P.commentsInternal));
 	const path = $derived(`/api/v1/tickets/${ticket.id}`);
 	// The server says which moves to offer (the natural next step first) and which are blocked right now, and why.
 	const moves = $derived(ticket.moves ?? []);
@@ -267,7 +268,7 @@
 					{#each comments as c (c.id)}
 						<li class:internal={c.internal} class:pending={c.pending}>
 							<div class="cmeta">
-								<strong>{c.author_name}</strong>
+								<strong>{c.author_name}</strong>{#if c.on_behalf_of_name}{' '}<span class="behalf">for {c.on_behalf_of_name}</span>{/if}
 								{#if c.internal}<span class="tag">Internal note</span>{/if}
 								<time datetime={c.created_at}>{c.pending ? 'Sending…' : when(c.created_at)}</time>
 							</div>
@@ -288,7 +289,7 @@
 						></textarea>
 					</label>
 					<div class="composer-row">
-						{#if canEdit}
+						{#if canInternal}
 							<label class="check"><input type="checkbox" bind:checked={internal} /> Internal note</label>
 						{/if}
 						<button class="btn primary" disabled={!draft.trim() || posting}>{internal ? 'Add internal note' : 'Add comment'}</button>
@@ -534,6 +535,10 @@
 	li {
 		padding-left: 0.9rem;
 		border-left: 3px solid var(--rule);
+	}
+	.behalf {
+		color: var(--ink-2);
+		font-weight: 400;
 	}
 	li.internal {
 		border-left-color: var(--marker);

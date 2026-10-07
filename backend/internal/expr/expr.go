@@ -80,26 +80,38 @@ type Input struct {
 	// Groups looks up the ids of a group's members by the group's name, for group('name'). Only workflows can use
 	// group(); an expression that does is refused if this is nil. A missing group is an error, never an empty list.
 	Groups func(ctx context.Context, name string) ([]string, error)
+	// Roles looks up the ids of everyone who holds a role, for role('name'), the same way.
+	Roles func(ctx context.Context, name string) ([]string, error)
 }
 
-// groupsVar holds the members of each group an expression names. group('CAB') is a macro for groupsVar['CAB'], and
-// only the names written in the expression are looked up, just before it runs: a group is people, who change, so it
-// is data, not something an app can know when it is installed.
-const groupsVar = "_groups"
+// A lookup is a function of a name written in quotes, such as group('CAB') or role('cab-member'), whose result is
+// people, who change: so it is data, not something an app can know when it is installed. The function is a macro
+// for an index into a hidden map variable, and only the names written in the expression are looked up, just before
+// it runs.
+type lookup struct {
+	fn, variable, example string
+}
 
-// groupMacro expands group('name'). The name must be written in quotes, so which groups an expression needs is
-// known when it is compiled.
-var groupMacro = cel.GlobalMacro("group", 1, func(eh cel.MacroExprFactory, _ ast.Expr, args []ast.Expr) (ast.Expr, *common.Error) {
-	arg := args[0]
-	if arg.Kind() != ast.LiteralKind || arg.AsLiteral().Type() != types.StringType {
-		return nil, eh.NewError(arg.ID(), "group() takes a group's name in quotes, such as group('CAB')")
-	}
-	return eh.NewCall(operators.Index, eh.NewIdent(groupsVar), eh.Copy(arg)), nil
-})
+var lookups = []lookup{
+	{fn: "group", variable: "_groups", example: "group('CAB')"},
+	{fn: "role", variable: "_roles", example: "role('cab-member')"},
+}
 
-// groupNames lists the groups a checked expression names through group(). Any other use of the hidden variable is
-// refused, so the list is complete.
-func groupNames(a *cel.Ast) ([]string, error) {
+// macro expands fn('name'). The name must be written in quotes, so which names an expression needs is known when it
+// is compiled.
+func (l lookup) macro() cel.Macro {
+	return cel.GlobalMacro(l.fn, 1, func(eh cel.MacroExprFactory, _ ast.Expr, args []ast.Expr) (ast.Expr, *common.Error) {
+		arg := args[0]
+		if arg.Kind() != ast.LiteralKind || arg.AsLiteral().Type() != types.StringType {
+			return nil, eh.NewError(arg.ID(), l.fn+"() takes a name in quotes, such as "+l.example)
+		}
+		return eh.NewCall(operators.Index, eh.NewIdent(l.variable), eh.Copy(arg)), nil
+	})
+}
+
+// names lists the names a checked expression passes to l's function. Any other use of the hidden variable is refused,
+// so the list is complete.
+func (l lookup) names(a *cel.Ast) ([]string, error) {
 	var names []string
 	var bad bool
 	root := a.NativeRep()
@@ -108,7 +120,7 @@ func groupNames(a *cel.Ast) ([]string, error) {
 		switch e.Kind() {
 		case ast.CallKind:
 			c := e.AsCall()
-			if c.FunctionName() == operators.Index && len(c.Args()) == 2 && c.Args()[0].Kind() == ast.IdentKind && c.Args()[0].AsIdent() == groupsVar {
+			if c.FunctionName() == operators.Index && len(c.Args()) == 2 && c.Args()[0].Kind() == ast.IdentKind && c.Args()[0].AsIdent() == l.variable {
 				seen[c.Args()[0].ID()] = true
 				s, ok := "", false
 				if lit := c.Args()[1]; lit.Kind() == ast.LiteralKind {
@@ -121,13 +133,13 @@ func groupNames(a *cel.Ast) ([]string, error) {
 				}
 			}
 		case ast.IdentKind:
-			if e.AsIdent() == groupsVar && !seen[e.ID()] {
+			if e.AsIdent() == l.variable && !seen[e.ID()] {
 				bad = true
 			}
 		}
 	}))
 	if bad {
-		return nil, errors.New("use group('name') to name a group")
+		return nil, errors.New("use " + l.fn + "('name') to name a " + l.fn)
 	}
 	return names, nil
 }
@@ -193,7 +205,8 @@ var (
 
 // Workflow is the environment for a workflow step's expressions: the record as it is now, the person the workflow
 // runs as, the time, and the workflow's own variables (`vars.name`, of no fixed type: a variable is whatever a `set`
-// step stored in it). group('name') is the ids of a group's members, so `approvers: group('CAB')` asks a team.
+// step stored in it). group('name') is the ids of a group's members, so `approvers: group('CAB')` asks a team, and
+// role('name') the ids of everyone holding a role.
 func Workflow() (*Env, error) {
 	wfOnce.Do(func() {
 		var e *cel.Env
@@ -203,8 +216,9 @@ func Workflow() (*Env, error) {
 			cel.Variable("user", cel.ObjectType("expr.User")),
 			cel.Variable("now", cel.TimestampType),
 			cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
-			cel.Variable(groupsVar, cel.MapType(cel.StringType, cel.ListType(cel.StringType))),
-			cel.Macros(groupMacro),
+			cel.Variable(lookups[0].variable, cel.MapType(cel.StringType, cel.ListType(cel.StringType))),
+			cel.Variable(lookups[1].variable, cel.MapType(cel.StringType, cel.ListType(cel.StringType))),
+			cel.Macros(lookups[0].macro(), lookups[1].macro()),
 		)
 		wfEnv = &Env{env: e}
 	})
@@ -215,7 +229,7 @@ func Workflow() (*Env, error) {
 type Program struct {
 	prg    cel.Program
 	Source string
-	groups []string // names given to group(), looked up just before each run
+	names  map[string][]string // per lookup variable, the names written in the expression, looked up before each run
 }
 
 // Compile parses and type-checks a boolean expression. The error is one readable sentence with a position.
@@ -284,15 +298,21 @@ func (e *Env) compile(source string, want *cel.Type) (*Program, error) {
 	if want != nil && !a.OutputType().IsExactType(want) {
 		return nil, fmt.Errorf("the expression must produce %s, not %s", describe(want), a.OutputType())
 	}
-	groups, err := groupNames(a)
-	if err != nil {
-		return nil, err
+	names := map[string][]string{}
+	for _, l := range lookups {
+		n, err := l.names(a)
+		if err != nil {
+			return nil, err
+		}
+		if len(n) > 0 {
+			names[l.variable] = n
+		}
 	}
 	prg, err := e.env.Program(a, cel.EvalOptions(cel.OptTrackCost), cel.CostLimit(costLimit))
 	if err != nil {
 		return nil, err
 	}
-	p := &Program{prg: prg, Source: src, groups: groups}
+	p := &Program{prg: prg, Source: src, names: names}
 	e.cache.Store(key, p)
 	return p, nil
 }
@@ -352,19 +372,26 @@ func (p *Program) eval(ctx context.Context, in Input) (ref.Val, error) {
 	if vars == nil {
 		vars = map[string]any{}
 	}
-	groups := map[string][]string{}
-	if len(p.groups) > 0 && in.Groups == nil {
-		return nil, errors.New("group() is not available here")
-	}
-	for _, name := range p.groups {
-		ids, err := in.Groups(ctx, name)
-		if err != nil {
-			return nil, err
+	vals := map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event, "vars": vars}
+	resolvers := map[string]func(context.Context, string) ([]string, error){lookups[0].variable: in.Groups, lookups[1].variable: in.Roles}
+	for _, l := range lookups {
+		found := map[string][]string{}
+		if names := p.names[l.variable]; len(names) > 0 {
+			resolve := resolvers[l.variable]
+			if resolve == nil {
+				return nil, errors.New(l.fn + "() is not available here")
+			}
+			for _, name := range names {
+				ids, err := resolve(ctx, name)
+				if err != nil {
+					return nil, err
+				}
+				found[name] = ids
+			}
 		}
-		groups[name] = ids
+		vals[l.variable] = found
 	}
-	out, _, err := p.prg.ContextEval(ctx, map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event,
-		"vars": vars, groupsVar: groups})
+	out, _, err := p.prg.ContextEval(ctx, vals)
 	return out, err
 }
 

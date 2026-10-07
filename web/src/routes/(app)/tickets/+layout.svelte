@@ -6,12 +6,12 @@
 	import Status from '$lib/components/Status.svelte';
 	import { age } from '$lib/format';
 	import { queue, type Filter } from '$lib/queue.svelte';
-	import { isStaff } from '$lib/types';
+	import { can, P } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let { data, children } = $props();
 
-	const staff = $derived(isStaff(data.user));
+	const staff = $derived(can(data.user, P.ticketsReadAll));
 	const filters = $derived<{ id: Filter; label: string }[]>(
 		staff
 			? [

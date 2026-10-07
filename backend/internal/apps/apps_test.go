@@ -54,7 +54,7 @@ ServiceLater_min_version: 0.1.0
 dependencies:
   - core-itsm: ">=0.1.0"
 permissions:
-  - incidents:read
+  - tickets:read_all
 config:
   - { key: token, label: API token, type: secret }
 `
@@ -139,7 +139,7 @@ func TestCompileRejectsBadApps(t *testing.T) {
 		{"typo in a field", withManifest("author:", "authr:"), "field authr not found"},
 		{"bad dependency constraint", withManifest(">=0.1.0", "soon"), "dependency core-itsm"},
 		{"self dependency", withManifest("core-itsm:", "demo-app:"), "cannot depend on itself"},
-		{"bad permission", withManifest("incidents:read", "everything"), "permission \"everything\""},
+		{"bad permission", withManifest("tickets:read_all", "everything"), "permission \"everything\" is not one the platform knows"},
 		{"bad config type", withManifest("type: secret", "type: blob"), "type must be string, secret, bool or int"},
 		{"unknown record type", withLifecycle("record_type: incident", "record_type: widget"), "record_type \"widget\""},
 		{"initial is not a state", withLifecycle("initial: new", "initial: nowhere"), "initial state \"nowhere\""},

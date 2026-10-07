@@ -10,6 +10,7 @@ import (
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
 	"github.com/servicelater/servicelater/backend/internal/records"
 )
@@ -23,10 +24,11 @@ type Deps struct {
 }
 
 type handlers struct {
-	pool *pgxpool.Pool
-	auth *auth.Service
-	apps *apps.Registry
-	svc  *records.Service
+	pool  *pgxpool.Pool
+	perms *auth.PermissionCache
+	auth  *auth.Service
+	apps  *apps.Registry
+	svc   *records.Service
 }
 
 // lifecycleFor is the status flow for a ticket type: the type's own, else the `task` default, else the built-in one.
@@ -49,7 +51,7 @@ func NewRouter(d Deps) http.Handler {
 	if d.Apps == nil {
 		d.Apps = apps.NewRegistry(nil)
 	}
-	h := &handlers{pool: d.Pool, auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool}}
+	h := &handlers{pool: d.Pool, perms: auth.NewPermissionCache(d.Pool), auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool}}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 
@@ -65,30 +67,37 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(d.Tokens.Authenticate)
+			r.Use(d.Tokens.Authenticate, h.perms.Load)
 
 			r.Route("/users", func(r chi.Router) {
-				r.With(auth.RequireRole("admin", "agent")).Get("/", h.listUsers)
-				r.With(auth.RequireRole("admin", "agent")).Get("/staff", h.listStaff)
-				r.With(auth.RequireRole("admin")).Post("/", h.createUser)
+				r.With(auth.RequirePermission(authz.UsersRead)).Get("/", h.listUsers)
+				r.With(auth.RequirePermission(authz.UsersRead)).Get("/staff", h.listStaff)
+				r.With(auth.RequirePermission(authz.UsersManage)).Post("/", h.createUser)
 				r.Route("/{id}", func(r chi.Router) {
-					r.Use(auth.RequireRole("admin"))
+					r.Use(auth.RequirePermission(authz.UsersManage))
 					r.Get("/", h.getUser)
 					r.Patch("/", h.updateUser)
 					r.Delete("/", h.deleteUser)
 					r.Put("/password", h.setUserPassword)
 				})
 			})
+			r.Get("/permissions", h.listPermissions)
+			r.Route("/roles", func(r chi.Router) {
+				r.With(auth.RequirePermission(authz.RolesManage, authz.UsersManage, authz.GroupsManage)).Get("/", h.listRoles)
+				r.With(auth.RequirePermission(authz.RolesManage, authz.UsersManage, authz.GroupsManage)).Get("/{name}", h.getRole)
+				r.With(auth.RequirePermission(authz.RolesManage)).Post("/{name}/grants", h.grantRole)
+				r.With(auth.RequirePermission(authz.RolesManage)).Delete("/{name}/grants/{id}", h.revokeRole)
+			})
 			r.Route("/groups", func(r chi.Router) {
 				r.Get("/", h.listGroups)
-				r.With(auth.RequireRole("admin")).Post("/", h.createGroup)
+				r.With(auth.RequirePermission(authz.GroupsManage)).Post("/", h.createGroup)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.getGroup)
-					r.With(auth.RequireRole("admin")).Patch("/", h.updateGroup)
-					r.With(auth.RequireRole("admin")).Delete("/", h.deleteGroup)
+					r.With(auth.RequirePermission(authz.GroupsManage)).Patch("/", h.updateGroup)
+					r.With(auth.RequirePermission(authz.GroupsManage)).Delete("/", h.deleteGroup)
 					r.Get("/members", h.listGroupMembers)
-					r.With(auth.RequireRole("admin")).Put("/members/{userId}", h.addGroupMember)
-					r.With(auth.RequireRole("admin")).Delete("/members/{userId}", h.removeGroupMember)
+					r.With(auth.RequirePermission(authz.GroupsManage)).Put("/members/{userId}", h.addGroupMember)
+					r.With(auth.RequirePermission(authz.GroupsManage)).Delete("/members/{userId}", h.removeGroupMember)
 				})
 			})
 			r.Get("/lifecycles/{recordType}", h.getLifecycle)
@@ -100,8 +109,8 @@ func NewRouter(d Deps) http.Handler {
 					r.Get("/", h.getTicket)
 					r.Get("/comments", h.listComments)
 					r.Post("/comments", h.createComment)
-					r.With(auth.RequireRole("admin", "agent")).Patch("/", h.updateTicket)
-					r.With(auth.RequireRole("admin", "agent")).Post("/transitions", h.transitionTicket)
+					r.With(auth.RequirePermission(authz.TicketsUpdate)).Patch("/", h.updateTicket)
+					r.With(auth.RequirePermission(authz.TicketsUpdate)).Post("/transitions", h.transitionTicket)
 				})
 			})
 			r.Route("/approvals", func(r chi.Router) {
@@ -114,19 +123,19 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/{id}/read", h.markNotificationRead)
 			})
 			r.Route("/workflow-runs", func(r chi.Router) {
-				r.Use(auth.RequireRole("admin", "agent"))
+				r.Use(auth.RequirePermission(authz.WorkflowsReadAll))
 				r.Get("/", h.listRuns)
-				r.Post("/", h.startRun)
+				r.With(auth.RequirePermission(authz.WorkflowsRun)).Post("/", h.startRun)
 				r.Get("/{id}", h.getRun)
-				r.Post("/{id}/cancel", h.cancelRun)
+				r.With(auth.RequirePermission(authz.WorkflowsRun)).Post("/{id}/cancel", h.cancelRun)
 			})
-			r.With(auth.RequireRole("admin", "agent")).Get("/workflows", h.listWorkflows)
+			r.With(auth.RequirePermission(authz.WorkflowsReadAll)).Get("/workflows", h.listWorkflows)
 			// TODO: cmdb, catalog routes (§7.3)
 		})
 	})
 
 	if d.Hub != nil {
-		r.With(d.Tokens.Authenticate).Get("/ws/v1/subscribe", func(w http.ResponseWriter, req *http.Request) {
+		r.With(d.Tokens.Authenticate, h.perms.Load).Get("/ws/v1/subscribe", func(w http.ResponseWriter, req *http.Request) {
 			p, _ := auth.PrincipalFrom(req.Context())
 			d.Hub.Serve(w, req, p)
 		})

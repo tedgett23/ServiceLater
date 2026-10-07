@@ -74,12 +74,13 @@ func (e *Engine) Handler() jobs.Handler {
 		if err := json.Unmarshal(job.Payload, &p); err != nil {
 			return jobs.Permanent(fmt.Errorf("unreadable payload: %w", err))
 		}
-		// The steps run as the person who started the workflow, so who that is must be known before a transaction opens.
-		var owner uuid.UUID
+		// The steps run as the workflow's app, for the person who started it, so who those are must be known before a
+		// transaction opens.
+		var owner runAs
 		var status string
 		err := db.WithSystem(ctx, e.Pool, func(tx pgx.Tx) error {
 			row, err := dbgen.New(tx).GetExecutionOwner(ctx, p.ExecutionID)
-			owner, status = row.StartedBy, row.Status
+			owner, status = runAs{principal: row.RunAs, person: row.StartedBy}, row.Status
 			return err
 		})
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && workflow.Finished(status) {
@@ -121,11 +122,24 @@ type waiting struct {
 	until                   bool
 }
 
+// runAs is who a workflow's steps run as: its app's principal, on behalf of the person who started it.
+type runAs struct {
+	principal uuid.NullUUID // NULL only for an execution older than app principals
+	person    uuid.UUID
+}
+
+func (e *Engine) inTx(ctx context.Context, who runAs, fn func(pgx.Tx) error) error {
+	if !who.principal.Valid {
+		return db.WithUser(ctx, e.Pool, who.person, fn)
+	}
+	return db.WithPrincipal(ctx, e.Pool, who.principal.UUID, who.person, fn)
+}
+
 // step runs the execution's current step in one transaction. It reports whether the execution has more to do right now.
-func (e *Engine) step(ctx context.Context, owner, id uuid.UUID, last bool) (more bool, err error) {
+func (e *Engine) step(ctx context.Context, owner runAs, id uuid.UUID, last bool) (more bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, stepTimeout)
 	defer cancel()
-	err = db.WithUser(ctx, e.Pool, owner, func(tx pgx.Tx) error {
+	err = e.inTx(ctx, owner, func(tx pgx.Tx) error {
 		q := dbgen.New(tx)
 		ex, err := q.GetExecutionForUpdate(ctx, id)
 		if err != nil {
@@ -188,8 +202,8 @@ func (e *Engine) step(ctx context.Context, owner, id uuid.UUID, last bool) (more
 }
 
 // fail ends an execution and records where. It runs in a transaction of its own, because the step's was rolled back.
-func (e *Engine) fail(ctx context.Context, owner, id uuid.UUID, msg string) error {
-	return db.WithUser(ctx, e.Pool, owner, func(tx pgx.Tx) error {
+func (e *Engine) fail(ctx context.Context, owner runAs, id uuid.UUID, msg string) error {
+	return e.inTx(ctx, owner, func(tx pgx.Tx) error {
 		q := dbgen.New(tx)
 		ex, err := q.GetExecutionForUpdate(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) || err == nil && workflow.Finished(ex.Status) {

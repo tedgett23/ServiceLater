@@ -4,7 +4,7 @@
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import { groups } from '$lib/groups.svelte';
-	import { roleLabel, type GroupDetail, type User } from '$lib/types';
+	import { can, P, roleLabel, type GroupDetail, type RoleInfo, type User } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let group = $state<GroupDetail | null>(null);
@@ -26,6 +26,13 @@
 
 	let confirmingDelete = $state(false);
 
+	// Roles granted to the group, which everyone in it holds.
+	let { data } = $props();
+	const manageRoles = $derived(can(data.user, P.rolesManage));
+	let allRoles = $state<RoleInfo[]>([]);
+	let addRole = $state('');
+	const grantable = $derived(allRoles.filter((r) => !r.built_in && !group?.roles.some((h) => h.role === r.name)));
+
 	async function load() {
 		try {
 			group = await api<GroupDetail>(`/api/v1/groups/${page.params.id}`);
@@ -37,7 +44,21 @@
 		}
 	}
 
-	onMount(load);
+	onMount(() => {
+		void load();
+		if (manageRoles)
+			void api<{ items: RoleInfo[] }>('/api/v1/roles')
+				.then((r) => (allRoles = r.items))
+				.catch(() => {});
+	});
+
+	async function grantRole(e: Event) {
+		e.preventDefault();
+		const r = allRoles.find((x) => x.name === addRole);
+		if (!r) return;
+		await act(() => api(`/api/v1/roles/${r.name}/grants`, { method: 'POST', body: { group_id: page.params.id } }), `${r.label} granted`);
+		addRole = '';
+	}
 
 	/** Run a change, then reload this group and what the pickers elsewhere have cached. */
 	async function act(request: () => Promise<unknown>, done: string) {
@@ -160,6 +181,44 @@
 			</div>
 		</section>
 
+		<section class="edit" aria-labelledby="roles-h">
+			<h2 id="roles-h">Roles</h2>
+			{#if group.roles.length === 0}
+				<p class="hint">This group gives its members no roles.</p>
+			{:else}
+				<p class="hint">Everyone in this group holds these. Changing who is in it needs the roles:manage permission.</p>
+			{/if}
+			<ul class="members">
+				{#each group.roles as r (r.grant_id)}
+					<li>
+						<span class="who"><a href="/admin/roles/{r.role}"><strong>{r.label}</strong></a></span>
+						{#if manageRoles}
+							<button
+								class="btn quiet-btn"
+								disabled={busy}
+								onclick={() => act(() => api(`/api/v1/roles/${r.role}/grants/${r.grant_id}`, { method: 'DELETE' }), `${r.label} revoked`)}
+								aria-label="Revoke {r.label}">Revoke</button
+							>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+			{#if manageRoles && grantable.length > 0}
+				<form class="row" onsubmit={grantRole}>
+					<label class="field grow">
+						<span>Grant a role to everyone in it</span>
+						<select bind:value={addRole}>
+							<option value="" disabled>Choose a role</option>
+							{#each grantable as r (r.name)}
+								<option value={r.name}>{r.label}</option>
+							{/each}
+						</select>
+					</label>
+					<button class="btn" disabled={!addRole || busy}>Grant</button>
+				</form>
+			{/if}
+		</section>
+
 		<form class="edit" onsubmit={save} aria-labelledby="edit-h">
 			<h2 id="edit-h">Details</h2>
 			<label class="field">
@@ -195,7 +254,6 @@
 		overflow-y: auto;
 		padding: 1rem 1.25rem 2rem;
 		max-width: 44rem;
-		margin: 0 auto;
 	}
 	.back {
 		display: inline-flex;
@@ -278,9 +336,13 @@
 		padding-top: 1.25rem;
 		border-top: 1px solid var(--rule);
 	}
+	.grow {
+		flex: 1 1 12rem;
+	}
 	.row {
 		display: flex;
 		flex-wrap: wrap;
+		align-items: end;
 		gap: 0.5rem;
 	}
 	.hint {

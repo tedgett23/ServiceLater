@@ -22,7 +22,7 @@ import (
 // installFlows installs an app of workflows and rules on top of the first-party apps and reloads the registry.
 func installFlows(t *testing.T, pool *pgxpool.Pool, reg *apps.Registry, workflows, rules map[string]string) {
 	t.Helper()
-	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-flows\nversion: 1.0.0\nauthor: t\ndescription: \"Flows.\"\n")}
+	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-flows\nversion: 1.0.0\nauthor: t\ndescription: \"Flows.\"\npermissions: [tickets:read_all, tickets:update, comments:internal]\n")}
 	for name, src := range workflows {
 		files["default/workflows/"+name+".yaml"] = []byte(src)
 	}
@@ -33,7 +33,7 @@ func installFlows(t *testing.T, pool *pgxpool.Pool, reg *apps.Registry, workflow
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := apps.Install(context.Background(), pool, c, apps.InstallOptions{}); err != nil {
+	if _, err := apps.Install(context.Background(), pool, c, apps.InstallOptions{ApprovePermissions: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := reg.Load(context.Background()); err != nil {

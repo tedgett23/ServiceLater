@@ -17,6 +17,13 @@ export function servicelater(...args: string[]) {
 	});
 }
 
+/** What test apps may do as their own principal (async rules, workflows): see, edit and annotate tickets. Installing
+ * them approves it, as an operator would after reviewing the plan. */
+export const APP_PERMISSIONS = 'permissions: [tickets:read_all, tickets:update, comments:internal]\n';
+
+/** Installs an app from a folder, approving the permissions it asks for. */
+export const installApp = (dir: string) => servicelater('install', '-approve-permissions', dir);
+
 /** Puts the bundled apps back to what the binary ships (plus any local files present), as a restart would. */
 export const installFirstParty = () => servicelater('sync');
 
@@ -50,7 +57,7 @@ export function tempApp(name: string, files: Record<string, string>) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sl-app-'));
 	fs.writeFileSync(
 		path.join(dir, 'app.yaml'),
-		`apiVersion: 1\nname: ${name}\nversion: 1.0.0\nauthor: e2e\ndescription: "Made by an end-to-end test."\n`
+		`apiVersion: 1\nname: ${name}\nversion: 1.0.0\nauthor: e2e\ndescription: "Made by an end-to-end test."\n${APP_PERMISSIONS}`
 	);
 	for (const [file, content] of Object.entries(files)) {
 		const full = path.join(dir, file);

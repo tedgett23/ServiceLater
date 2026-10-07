@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/servicelater/servicelater/backend/internal/authz"
 )
 
 // FormatVersion is the version of the app format this build understands (apiVersion in app.yaml).
@@ -99,10 +102,17 @@ func parseManifest(data []byte, p *Problems) *Manifest {
 			p.add(file, "dependency %s: %v", d.Name, err)
 		}
 	}
+	seenPerm := map[string]bool{}
 	for _, perm := range m.Permissions {
-		if perm == "" || !regexp.MustCompile(`^[a-z_]+:\S+$`).MatchString(perm) {
-			p.add(file, "permission %q must look like resource:action, e.g. incidents:update", perm)
+		switch {
+		case seenPerm[perm]:
+			p.add(file, "permission %q is listed twice", perm)
+		case strings.HasPrefix(perm, "notify:") || strings.HasPrefix(perm, "http:"):
+			// Capabilities for steps that are not built yet (notify.email, http.request); declared now, checked then.
+		case !authz.Known(perm):
+			p.add(file, "permission %q is not one the platform knows (available: %s)", perm, permissionNames())
 		}
+		seenPerm[perm] = true
 	}
 	keys := map[string]bool{}
 	for _, c := range m.Config {

@@ -59,7 +59,13 @@ func setup(t *testing.T, rule string) *world {
 
 func (w *world) installRule(t *testing.T, rule string) {
 	t.Helper()
-	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-rules\nversion: 1.0.0\nauthor: t\ndescription: \"Rules.\"\n")}
+	w.installRuleWith(t, rule, "[tickets:read_all, tickets:update, comments:internal]")
+}
+
+// installRuleWith is installRule with the app's own manifest permissions.
+func (w *world) installRuleWith(t *testing.T, rule, perms string) {
+	t.Helper()
+	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: house-rules\nversion: 1.0.0\nauthor: t\ndescription: \"Rules.\"\npermissions: " + perms + "\n")}
 	if rule != "" {
 		files["default/rules/x.yaml"] = []byte(rule)
 	}
@@ -67,7 +73,7 @@ func (w *world) installRule(t *testing.T, rule string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := apps.Install(context.Background(), w.pool, c, apps.InstallOptions{}); err != nil {
+	if _, err := apps.Install(context.Background(), w.pool, c, apps.InstallOptions{ApprovePermissions: true}); err != nil {
 		t.Fatal(err)
 	}
 	w.reg = apps.NewRegistry(w.pool)
@@ -113,13 +119,16 @@ func (w *world) audit(t *testing.T) []dbgen.ActionRun {
 	return out
 }
 
-func TestARunWritesItsCommentAsTheActorAndIsAudited(t *testing.T) {
+// An async rule runs as its app, for the person whose change set it off: the comment is the app's, says whom it was
+// for, and `user` in the rule is still that person.
+func TestARunWritesItsCommentAsTheAppForTheActorAndIsAudited(t *testing.T) {
 	w := setup(t, rule("true"))
 	if err := w.run(w.agent); err != nil {
 		t.Fatal(err)
 	}
 	cs := w.comments(t)
-	if len(cs) != 1 || cs[0].TaskComment.Body != "Ada touched INC1" || !cs[0].TaskComment.Internal || cs[0].TaskComment.AuthorID != w.agent {
+	if len(cs) != 1 || cs[0].TaskComment.Body != "Ada touched INC1" || !cs[0].TaskComment.Internal || cs[0].AuthorName != "house-rules" ||
+		cs[0].OnBehalfOfName.String != "Ada" {
 		t.Fatalf("comments: %+v", cs)
 	}
 	a := w.audit(t)
@@ -129,21 +138,16 @@ func TestARunWritesItsCommentAsTheActorAndIsAudited(t *testing.T) {
 	}
 }
 
-// A ticket that has gone, or that the actor can no longer see, is nothing to retry: the run is recorded as skipped.
+// A ticket that has gone, or that the app may not see, is nothing to retry: the run is recorded as skipped.
 func TestATicketThatIsGoneIsSkippedNotRetried(t *testing.T) {
 	w := setup(t, rule("true"))
-	stranger := uuid.New()
-	// A second requester cannot see Lena's ticket, so for them it is as good as gone.
-	if err := db.WithSystem(context.Background(), w.pool, func(tx pgx.Tx) error {
-		u, err := dbgen.New(tx).CreateUser(context.Background(), dbgen.CreateUserParams{Email: "other@x.test", Name: "Other", Role: "end_user"})
-		stranger = u.ID
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.run(stranger); err != nil {
+	// An app without tickets:read_all cannot see Lena's ticket when Ada's change sets it off, so for it the ticket is
+	// as good as gone.
+	w.installRuleWith(t, rule("true"), "[users:read]")
+	if err := w.run(w.agent); err != nil {
 		t.Fatalf("a hidden ticket must finish the job, not fail it: %v", err)
 	}
+	w.installRule(t, rule("true"))
 	if err := db.WithSystem(context.Background(), w.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `DELETE FROM tasks WHERE id = $1`, w.ticket)
 		return err
@@ -170,10 +174,21 @@ func TestAnUninstalledRuleIsSkipped(t *testing.T) {
 	}
 }
 
-// Rules act as the person who made the change. Lena may not write internal notes, so the run is refused by the
-// database, recorded, and dead-lettered at once: retrying cannot make her staff.
-func TestARunCannotDoMoreThanItsActorMay(t *testing.T) {
+// An async rule may do what its app's manifest declares, whoever set it off: Lena, a requester, sets off an internal
+// note through an app that may write them. An app that may not is refused by the database, recorded, and
+// dead-lettered at once: retrying cannot change its manifest.
+func TestARunCannotDoMoreThanItsAppMay(t *testing.T) {
 	w := setup(t, rule("true"))
+	if err := w.run(w.requester); err != nil {
+		t.Fatalf("an app that may write internal notes, set off by a requester: %v", err)
+	}
+	if cs := w.comments(t); len(cs) != 1 || !cs[0].TaskComment.Internal {
+		t.Fatalf("comments: %+v", cs)
+	}
+	if _, err := w.pool.Exec(context.Background(), "DELETE FROM task_comments; DELETE FROM action_runs"); err != nil {
+		t.Fatal(err)
+	}
+	w.installRuleWith(t, rule("true"), "[tickets:read_all]")
 	err := w.run(w.requester)
 	if !jobs.IsPermanent(err) {
 		t.Fatalf("want a permanent failure, got %v", err)
@@ -184,8 +199,8 @@ func TestARunCannotDoMoreThanItsActorMay(t *testing.T) {
 	if a := w.audit(t); len(a) != 1 || a[0].Outcome != ruleruns.Failed || a[0].Detail == "" {
 		t.Errorf("audit: %+v", a)
 	}
-	// The same rule with a public comment is fine for her.
-	w.installRule(t, rule("false"))
+	// The same rule with a public comment is within what the app may.
+	w.installRuleWith(t, rule("false"), "[tickets:read_all]")
 	if err := w.run(w.requester); err != nil {
 		t.Fatal(err)
 	}

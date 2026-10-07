@@ -102,7 +102,7 @@ test('the API reference is public, generated from the server, and links straight
 	await expect(heading).toBeInViewport();
 	const op = page.locator('article#addGroupMember');
 	await expect(op).toContainText('/api/v1/groups/{id}/members/{userId}');
-	await expect(op).toContainText('Signed in as admin');
+	await expect(op).toContainText('Signed in, with the groups:manage permission');
 
 	await page.getByPlaceholder('Filter endpoints').fill('members');
 	await expect(page.locator('article#listGroupMembers')).toBeVisible();

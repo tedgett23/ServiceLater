@@ -68,10 +68,17 @@ func setup(t *testing.T) *world {
 	return w
 }
 
-// install installs (or replaces) an app made of the given workflows and rules, and reloads the registry.
+// install installs (or replaces) an app made of the given workflows and rules, and reloads the registry. The app may
+// see, edit and write internal notes on tickets.
 func (w *world) install(t *testing.T, name string, workflows, rules map[string]string) {
 	t.Helper()
-	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: " + name + "\nversion: 1.0.0\nauthor: t\ndescription: \"Test.\"\n")}
+	w.installWith(t, name, "[tickets:read_all, tickets:update, comments:internal]", workflows, rules)
+}
+
+// installWith is install with the app's own manifest permissions.
+func (w *world) installWith(t *testing.T, name, perms string, workflows, rules map[string]string) {
+	t.Helper()
+	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: " + name + "\nversion: 1.0.0\nauthor: t\ndescription: \"Test.\"\npermissions: " + perms + "\n")}
 	for f, src := range workflows {
 		files["default/workflows/"+f+".yaml"] = []byte(src)
 	}
@@ -82,7 +89,7 @@ func (w *world) install(t *testing.T, name string, workflows, rules map[string]s
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := apps.Install(context.Background(), w.pool, c, apps.InstallOptions{}); err != nil {
+	if _, err := apps.Install(context.Background(), w.pool, c, apps.InstallOptions{ApprovePermissions: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.reg.Load(context.Background()); err != nil {
@@ -538,34 +545,42 @@ func TestACancelledExecutionDoesNothingMore(t *testing.T) {
 
 // Steps run as the person who started the workflow. A requester cannot edit tickets, so a workflow started by one that
 // tries to is stopped by the same rule that stops them by hand.
-func TestStepsRunWithThePermissionsOfWhoStartedThem(t *testing.T) {
+// Steps run as the workflow's app, with what its manifest declares, for the person who started it. So a requester's
+// workflow can edit the ticket and write an internal note when its app may, and the note says whom it was for; an
+// app that may not is refused, whoever started it.
+func TestStepsRunWithTheAppsPermissions(t *testing.T) {
 	w := setup(t)
-	w.install(t, "house", map[string]string{
-		"up":   wf("up", "a", "  a:\n    type: record.update\n    set: { priority: 1 }\n    next: b\n  b:\n    type: end\n"),
-		"note": wf("note", "a", "  a:\n    type: comment.add\n    body: public reply\n    next: b\n  b:\n    type: end\n"),
-		"int":  wf("int", "a", "  a:\n    type: comment.add\n    body: private\n    internal: true\n    next: b\n  b:\n    type: end\n")}, nil)
+	steps := map[string]string{
+		"up":  wf("up", "a", "  a:\n    type: record.update\n    set: { priority: 1 }\n    next: b\n  b:\n    type: end\n"),
+		"int": wf("int", "a", "  a:\n    type: comment.add\n    body: private\n    internal: true\n    next: b\n  b:\n    type: end\n")}
+	w.install(t, "house", steps, nil)
+	w.installWith(t, "meek", "[tickets:read_all]", steps, nil)
 
-	id := w.start(t, "house", "up", w.requester)
-	if err := w.run(id); err != nil {
+	for _, app := range []string{"meek", "house"} { // meek first: once house has set the priority, there is nothing to save
+		for _, flow := range []string{"up", "int"} {
+			id := w.start(t, app, flow, w.requester)
+			if err := w.run(id); err != nil {
+				t.Fatal(err)
+			}
+			ex := w.execution(t, id)
+			switch {
+			case app == "house" && ex.Status != workflow.Done:
+				t.Errorf("%s/%s, which may: %s %q", app, flow, ex.Status, ex.Error)
+			case app == "meek" && (ex.Status != workflow.Failed || !strings.Contains(ex.Error, "meek app") && !strings.Contains(ex.Error, "tickets:update")):
+				t.Errorf("%s/%s, which may not: %s %q", app, flow, ex.Status, ex.Error)
+			}
+		}
+	}
+	if w.row(t).Priority != 1 {
+		t.Error("house's workflow did not edit the ticket")
+	}
+	var author, behalf string
+	if err := w.pool.QueryRow(context.Background(), `SELECT a.name, b.name FROM task_comments c JOIN users a ON a.id = c.author_id
+		JOIN users b ON b.id = c.on_behalf_of WHERE c.task_id = $1`, w.ticket).Scan(&author, &behalf); err != nil {
 		t.Fatal(err)
 	}
-	if ex := w.execution(t, id); ex.Status != workflow.Failed || !strings.Contains(ex.Error, "only staff") || w.row(t).Priority != 3 {
-		t.Errorf("a requester's workflow edited the ticket: %s %q", ex.Status, ex.Error)
-	}
-	// A public comment is fine for the requester; an internal one is refused by row-level security.
-	id = w.start(t, "house", "note", w.requester)
-	if err := w.run(id); err != nil || w.execution(t, id).Status != workflow.Done {
-		t.Fatalf("public comment: %v %s", err, w.execution(t, id).Status)
-	}
-	id = w.start(t, "house", "int", w.requester)
-	if err := w.run(id); err != nil {
-		t.Fatal(err)
-	}
-	if ex := w.execution(t, id); ex.Status != workflow.Failed || !strings.Contains(ex.Error, "may not write") {
-		t.Errorf("internal note: %s %q", ex.Status, ex.Error)
-	}
-	if cs := w.comments(t); len(cs) != 1 || cs[0] != "public reply" {
-		t.Errorf("comments: %v", cs)
+	if author != "house" || behalf != "Lena" {
+		t.Errorf("the note was written by %q for %q", author, behalf)
 	}
 }
 
@@ -649,7 +664,11 @@ func TestARuleStartsAWorkflowInTheSameTransaction(t *testing.T) {
 	create := func(title string, prio int16) (records.Ticket, error) {
 		var tk records.Ticket
 		err := db.WithUser(context.Background(), w.pool, w.agent, func(tx pgx.Tx) (err error) {
-			tk, err = w.svc.Create(context.Background(), dbgen.New(tx), records.Actor{ID: w.agent, Role: "agent"}, ruleruns.Cause{},
+			actor, err := records.ActorIn(context.Background(), dbgen.New(tx), w.agent)
+			if err != nil {
+				return err
+			}
+			tk, err = w.svc.Create(context.Background(), dbgen.New(tx), actor, ruleruns.Cause{},
 				records.CreateInput{Title: title, Priority: &prio})
 			return err
 		})

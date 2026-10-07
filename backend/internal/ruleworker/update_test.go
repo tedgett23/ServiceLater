@@ -19,7 +19,13 @@ import (
 // installApp installs (or replaces) an app made only of rules, keyed by file name, and reloads the registry.
 func (w *world) installApp(t *testing.T, name string, rules map[string]string) {
 	t.Helper()
-	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: " + name + "\nversion: 1.0.0\nauthor: t\ndescription: \"Rules.\"\n")}
+	w.installAppWith(t, name, "[tickets:read_all, tickets:update, comments:internal]", rules)
+}
+
+// installAppWith is installApp with the app's own manifest permissions.
+func (w *world) installAppWith(t *testing.T, name, perms string, rules map[string]string) {
+	t.Helper()
+	files := map[string][]byte{"app.yaml": []byte("apiVersion: 1\nname: " + name + "\nversion: 1.0.0\nauthor: t\ndescription: \"Rules.\"\npermissions: " + perms + "\n")}
 	for f, src := range rules {
 		files["default/rules/"+f+".yaml"] = []byte(src)
 	}
@@ -27,7 +33,7 @@ func (w *world) installApp(t *testing.T, name string, rules map[string]string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := apps.Install(context.Background(), w.pool, c, apps.InstallOptions{}); err != nil {
+	if _, err := apps.Install(context.Background(), w.pool, c, apps.InstallOptions{ApprovePermissions: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.reg.Load(context.Background()); err != nil {
@@ -138,15 +144,23 @@ func TestBeforeRulesJudgeARulesUpdate(t *testing.T) {
 }
 
 // Only staff can edit a ticket. A requester's change that sets off an update is refused the way their own edit would be.
-func TestARequestersRuleCannotUpdateTheTicket(t *testing.T) {
+// A requester's change can set off an update when the app may edit tickets (this used to be impossible: rules ran as
+// the requester). An app that may not edit tickets is refused, whoever set it off.
+func TestARequestersChangeCanSetOffAnAppsUpdate(t *testing.T) {
 	w := setup(t, "")
-	w.installApp(t, "house-rules", map[string]string{"up": asyncRule("bump", "update", "run:\n  - action: record.update\n    field: priority\n    value: 1\n")})
-	err := w.runJob(w.jobFor("house-rules", "bump", w.requester, ruleruns.Cause{}))
+	bump := map[string]string{"up": asyncRule("bump", "update", "run:\n  - action: record.update\n    field: priority\n    value: 1\n")}
+	w.installAppWith(t, "meek", "[tickets:read_all]", bump)
+	err := w.runJob(w.jobFor("meek", "bump", w.agent, ruleruns.Cause{}))
 	if !jobs.IsPermanent(err) || w.row(t).Priority != 3 {
-		t.Fatalf("err %v, row %+v", err, w.row(t))
+		t.Fatalf("an app that may not edit tickets, set off by an agent: %v", err)
 	}
-	if a := w.audit(t); len(a) != 1 || a[0].Outcome != ruleruns.Failed || !strings.Contains(a[0].Detail, "only staff") {
+	if a := w.audit(t); len(a) < 1 || a[0].Outcome != ruleruns.Failed || !strings.Contains(a[0].Detail, "tickets:update") {
 		t.Errorf("audit: %+v", a)
+	}
+
+	w.installApp(t, "house-rules", bump)
+	if err := w.runJob(w.jobFor("house-rules", "bump", w.requester, ruleruns.Cause{})); err != nil || w.row(t).Priority != 1 {
+		t.Fatalf("err %v, row %+v", err, w.row(t))
 	}
 }
 

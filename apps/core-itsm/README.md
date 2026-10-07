@@ -15,3 +15,12 @@ Two rules tell people about tickets in the app, for every record type (`record_t
 Change the wording in `local/notifications/`, or who is told and when in `local/rules/` (or remove a rule with
 `null`). Whatever a rule asks, the platform never tells someone about their own change, anyone deactivated, or
 anyone who cannot see the ticket.
+
+## Roles
+
+On top of the built-in base roles (admin, agent, end user), admins can grant these to people or groups:
+
+- `ticket-viewer`: sees every ticket and its internal notes, changes nothing.
+- `group-manager`: creates groups and changes their members (except groups that hold a role).
+
+Add your own in `local/roles/`, using the permissions listed at `GET /api/v1/permissions`.
