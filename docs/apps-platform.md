@@ -143,6 +143,25 @@ the ticket would be after the move, `old` as it is now, and `user`.
       when: 'has(record.assignee_id)', error: Assign the incident before starting work. }
 ```
 
+A move that can be blocked for more than one reason lists more `guards`, each with its own message; they are checked
+in order after `when`, and the first that fails says why. A transition may also declare `lookups` (§5), counted
+before its guards run, which read them as `lookups.name`. change-management's Scheduled to Implement uses both:
+
+```yaml
+  - from: scheduled
+    to: implement
+    verb: Start implementing
+    lookups:
+      freezes_now:
+        count: freeze_window
+        where: { starts_at: { lte: =now }, ends_at: { gt: =now } }
+    guards:
+      - when: has(record.planned_start) && now >= record.planned_start
+        error: The planned window has not opened yet.
+      - when: record.change_type == "emergency" || lookups.freezes_now == 0
+        error: A change freeze is on. Only an emergency change can start during a freeze.
+```
+
 **The server decides what is offered.** Each single-ticket response carries `moves`: what the person can do next,
 the suggested step first, with any move a guard currently blocks marked and explained. Only staff get moves. The UI
 renders these and keeps no copy of the lifecycle's rules, so a guard, a renamed button or a stranded ticket all work
@@ -209,8 +228,9 @@ run:
 ```
 
 Any action in `run` may carry its own `when`. Rules are for basic logic: validate, default and compute fields, keep
-related records consistent, and start a workflow. A **guard** (in a lifecycle) is for a pure single-transition check on
-the record; use a **rule** when you need lookups, span several transitions, or have side effects. Anything with waiting, branching over time, loops or external calls is a workflow (§7).
+related records consistent, and start a workflow. A **guard** (in a lifecycle) is for a single-transition check on
+the record (with lookups if it needs other data); use a **rule** when you span several transitions or have side
+effects. Anything with waiting, branching over time, loops or external calls is a workflow (§7).
 
 ### 4.4 A workflow
 
@@ -326,8 +346,8 @@ show/hide and validation, workflow branches and step inputs.
 
 | Where | Variables |
 |---|---|
-| Lifecycle guards | `record` (the ticket as it would be after the move), `old` (as it is now), `user` (the actor), `now` |
-| Rules (slice 5) | the same, plus `event` (`create`, `update` or `delete`; on create `old` is an empty record), `config`, and any declared `lookups` |
+| Lifecycle guards | `record` (the ticket as it would be after the move), `old` (as it is now), `user` (the actor), `now`, and the transition's `lookups` |
+| Rules (slice 5) | the same, plus `event` (`create`, `update` or `delete`; on create `old` is an empty record), `config`, and the rule's own `lookups` |
 | Workflows | `record` (live), `inputs` (for subflows; an input named `record` binds `record`), `item` (inside `foreach`), `trigger`, `vars`, `steps.<id>.output`, `user`, `now`, `config` |
 | Forms | `form` (current field values), `user` |
 
@@ -341,22 +361,35 @@ date helpers).
 
 **Actions in one rule run in order, and later expressions see the effect of earlier `set`s.**
 
-**Lookups.** Some blocking checks need data beyond the record ("no open child incidents", "no overlapping change
-on this item"). A rule may declare named, bounded, read-only lookups, evaluated before its expressions:
+**Lookups (built).** Some blocking checks need data beyond the record ("no open child incidents", "no overlapping
+change on this item", "not during a change freeze"). A rule, or a lifecycle transition, may declare named, bounded,
+read-only lookups, counted before its expressions run, which read them as `lookups.name`:
 
 ```yaml
 lookups:
-  open_children:
-    count: incident
-    where: { parent_id: =record.id, state_category: open }
+  freezes:
+    count: freeze_window
+    where:
+      starts_at: { lt: =record.planned_end }   # field: { operator: value }; several operators make a range
+      ends_at:   { gt: =record.planned_start }
 ```
 
-The menu is deliberately one shape: **`count`** over one record type, with **AND-only** filters, operators
-`eq ne lt lte gt gte in`, and filter values that may be expressions. `count > 0` covers "exists". The worked
-examples (`apps-examples.md`) needed nothing more: duplicate detection, open children, overlapping windows and
-freeze windows all fit. There are no joins, no OR, no aggregates and no free text. Filters may only use indexed
-fields, at most five lookups per rule, and each runs under the acting user's RLS. `state_category` is a core
-column maintained from the lifecycle, so lookups never depend on status names.
+The menu is deliberately one shape: **`count`** over one kind of row, with **AND-only** filters, operators
+`eq ne lt lte gt gte in`, and filter values that are text or `=expressions` (times are always expressions, such as
+`=now`; `in` takes an expression giving a list of text). `count > 0` covers "exists". There are no joins, no OR, no
+aggregates and no free text. What can be counted, and by which fields, is a fixed menu of indexed columns
+(`apps.LookupTargets`): every record type by `id`, `status`, `state_category`, `requester_id`, `assignee_id` and
+`assignment_group_id`, changes also by `change_type`, `planned_start` and `planned_end`, and `freeze_window` by
+`starts_at` and `ends_at`. At most five lookups per definition and eight filters per lookup; counting stops at 1000.
+
+How it runs: the definition is checked at install (the target and fields exist, each value has the field's type, every
+`lookups.x` an expression reads is declared, a filter does not read lookups). At run time the engine works out the
+values from the record and calls the SQL function `app_lookup_count(target, filters)` (migration 00024) in the save's
+transaction, **as the person acting**, so RLS decides what is counted: an end user's lookup over incidents counts only
+their own. Every value is a bound parameter. A lookup that cannot run (a value cannot be evaluated, the database
+refuses it) is an error, and the rule or guard fails closed. `state_category` is a core column maintained from the
+lifecycle, so lookups never depend on status names. Not yet: `parent_id` (records have no parents yet), lookups in
+workflow steps (§7.2 proposes `record.lookup` for those).
 
 ## 6. Rules and their three timings
 
@@ -422,7 +455,7 @@ from a connection of their own: an aborted save rolls its transaction back, and 
 | Time per save (all sync rules together) | 250 ms | n/a |
 | Rule chain depth | 5 | 5 |
 | Expression cost | CEL cost limit | CEL cost limit |
-| Lookups per rule | 5, each limited to 100 rows | n/a |
+| Lookups per rule | 5, each counting up to 1000 rows | 5, the same |
 | On overrun or error | **Fail closed**: the save is rejected with a message naming the rule | Retry, then dead-letter |
 
 `on_error: skip` can be set per rule for non-critical rules, so a broken rule degrades instead of blocking work.
@@ -996,7 +1029,9 @@ save, not built yet). `app install` takes several paths and installs dependencie
 9. **Config and secrets UI.** Where admins enter per-app settings.
 10. **Localisation.** Labels and verbs in definitions are single-language for now.
 11. **Reference data.** Runtime-editable data such as freeze windows and business calendars cannot be app-defined
-    tables in v1. Proposal: they are core record types for now (a concrete case for question 1).
+    tables in v1. Freeze windows are now a core table (`freeze_windows`, not a record type: they have no lifecycle,
+    number or comments), managed with `freezes:manage` and counted by lookups (§5); what a freeze stops is app content.
+    Business calendars will need the same until question 1 is answered.
 12. **SLAs.** Hand-built SLA timers are wrong (they ignore pausing and business hours). SLAs should be a first-class
     definition kind with start, stop and pause conditions and a business calendar.
 13. **Comment events.** Rules on comments ("a reply reopens the ticket") need `record_type: comment` and access to

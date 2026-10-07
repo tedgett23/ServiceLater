@@ -103,6 +103,13 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/lifecycles/{recordType}", h.getLifecycle)
 			r.Get("/record-types", h.listRecordTypes)
 			r.Get("/calendar", h.listCalendar)
+			r.Route("/freeze-windows", func(r chi.Router) {
+				r.Get("/", h.listFreezeWindows)
+				r.With(auth.RequirePermission(authz.FreezesManage)).Post("/", h.createFreezeWindow)
+				r.Get("/{id}", h.getFreezeWindow)
+				r.With(auth.RequirePermission(authz.FreezesManage)).Patch("/{id}", h.updateFreezeWindow)
+				r.With(auth.RequirePermission(authz.FreezesManage)).Delete("/{id}", h.deleteFreezeWindow)
+			})
 
 			r.Route("/tickets", func(r chi.Router) {
 				r.Get("/", h.listTickets)

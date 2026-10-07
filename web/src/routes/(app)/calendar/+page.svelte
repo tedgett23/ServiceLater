@@ -3,9 +3,11 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api } from '$lib/api';
+	import FreezeForm from '$lib/components/FreezeForm.svelte';
 	import Status from '$lib/components/Status.svelte';
 	import { realtime } from '$lib/realtime.svelte';
-	import { prefixOf, type CalendarEntry } from '$lib/types';
+	import { session } from '$lib/session.svelte';
+	import { can, P, prefixOf, type CalendarEntry, type Freeze } from '$lib/types';
 
 	type View = 'week' | 'month';
 
@@ -29,7 +31,13 @@
 	});
 
 	let items = $state<CalendarEntry[]>([]);
+	let freezes = $state<Freeze[]>([]);
 	let truncated = $state(false);
+	const manage = $derived(can(session.user, P.freezesManage));
+	/** The freeze form that is open: a new freeze, or the id of the one being changed. */
+	let editing = $state<'new' | string | null>(null);
+	/** The freeze whose Lift button is asking to be confirmed. */
+	let lifting = $state<string | null>(null);
 	let loading = $state(true);
 	let error = $state('');
 
@@ -46,9 +54,10 @@
 		error = '';
 		try {
 			const q = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
-			const res = await api<{ items: CalendarEntry[]; truncated: boolean }>(`/api/v1/calendar?${q}`);
+			const res = await api<{ items: CalendarEntry[]; freezes: Freeze[]; truncated: boolean }>(`/api/v1/calendar?${q}`);
 			if (mine !== generation) return; // the range changed while this was loading
 			items = res.items;
+			freezes = res.freezes;
 			truncated = res.truncated;
 		} catch (e) {
 			if (mine === generation) error = e instanceof Error ? e.message : 'Could not load the calendar';
@@ -65,8 +74,8 @@
 
 	onMount(() =>
 		realtime.on((e) => {
-			// A change was planned, moved or rescheduled somewhere: look again.
-			if (e.type === 'ticket.changed' || e.type === 'resync') void load();
+			// A change was planned, moved or rescheduled, or a freeze declared, changed or lifted: look again.
+			if (e.type === 'ticket.changed' || e.type === 'freeze.changed' || e.type === 'resync') void load();
 		})
 	);
 
@@ -121,6 +130,30 @@
 		const endText = sameDay ? time(end) : `${end.toLocaleDateString(undefined, on as Intl.DateTimeFormatOptions)} ${time(end)}`;
 		return `${time(s)} – ${endText}`;
 	}
+	const freezeName = (id: string) => freezes.find((f) => f.id === id)?.name ?? 'a freeze';
+	/** Whether a freeze covers any of this day. */
+	const frozen = (day: Date) => {
+		const end = new Date(day);
+		end.setDate(end.getDate() + 1);
+		return freezes.some((f) => new Date(f.starts_at) < end && new Date(f.ends_at) > day);
+	};
+	const stamp = (iso: string) =>
+		new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+	function saved() {
+		editing = null;
+		void load();
+	}
+	async function lift(f: Freeze) {
+		lifting = null;
+		try {
+			await api(`/api/v1/freeze-windows/${f.id}`, { method: 'DELETE' });
+			void load();
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Could not lift the freeze';
+		}
+	}
+
 	const kindLabel = { standard: 'Standard', normal: 'Normal', emergency: 'Emergency' } as const;
 	const riskLabel = { '': '', low: 'Low risk', medium: 'Medium risk', high: 'High risk' } as const;
 </script>
@@ -151,7 +184,54 @@
 		{#if !loading && items.length}
 			· {items.length} {items.length === 1 ? 'change' : 'changes'}{#if conflicts}{' '}· <span class="warn">{conflicts} overlapping</span>{/if}
 		{/if}
+		{#if !loading && freezes.length}
+			· {freezes.length} {freezes.length === 1 ? 'freeze' : 'freezes'}
+		{/if}
 	</p>
+
+	{#if freezes.length || manage}
+		<section class="freezes" aria-labelledby="freezes-h">
+			<div class="freezes-head">
+				<h2 id="freezes-h">Change freezes</h2>
+				{#if manage && editing !== 'new'}
+					<button class="btn" onclick={() => (editing = 'new')}>Declare freeze</button>
+				{/if}
+			</div>
+			{#if editing === 'new'}
+				<FreezeForm start={range.from > new Date() ? range.from : null} onsaved={saved} oncancel={() => (editing = null)} />
+			{/if}
+			{#if freezes.length}
+				<ul>
+					{#each freezes as f (f.id)}
+						<li class="freeze" class:editing={editing === f.id}>
+							{#if editing === f.id}
+								<FreezeForm freeze={f} onsaved={saved} oncancel={() => (editing = null)} />
+							{:else}
+								<span class="when span"><span>{stamp(f.starts_at)} –</span> <span>{stamp(f.ends_at)}</span></span>
+								<div class="about">
+									<strong>{f.name}</strong>
+									{#if f.reason}<span>{f.reason}</span>{/if}
+								</div>
+								{#if manage}
+									<div class="freeze-actions">
+										{#if lifting === f.id}
+											<button class="btn" onclick={() => lift(f)}>Lift {f.name}</button>
+											<button class="btn" onclick={() => (lifting = null)}>Keep it</button>
+										{:else}
+											<button class="btn" onclick={() => ((editing = f.id), (lifting = null))}>Edit</button>
+											<button class="btn" onclick={() => (lifting = f.id)}>Lift</button>
+										{/if}
+									</div>
+								{/if}
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{:else if editing !== 'new'}
+				<p class="msg">No freezes {view === 'week' ? 'this week' : 'this month'}.</p>
+			{/if}
+		</section>
+	{/if}
 
 	{#if error}
 		<p class="msg" role="alert">{error}. <button class="link" onclick={load}>Try again</button></p>
@@ -164,7 +244,7 @@
 
 	{#each days as d (d.day.getTime())}
 		<section class="day" aria-label={dayLabel(d.day)}>
-			<h2>{dayLabel(d.day)}</h2>
+			<h2>{dayLabel(d.day)}{#if frozen(d.day)}<span class="frozen-tag">Freeze</span>{/if}</h2>
 			<ul>
 				{#each d.entries as e (e.id)}
 					<li class:conflict={e.overlaps.length > 0} class:done={e.state_category === 'done' || e.state_category === 'closed'}>
@@ -181,6 +261,9 @@
 						</span>
 						{#if e.overlaps.length}
 							<p class="overlap">Overlaps {e.overlaps.join(', ')}</p>
+						{/if}
+						{#if e.freezes.length}
+							<p class="in-freeze">In {e.freezes.map(freezeName).join(', ')}</p>
 						{/if}
 					</li>
 				{/each}
@@ -253,7 +336,8 @@
 		grid-template-areas:
 			'when what'
 			'.    facts'
-			'.    overlap';
+			'.    overlap'
+			'.    freeze';
 		column-gap: 1rem;
 		row-gap: 0.25rem;
 		padding: 0.7rem 0 0.7rem 0.6rem;
@@ -314,6 +398,66 @@
 		font-size: 0.85rem;
 		font-weight: 600;
 	}
+	.in-freeze {
+		grid-area: freeze;
+		font-size: 0.85rem;
+		font-weight: 600;
+		color: var(--red);
+	}
+	.frozen-tag {
+		margin-left: 0.6rem;
+		font: 600 0.8rem/1 var(--font-body);
+		color: var(--red);
+		vertical-align: middle;
+	}
+	.freezes {
+		margin-top: 0.5rem;
+	}
+	.freezes-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding-bottom: 0.4rem;
+		border-bottom: 1px solid var(--rule);
+	}
+	.freezes-head h2 {
+		padding: 0;
+		border: 0;
+	}
+	/* A freeze is a stop, so it is marked in red, not in the yellow that means "look here". */
+	li.freeze {
+		grid-template-columns: 11rem minmax(0, 1fr) auto;
+		grid-template-areas: 'when about actions';
+		align-items: start;
+		border-left-color: var(--red);
+	}
+	li.freeze.editing {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-areas: 'form';
+	}
+	/* Start and end each keep to one line. */
+	.span span {
+		white-space: nowrap;
+	}
+	.about {
+		grid-area: about;
+		display: grid;
+		gap: 0.15rem;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.about span {
+		color: var(--ink-2);
+		font-size: 0.9rem;
+	}
+	.freeze-actions {
+		grid-area: actions;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+	}
 	.msg {
 		padding: 0.5rem 0;
 		color: var(--ink-2);
@@ -328,7 +472,11 @@
 	@media (max-width: 40rem) {
 		li {
 			grid-template-columns: minmax(0, 1fr);
-			grid-template-areas: 'when' 'what' 'facts' 'overlap';
+			grid-template-areas: 'when' 'what' 'facts' 'overlap' 'freeze';
+		}
+		li.freeze {
+			grid-template-columns: minmax(0, 1fr);
+			grid-template-areas: 'when' 'about' 'actions';
 		}
 	}
 </style>

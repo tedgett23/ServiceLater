@@ -98,7 +98,7 @@ func Fire(ctx context.Context, list []*apps.Rule, in expr.Input) (fired []*apps.
 	ctx, cancel := context.WithTimeout(ctx, Budget)
 	defer cancel()
 	for _, r := range list {
-		ok, err := condition(ctx, r.Condition, in)
+		ok, err := ruleCondition(ctx, r, &in)
 		switch {
 		case err != nil:
 			failed = append(failed, &Broken{App: r.App, Rule: r.Name, Err: err})
@@ -132,8 +132,9 @@ func run(ctx context.Context, budget time.Duration, list []*apps.Rule, in expr.I
 		if err := ctx.Err(); err != nil {
 			return nil, Effects{}, &Broken{App: r.App, Rule: r.Name, Err: err}
 		}
+		// The rule's lookups are counted first, against the record as the earlier rules left it.
 		ran, err := true, error(nil)
-		if !asyncRun {
+		if in.Lookups, err = r.Lookups.Eval(ctx, in); err == nil && !asyncRun {
 			ran, err = condition(ctx, r.Condition, in)
 		}
 		if err != nil {
@@ -174,6 +175,15 @@ func fail(r *apps.Rule, err error) error {
 		return nil
 	}
 	return &Broken{App: r.App, Rule: r.Name, Err: err}
+}
+
+// ruleCondition counts a rule's lookups into in and evaluates its filter.
+func ruleCondition(ctx context.Context, r *apps.Rule, in *expr.Input) (bool, error) {
+	var err error
+	if in.Lookups, err = r.Lookups.Eval(ctx, *in); err != nil {
+		return false, err
+	}
+	return condition(ctx, r.Condition, *in)
 }
 
 // condition evaluates a compiled filter: absent means yes; one that could not be compiled or evaluated is an error.

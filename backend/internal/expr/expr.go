@@ -93,7 +93,23 @@ type Input struct {
 	Groups func(ctx context.Context, name string) ([]string, error)
 	// Roles looks up the ids of everyone who holds a role, for role('name'), the same way.
 	Roles func(ctx context.Context, name string) ([]string, error)
+	// Lookups are the counts a rule's or a guard's declared lookups found, read as lookups.name. Only rules and guards
+	// see them. A name an expression uses that is missing here makes the evaluation fail, so it can never pass.
+	Lookups map[string]int64
+	// Count runs one lookup: how many records of a kind match every filter, under the acting person's RLS. The caller
+	// supplies it, because expressions do no database work; where it is nil, lookups are not available.
+	Count func(ctx context.Context, target string, filters []Filter) (int64, error)
 }
+
+// Filter is one condition of a lookup: field op value, where value is text, a time, or (for in) a list of text.
+type Filter struct {
+	Field string `json:"field"`
+	Op    string `json:"op"`
+	Value any    `json:"value"`
+}
+
+// lookupsVar is the variable a rule or guard reads its lookups' counts from: lookups.name.
+const lookupsVar = "lookups"
 
 // A lookup is a function of a name written in quotes, such as group('CAB') or role('cab-member'), whose result is
 // people, who change: so it is data, not something an app can know when it is installed. The function is a macro
@@ -168,7 +184,7 @@ var (
 )
 
 // LifecycleGuard is the environment for a lifecycle transition's `when`: record (as it would be after the move),
-// old (as it is now), user and now.
+// old (as it is now), user, now, and the counts of the transition's lookups (lookups.name).
 func LifecycleGuard() (*Env, error) {
 	guardOnce.Do(func() {
 		var e *cel.Env
@@ -178,6 +194,7 @@ func LifecycleGuard() (*Env, error) {
 			cel.Variable("old", cel.ObjectType("expr.Record")),
 			cel.Variable("user", cel.ObjectType("expr.User")),
 			cel.Variable("now", cel.TimestampType),
+			cel.Variable(lookupsVar, cel.MapType(cel.StringType, cel.IntType)),
 		)
 		guardEnv = &Env{env: e}
 	})
@@ -191,7 +208,7 @@ var (
 )
 
 // Rule is the environment for a rule's `when`, its per-action `when`, and the values its actions compute. It is the
-// guard environment plus `event`. On create, `old` is an empty record, so use event == "create" to tell.
+// guard environment plus `event`; lookups are the rule's own. On create, `old` is an empty record, so use event == "create" to tell.
 func Rule() (*Env, error) {
 	ruleOnce.Do(func() {
 		var e *cel.Env
@@ -202,6 +219,7 @@ func Rule() (*Env, error) {
 			cel.Variable("user", cel.ObjectType("expr.User")),
 			cel.Variable("now", cel.TimestampType),
 			cel.Variable("event", cel.StringType),
+			cel.Variable(lookupsVar, cel.MapType(cel.StringType, cel.IntType)),
 		)
 		ruleEnv = &Env{env: e}
 	})
@@ -241,7 +259,11 @@ type Program struct {
 	prg    cel.Program
 	Source string
 	names  map[string][]string // per lookup variable, the names written in the expression, looked up before each run
+	counts []string            // the lookups (lookups.name) the expression reads
 }
+
+// Lookups lists the lookups the expression reads, so a definition can check that it declares each one.
+func (p *Program) Lookups() []string { return p.counts }
 
 // Compile parses and type-checks a boolean expression. The error is one readable sentence with a position.
 func (e *Env) Compile(source string) (*Program, error) { return e.CompileAs(source, cel.BoolType) }
@@ -319,13 +341,59 @@ func (e *Env) compile(source string, want *cel.Type) (*Program, error) {
 			names[l.variable] = n
 		}
 	}
+	counts, err := countNames(a)
+	if err != nil {
+		return nil, err
+	}
 	prg, err := e.env.Program(a, cel.EvalOptions(cel.OptTrackCost), cel.CostLimit(costLimit))
 	if err != nil {
 		return nil, err
 	}
-	p := &Program{prg: prg, Source: src, names: names}
+	p := &Program{prg: prg, Source: src, names: names, counts: counts}
 	e.cache.Store(key, p)
 	return p, nil
+}
+
+// countNames lists the lookups an expression reads. They must be written lookups.name (or lookups['name']), so the
+// list is complete and a definition can check each is declared.
+func countNames(a *cel.Ast) ([]string, error) {
+	var names []string
+	var bad bool
+	seen := map[int64]bool{}
+	add := func(n string) {
+		if !slices.Contains(names, n) {
+			names = append(names, n)
+		}
+	}
+	ast.PreOrderVisit(a.NativeRep().Expr(), ast.NewExprVisitor(func(e ast.Expr) {
+		switch e.Kind() {
+		case ast.SelectKind:
+			if op := e.AsSelect().Operand(); op.Kind() == ast.IdentKind && op.AsIdent() == lookupsVar {
+				seen[op.ID()] = true
+				add(e.AsSelect().FieldName())
+			}
+		case ast.CallKind:
+			c := e.AsCall()
+			if c.FunctionName() == operators.Index && len(c.Args()) == 2 && c.Args()[0].Kind() == ast.IdentKind && c.Args()[0].AsIdent() == lookupsVar {
+				seen[c.Args()[0].ID()] = true
+				if lit := c.Args()[1]; lit.Kind() == ast.LiteralKind {
+					if s, ok := lit.AsLiteral().Value().(string); ok {
+						add(s)
+						return
+					}
+				}
+				bad = true
+			}
+		case ast.IdentKind:
+			if e.AsIdent() == lookupsVar && !seen[e.ID()] {
+				bad = true
+			}
+		}
+	}))
+	if bad {
+		return nil, errors.New("read a lookup as lookups.name")
+	}
+	return names, nil
 }
 
 // issues turns CEL's multi-line diagnostics into one line: the first problem and where it is.
@@ -383,7 +451,11 @@ func (p *Program) eval(ctx context.Context, in Input) (ref.Val, error) {
 	if vars == nil {
 		vars = map[string]any{}
 	}
-	vals := map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event, "vars": vars}
+	counts := in.Lookups
+	if counts == nil {
+		counts = map[string]int64{}
+	}
+	vals := map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event, "vars": vars, lookupsVar: counts}
 	resolvers := map[string]func(context.Context, string) ([]string, error){lookups[0].variable: in.Groups, lookups[1].variable: in.Roles}
 	for _, l := range lookups {
 		found := map[string][]string{}

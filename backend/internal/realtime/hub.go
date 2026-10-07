@@ -20,6 +20,7 @@ const (
 	channelTickets       = "ticket_changes"
 	channelComments      = "comment_changes"
 	channelNotifications = "notification_changes"
+	channelFreezes       = "freeze_changes"
 
 	sendBuffer = 32 // per client; a client that falls this far behind is dropped and resyncs on reconnect
 )
@@ -42,6 +43,13 @@ type notificationEvent struct {
 
 type resyncEvent struct {
 	Type string `json:"type"` // resync: notifications may have been missed, refetch what you show
+}
+
+// freezeEvent says a change freeze was declared, changed or lifted (migration 00024). Everyone may read freezes, so
+// it goes to everyone.
+type freezeEvent struct {
+	Type string    `json:"type"` // freeze.changed
+	ID   uuid.UUID `json:"id"`
 }
 
 // Notification payloads produced by the triggers in migrations 00003, 00005 and 00006.
@@ -94,7 +102,7 @@ func (h *Hub) Ready() <-chan struct{} { return h.ready }
 // because NOTIFY is fire-and-forget and anything sent while we were away is gone.
 func (h *Hub) Run(ctx context.Context, dsn string) {
 	defer h.closeAll()
-	db.Listen(ctx, dsn, []string{channelTickets, channelComments, channelNotifications},
+	db.Listen(ctx, dsn, []string{channelTickets, channelComments, channelNotifications, channelFreezes},
 		func(reconnected bool) {
 			if reconnected {
 				h.broadcast(mustJSON(resyncEvent{Type: "resync"}), func(*client) bool { return true })
@@ -109,8 +117,21 @@ func (h *Hub) Run(ctx context.Context, dsn string) {
 				h.onComment(payload)
 			case channelNotifications:
 				h.onNotification(payload)
+			case channelFreezes:
+				h.onFreeze(payload)
 			}
 		})
+}
+
+func (h *Hub) onFreeze(payload string) {
+	var n struct {
+		ID uuid.UUID `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(payload), &n); err != nil {
+		slog.Error("realtime: bad freeze notification", "err", err)
+		return
+	}
+	h.broadcast(mustJSON(freezeEvent{Type: "freeze.changed", ID: n.ID}), func(*client) bool { return true })
 }
 
 // DefinitionsChanged tells every connected client that installed apps changed, so screens that show

@@ -94,7 +94,7 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 			rec := t.ExprRecord()
 			// The old record is not kept: the rule's own filter was decided at the save, with both. Action filters
 			// see the ticket as it is, twice.
-			in := expr.Input{Record: rec, Old: rec, Event: p.Event, Now: time.Now(),
+			in := expr.Input{Record: rec, Old: rec, Event: p.Event, Now: time.Now(), Count: records.Counter(q),
 				User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role}}
 			res, fx, err := rules.RunAsync(ctx, rule, in)
 			if err != nil {

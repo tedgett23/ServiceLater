@@ -1,0 +1,26 @@
+# Nothing is planned into a change freeze. Planning a window that overlaps one (or turning an emergency change into
+# another kind while its window does) is refused. An emergency change may go ahead in a freeze: that is what it is for.
+#
+# Only a change to the window or the kind is checked, so a change planned before a freeze was declared can still be
+# edited; the calendar shows it, and lifecycles/change.yaml holds back its work while the freeze is on. Window edges
+# may touch: a change that ends when a freeze starts is fine.
+kind: rule
+name: respect-freeze-windows
+record_type: change
+timing: before
+on: [create, update]
+lookups:
+  freezes:
+    count: freeze_window
+    where:
+      starts_at: { lt: =record.planned_end }
+      ends_at:   { gt: =record.planned_start }
+when: >-
+  record.change_type != "emergency" && has(record.planned_start) && has(record.planned_end) &&
+  record.state_category in ["open", "waiting"] &&
+  (event == "create" || record.planned_start != old.planned_start || record.planned_end != old.planned_end ||
+   record.change_type != old.change_type) &&
+  lookups.freezes > 0
+run:
+  - action: abort
+    message: The planned window overlaps a change freeze. Pick another time, or raise an emergency change.

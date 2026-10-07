@@ -36,30 +36,28 @@ type calendarEntryDTO struct {
 	// Overlaps are the references of the other entries whose windows overlap this one, counting only records still
 	// to be done (open or waiting): two changes in the same window are a conflict to look at.
 	Overlaps []string `json:"overlaps"`
+	// Freezes are the ids of the change freezes this window overlaps (see freezes in the response).
+	Freezes []uuid.UUID `json:"freezes"`
 }
 
 // GET /calendar?from=&to=: the records whose planned window overlaps from..to (RFC 3339 times, at most 92 days
-// apart), as the caller may see them, ordered by start, with the overlaps between them. Only changes have a planned
-// window so far. truncated says more than 500 matched and only the first 500 are listed.
+// apart), as the caller may see them, ordered by start, with the overlaps between them, and the change freezes in the
+// range. Only changes have a planned window so far. truncated says more than 500 records matched and only the first
+// 500 are listed.
 func (h *handlers) listCalendar(w http.ResponseWriter, r *http.Request) {
-	qs := r.URL.Query()
-	from, err1 := time.Parse(time.RFC3339, qs.Get("from"))
-	to, err2 := time.Parse(time.RFC3339, qs.Get("to"))
-	switch {
-	case err1 != nil || err2 != nil:
-		writeError(w, http.StatusBadRequest, "from and to are required, as RFC 3339 times such as 2026-11-01T00:00:00Z")
-		return
-	case !to.After(from):
-		writeError(w, http.StatusBadRequest, "to must be after from")
-		return
-	case to.Sub(from) > maxCalendarRange:
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("the range may be at most %d days", int(maxCalendarRange.Hours()/24)))
+	from, to, ok := calendarRange(w, r)
+	if !ok {
 		return
 	}
 	var rows []dbgen.ListPlannedWindowsRow
+	var freezes []freezeDTO
 	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
 		var err error
 		rows, err = q.ListPlannedWindows(r.Context(), dbgen.ListPlannedWindowsParams{From: pgtype.Timestamptz{Time: from, Valid: true}, To: pgtype.Timestamptz{Time: to, Valid: true}})
+		if err != nil {
+			return err
+		}
+		freezes, _, err = listFreezes(r, q, from, to)
 		return err
 	}) {
 		return
@@ -72,13 +70,18 @@ func (h *handlers) listCalendar(w http.ResponseWriter, r *http.Request) {
 	for i, x := range rows {
 		items[i] = calendarEntryDTO{ID: x.ID, Type: x.Type, Number: x.Number, Reference: fmt.Sprintf("%s%d", x.TypePrefix, x.Number),
 			Title: x.Title, Status: x.Status, StateCategory: x.StateCategory, Priority: x.Priority, ChangeType: x.ChangeType,
-			Risk: x.Risk, PlannedStart: x.PlannedStart.Time, PlannedEnd: x.PlannedEnd.Time, Overlaps: []string{}}
+			Risk: x.Risk, PlannedStart: x.PlannedStart.Time, PlannedEnd: x.PlannedEnd.Time, Overlaps: []string{}, Freezes: []uuid.UUID{}}
 		if x.AssigneeName.Valid {
 			items[i].AssigneeName = &x.AssigneeName.String
 		}
+		for _, f := range freezes {
+			if x.PlannedStart.Time.Before(f.EndsAt) && f.StartsAt.Before(x.PlannedEnd.Time) {
+				items[i].Freezes = append(items[i].Freezes, f.ID)
+			}
+		}
 	}
 	markOverlaps(items)
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "from": from, "to": to, "truncated": truncated})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "freezes": freezes, "from": from, "to": to, "truncated": truncated})
 }
 
 // markOverlaps fills in each entry's overlaps. Entries are sorted by start, so each is compared only with the ones

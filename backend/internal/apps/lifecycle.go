@@ -51,10 +51,26 @@ type Transition struct {
 	// when it is false. They are set together or not at all.
 	When  string `json:"when,omitempty"`
 	Error string `json:"error,omitempty"`
+	// Guards are more guards, each with its own message, for a move that can be blocked for more than one reason.
+	// They are checked in order after When, and the first that fails gives the message.
+	Guards []Guard `json:"guards,omitempty"`
+	// Lookups are counted before the guards run, which read them as lookups.name.
+	Lookups Lookups `json:"lookups,omitempty"`
 
-	program  *expr.Program // compiled When; nil when there is no guard
-	guardErr error         // why When could not be compiled (only seen when a stored guard no longer compiles)
+	checks []*Guard // When (as a guard) and Guards, compiled
 }
+
+// Guard is a condition a move needs, and what the person sees when it is not met.
+type Guard struct {
+	When  string `json:"when"`
+	Error string `json:"error"`
+
+	program *expr.Program
+	err     error // why When could not be compiled (only seen when a stored guard no longer compiles)
+}
+
+// Guarded reports whether the move has any guard.
+func (t *Transition) Guarded() bool { return t.When != "" || len(t.Guards) > 0 }
 
 // Lifecycle is the status flow of one record type.
 type Lifecycle struct {
@@ -81,13 +97,20 @@ type lifecycleFile struct {
 }
 
 type transitionFile struct {
-	From      string `yaml:"from"`
-	To        string `yaml:"to"`
-	Verb      string `yaml:"verb"`
-	Primary   bool   `yaml:"primary"`
-	Automatic bool   `yaml:"automatic"` // made only by a workflow, never offered to people
-	When      string `yaml:"when"`      // an expression that must be true for the move to be allowed
-	Error     string `yaml:"error"`     // the message shown when it is false
+	From      string      `yaml:"from"`
+	To        string      `yaml:"to"`
+	Verb      string      `yaml:"verb"`
+	Primary   bool        `yaml:"primary"`
+	Automatic bool        `yaml:"automatic"` // made only by a workflow, never offered to people
+	When      string      `yaml:"when"`      // an expression that must be true for the move to be allowed
+	Error     string      `yaml:"error"`     // the message shown when it is false
+	Guards    []guardFile `yaml:"guards"`    // more guards, each with its own message
+	Lookups   Lookups     `yaml:"lookups"`   // counts the guards read as lookups.name
+}
+
+type guardFile struct {
+	When  string `yaml:"when"`
+	Error string `yaml:"error"`
 }
 
 // orderedStates reads a YAML map while keeping the author's order, which is the order states are shown in.
@@ -134,7 +157,11 @@ func parseLifecycle(file string, data []byte, p *Problems) *Lifecycle {
 	lc := &Lifecycle{RecordType: f.RecordType, Initial: f.Initial, States: f.States}
 	before := len(*p)
 	for _, t := range f.Transitions {
-		lc.Transitions = append(lc.Transitions, Transition{From: t.From, To: t.To, Verb: t.Verb, Primary: t.Primary, Automatic: t.Automatic, When: t.When, Error: t.Error})
+		tr := Transition{From: t.From, To: t.To, Verb: t.Verb, Primary: t.Primary, Automatic: t.Automatic, When: t.When, Error: t.Error, Lookups: t.Lookups}
+		for _, g := range t.Guards {
+			tr.Guards = append(tr.Guards, Guard{When: g.When, Error: g.Error})
+		}
+		lc.Transitions = append(lc.Transitions, tr)
 	}
 	lc.validate(file, p)
 	if len(*p) > before {
@@ -150,28 +177,57 @@ func parseLifecycle(file string, data []byte, p *Problems) *Lifecycle {
 func (l *Lifecycle) validate(file string, p *Problems) {
 	l.validateStructure(file, p)
 	l.compileGuards()
-	for i, t := range l.Transitions {
-		if t.guardErr != nil {
-			p.add(file, "transitions[%d]: %s to %s: when: %v", i, t.From, t.To, t.guardErr)
+	env, envErr := expr.LifecycleGuard()
+	for i := range l.Transitions {
+		t := &l.Transitions[i]
+		at := fmt.Sprintf("transitions[%d]: %s to %s", i, t.From, t.To)
+		for _, msg := range t.Lookups.validate(env, envErr) {
+			p.add(file, "%s: %s", at, msg)
+		}
+		if len(t.Lookups) > 0 && !t.Guarded() {
+			p.add(file, "%s: has lookups but no guard to read them", at)
+		}
+		for j, g := range t.checks {
+			where := "when"
+			if t.When == "" || j > 0 {
+				where = fmt.Sprintf("guards[%d]: when", j-boolInt(t.When != ""))
+			}
+			if g.err != nil {
+				p.add(file, "%s: %s: %v", at, where, g.err)
+			}
+			if names := t.Lookups.undeclared(g.program); len(names) > 0 {
+				p.add(file, "%s: %s: %s", at, where, undeclaredProblem(names))
+			}
 		}
 	}
 }
 
-// compileGuards compiles each transition's guard. A guard that fails to compile is remembered, and the move it
-// guards is blocked when attempted, so a broken rule can never let something through.
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// compileGuards compiles each transition's guards and lookups. A guard that fails to compile is remembered, and the
+// move it guards is blocked when attempted, so a broken rule can never let something through.
 func (l *Lifecycle) compileGuards() {
+	env, envErr := expr.LifecycleGuard()
 	for i := range l.Transitions {
 		t := &l.Transitions[i]
-		t.program, t.guardErr = nil, nil
-		if t.When == "" {
-			continue
+		t.Lookups.compile(env, envErr)
+		t.checks = nil
+		all := t.Guards
+		if t.When != "" {
+			all = append([]Guard{{When: t.When, Error: t.Error}}, t.Guards...)
 		}
-		env, err := expr.LifecycleGuard()
-		if err != nil {
-			t.guardErr = err
-			continue
+		for _, g := range all {
+			g.program, g.err = nil, envErr
+			if envErr == nil {
+				g.program, g.err = env.Compile(g.When)
+			}
+			t.checks = append(t.checks, &g)
 		}
-		t.program, t.guardErr = env.Compile(t.When)
 	}
 }
 
@@ -231,13 +287,22 @@ func (l *Lifecycle) validateStructure(file string, p *Problems) {
 				p.add(file, "transitions[%d]: %q has more than one primary transition", i, t.From)
 			}
 		}
-		switch {
-		case t.When != "" && t.Error == "":
-			p.add(file, "transitions[%d]: %s to %s has a guard (when) but no error message to show when it fails", i, t.From, t.To)
-		case t.When == "" && t.Error != "":
-			p.add(file, "transitions[%d]: %s to %s has an error message but no guard (when)", i, t.From, t.To)
-		case len(t.Error) > 200:
-			p.add(file, "transitions[%d]: the error message is longer than 200 characters", i)
+		guardProblem := func(where, when, msg string) {
+			switch {
+			case when != "" && msg == "":
+				p.add(file, "transitions[%d]: %s to %s has a guard (%swhen) but no error message to show when it fails", i, t.From, t.To, where)
+			case when == "" && msg != "":
+				p.add(file, "transitions[%d]: %s to %s has an error message but no guard (%swhen)", i, t.From, t.To, where)
+			case len(msg) > 200:
+				p.add(file, "transitions[%d]: the error message is longer than 200 characters", i)
+			}
+		}
+		guardProblem("", t.When, t.Error)
+		for j, g := range t.Guards {
+			if g.When == "" && g.Error == "" {
+				p.add(file, "transitions[%d]: %s to %s: guards[%d] needs when and error", i, t.From, t.To, j)
+			}
+			guardProblem(fmt.Sprintf("guards[%d]: ", j), g.When, g.Error)
 		}
 	}
 
@@ -316,27 +381,36 @@ func (l *Lifecycle) Automatic(from, to string) bool {
 
 // Guarded reports whether a move has a guard, so callers only load what a guard needs when there is one.
 func (l *Lifecycle) Guarded(from, to string) bool {
-	return slices.ContainsFunc(l.Transitions, func(t Transition) bool { return t.From == from && t.To == to && t.When != "" })
+	return slices.ContainsFunc(l.Transitions, func(t Transition) bool { return t.From == from && t.To == to && t.Guarded() })
 }
 
-// Check evaluates the guard on a move. Only a definite yes lets it through: if the guard cannot be evaluated (it no
-// longer compiles, or evaluation fails) the error is returned and the caller must treat the move as not allowed.
-// A move without a guard, and a stranded record's move to a closed state, are always allowed here; whether the move
-// exists at all is CanTransition's question.
+// Check evaluates the guards on a move, in order, after counting its lookups. Only a definite yes from each lets
+// it through: if a guard or a lookup cannot be evaluated (it no longer compiles, or evaluation fails) the error is
+// returned and the caller must treat the move as not allowed. The message is the first failing guard's. A move
+// without a guard, and a stranded record's move to a closed state, are always allowed here; whether the move exists
+// at all is CanTransition's question.
 func (l *Lifecycle) Check(ctx context.Context, from, to string, in expr.Input) (allowed bool, message string, err error) {
 	for i := range l.Transitions {
 		t := &l.Transitions[i]
-		if t.From != from || t.To != to || t.When == "" {
+		if t.From != from || t.To != to || !t.Guarded() {
 			continue
 		}
-		if t.guardErr != nil {
-			return false, "", fmt.Errorf("the rule for %s to %s cannot be checked: %w", from, to, t.guardErr)
-		}
-		ok, err := t.program.Eval(ctx, in)
-		if err != nil {
+		if in.Lookups, err = t.Lookups.Eval(ctx, in); err != nil {
 			return false, "", fmt.Errorf("the rule for %s to %s failed: %w", from, to, err)
 		}
-		return ok, t.Error, nil
+		for _, g := range t.checks {
+			if g.err != nil {
+				return false, "", fmt.Errorf("the rule for %s to %s cannot be checked: %w", from, to, g.err)
+			}
+			ok, err := g.program.Eval(ctx, in)
+			if err != nil {
+				return false, "", fmt.Errorf("the rule for %s to %s failed: %w", from, to, err)
+			}
+			if !ok {
+				return false, g.Error, nil
+			}
+		}
+		return true, "", nil
 	}
 	return true, "", nil
 }

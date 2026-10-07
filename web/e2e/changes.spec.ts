@@ -168,6 +168,72 @@ test.describe('changes', () => {
 		await expect(page.getByRole('heading', { level: 1 })).toHaveText(`Calendar A ${tag}`);
 	});
 
+	test('an admin declares, renames and lifts a freeze on the calendar, and an agent sees it live', async ({ browser }) => {
+		const agent = await as(browser, 'agent');
+		const admin = await as(browser, 'admin');
+		const tag = uid();
+		// Freezes apply to every change, so this one is years ahead, on a day of its own, where no other test plans.
+		const base = new Date(2031, 0, 6 + Math.floor(Math.random() * 300));
+		const at = (days: number, hours = 0) => new Date(base.getFullYear(), base.getMonth(), base.getDate() + days, hours);
+		const local = (d: Date) =>
+			`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:00`;
+		const url = `/calendar?date=${local(at(2)).slice(0, 10)}`;
+		// Planned before the freeze exists.
+		const c = await createTicket(agent.context, {
+			type: 'change',
+			title: `Frozen change ${tag}`,
+			change: { planned_start: at(2, 10).toISOString(), planned_end: at(2, 12).toISOString() }
+		});
+		let freezeID = '';
+		try {
+			await agent.page.goto(url);
+			const entry = agent.page.locator('li', { hasText: `Frozen change ${tag}` });
+			await expect(entry).toBeVisible();
+			await expect(entry).not.toContainText('In ');
+			// Agents read freezes but do not declare them.
+			await expect(agent.page.getByRole('button', { name: 'Declare freeze' })).toHaveCount(0);
+
+			await admin.page.goto(url);
+			await admin.page.getByRole('button', { name: 'Declare freeze' }).click();
+			const form = admin.page.getByRole('form', { name: 'Declare a change freeze' });
+			await form.getByLabel('Name').fill(`Freeze ${tag}`);
+			await form.getByLabel('Starts').fill(local(at(1)));
+			await form.getByLabel('Ends').fill(local(at(3)));
+			await form.getByLabel(/Reason/).fill('Quarter end.');
+			const created = admin.page.waitForResponse((r) => r.url().endsWith('/api/v1/freeze-windows') && r.request().method() === 'POST');
+			await form.getByRole('button', { name: 'Declare freeze' }).click();
+			freezeID = ((await (await created).json()) as { id: string }).id;
+			const listed = admin.page.locator('li.freeze', { hasText: `Freeze ${tag}` });
+			await expect(listed).toContainText('Quarter end.');
+
+			// The agent's open calendar follows: the freeze is listed, and the change it now covers says so.
+			await expect(agent.page.locator('li.freeze', { hasText: `Freeze ${tag}` })).toBeVisible();
+			await expect(entry).toContainText(`In Freeze ${tag}`);
+			await expect(agent.page.locator('section.day', { has: entry }).getByRole('heading')).toContainText('Freeze');
+			// A new window inside it is refused, by change-management's rule.
+			const refused = await agent.context.request.patch(`/api/v1/tickets/${c.id}`, {
+				data: { change: { planned_start: at(1, 9).toISOString(), planned_end: at(1, 10).toISOString() } }
+			});
+			expect(refused.status()).toBe(422);
+			expect(await refused.text()).toContain('overlaps a change freeze');
+
+			await listed.getByRole('button', { name: 'Edit' }).click();
+			const edit = admin.page.getByRole('form', { name: `Change Freeze ${tag}` });
+			await edit.getByLabel('Name').fill(`Renamed ${tag}`);
+			await edit.getByRole('button', { name: 'Save freeze' }).click();
+			await expect(entry).toContainText(`In Renamed ${tag}`);
+
+			const renamed = admin.page.locator('li.freeze', { hasText: `Renamed ${tag}` });
+			await renamed.getByRole('button', { name: 'Lift', exact: true }).click();
+			await renamed.getByRole('button', { name: `Lift Renamed ${tag}` }).click();
+			await expect(renamed).toHaveCount(0);
+			await expect(entry).not.toContainText('In ');
+			freezeID = '';
+		} finally {
+			if (freezeID) await admin.context.request.delete(`/api/v1/freeze-windows/${freezeID}`);
+		}
+	});
+
 	test('people who cannot see changes have no calendar', async ({ browser }) => {
 		const { page } = await as(browser, 'lena');
 		await page.goto('/tickets');

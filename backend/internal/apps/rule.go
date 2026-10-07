@@ -156,8 +156,10 @@ type Rule struct {
 	OnError    string   `json:"on_error"`
 	// RunAs "app" makes an after rule act as its app's principal (with the permissions its manifest declares) instead
 	// of as the person saving. Async rules always run as the app; before rules always as the person.
-	RunAs string   `json:"run_as,omitempty"`
-	Run   []Action `json:"run"`
+	RunAs string `json:"run_as,omitempty"`
+	// Lookups are counted before the rule's expressions run, which read them as lookups.name.
+	Lookups Lookups  `json:"lookups,omitempty"`
+	Run     []Action `json:"run"`
 
 	// App and Version say where the rule came from. They are set at runtime and are not part of the definition.
 	App     string `json:"-"`
@@ -179,6 +181,7 @@ type ruleFile struct {
 	When       string       `yaml:"when"`
 	OnError    string       `yaml:"on_error"`
 	RunAs      string       `yaml:"run_as"`
+	Lookups    Lookups      `yaml:"lookups"`
 	Run        []actionFile `yaml:"run"`
 }
 
@@ -205,7 +208,7 @@ func parseRule(file string, data []byte, p *Problems) *Rule {
 		p.add(file, "kind must be rule in this folder, got %q", f.Kind)
 		return nil
 	}
-	r := &Rule{Name: f.Name, RecordType: f.RecordType, Timing: f.Timing, On: f.On, Order: defaultOrder, When: f.When, OnError: f.OnError, RunAs: f.RunAs}
+	r := &Rule{Name: f.Name, RecordType: f.RecordType, Timing: f.Timing, On: f.On, Order: defaultOrder, When: f.When, OnError: f.OnError, RunAs: f.RunAs, Lookups: f.Lookups}
 	if f.Order != nil {
 		r.Order = *f.Order
 	}
@@ -230,18 +233,31 @@ func parseRule(file string, data []byte, p *Problems) *Rule {
 func (r *Rule) validate(file string, p *Problems) {
 	r.validateStructure(file, p)
 	r.compile()
+	env, envErr := expr.Rule()
+	for _, msg := range r.Lookups.validate(env, envErr) {
+		p.add(file, "%s", msg)
+	}
+	// Every expression may read only the lookups the rule declares.
+	declared := func(at string, prog *expr.Program) {
+		if names := r.Lookups.undeclared(prog); len(names) > 0 {
+			p.add(file, "%s: %s", at, undeclaredProblem(names))
+		}
+	}
 	if r.whenErr != nil {
 		p.add(file, "when: %v", r.whenErr)
 	}
+	declared("when", r.when)
 	for i := range r.Run {
 		a := &r.Run[i]
 		if a.whenErr != nil {
 			p.add(file, "run[%d]: when: %v", i, a.whenErr)
 		}
+		declared(fmt.Sprintf("run[%d]: when", i), a.when)
 		for j, err := range a.toErr {
 			if err != nil {
 				p.add(file, "run[%d]: to[%d]: %v", i, j, err)
 			}
+			declared(fmt.Sprintf("run[%d]: to[%d]", i, j), a.to[j])
 		}
 		for _, v := range []struct {
 			name string
@@ -249,6 +265,9 @@ func (r *Rule) validate(file string, p *Problems) {
 		}{{"value", a.Value}, {"message", a.Message}, {"body", a.Body}} {
 			if v.v != nil && v.v.err != nil {
 				p.add(file, "run[%d]: %s: %v", i, v.name, v.v.err)
+			}
+			if v.v != nil {
+				declared(fmt.Sprintf("run[%d]: %s", i, v.name), v.v.program)
 			}
 		}
 	}
@@ -464,6 +483,7 @@ func literalProblems(field, kind string, lit any) (out []string) {
 // treated as broken (blocked or skipped, per on_error) instead of being silently ignored.
 func (r *Rule) compile() {
 	env, err := expr.Rule()
+	r.Lookups.compile(env, err)
 	r.when, r.whenErr = nil, err
 	if err == nil && r.When != "" {
 		r.when, r.whenErr = env.Compile(r.When)

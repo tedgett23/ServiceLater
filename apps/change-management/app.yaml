@@ -1,6 +1,6 @@
 apiVersion: 1
 name: change-management
-version: 0.3.0
+version: 0.4.0
 author: ServiceLater
 description: "Change requests with approval workflows, risk assessment and change calendar."
 ServiceLater_min_version: 0.1.0

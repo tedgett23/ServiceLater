@@ -75,6 +75,20 @@ export interface CalendarEntry {
 	planned_end: string;
 	/** Other entries still to be done whose windows overlap this one. */
 	overlaps: string[];
+	/** Ids of the change freezes this window overlaps. */
+	freezes: string[];
+}
+
+/** A change freeze: a period when changes may not be planned (emergency changes excepted, by change-management). */
+export interface Freeze {
+	id: string;
+	name: string;
+	reason: string;
+	starts_at: string;
+	ends_at: string;
+	created_by_name: string | null;
+	created_at: string;
+	updated_at: string;
 }
 
 /** The type's prefix of a reference: INC for INC42. */
@@ -106,7 +120,8 @@ export const P = {
 	workflowsReadAll: 'workflows:read_all',
 	usersManage: 'users:manage',
 	groupsManage: 'groups:manage',
-	rolesManage: 'roles:manage'
+	rolesManage: 'roles:manage',
+	freezesManage: 'freezes:manage'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */

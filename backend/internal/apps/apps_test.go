@@ -230,8 +230,8 @@ func TestGuardsAreCheckedWhenAMoveIsMade(t *testing.T) {
 	in := expr.Input{Record: &expr.Record{Priority: 1, AssigneeID: &who}, Old: &expr.Record{}, User: &expr.User{}}
 
 	ok, msg, err := lc.Check(context.Background(), "active", "done", in)
-	if err != nil || !ok || msg != "Assign it and raise its priority first" {
-		t.Errorf("guard should pass: %v %q %v", ok, msg, err)
+	if err != nil || !ok || msg != "" {
+		t.Errorf("guard should pass, with no message: %v %q %v", ok, msg, err)
 	}
 	in.Record.AssigneeID = nil
 	ok, msg, err = lc.Check(context.Background(), "active", "done", in)

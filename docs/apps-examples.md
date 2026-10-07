@@ -555,7 +555,9 @@ run:
     message: The planned end has to be after the planned start.
 ```
 
-**C3. Nothing may be scheduled inside a freeze window** (lookup: `count` with a two-field range)
+**C3. Nothing may be scheduled inside a freeze window** (lookup: `count` with a two-field range). Built: the shipped
+version is `apps/change-management/default/rules/respect-freeze-windows.yaml`, which also checks only when the window
+or the kind changes, and lets edges touch (`lt`/`gt`).
 
 ```yaml
 kind: rule
@@ -569,7 +571,7 @@ lookups:
     where:
       starts_at: { lte: =record.planned_end }
       ends_at:   { gte: =record.planned_start }
-when: 'record.type != "emergency" && has(record.planned_start) && lookups.freezes > 0'
+when: 'record.change_type != "emergency" && has(record.planned_start) && lookups.freezes > 0'
 run:
   - action: abort
     message: The planned window overlaps a change freeze. Pick another time, or raise an emergency change.
@@ -856,7 +858,7 @@ These are the places where writing real definitions disagreed with the design do
 | F3 | Examples use `record.assignee.email` and `record.requester.manager.email`, i.e. **expanded references**. | The context expands references up to two levels. Because expressions are analysable, the platform prefetches only the paths an expression actually reads, so a sync rule costs no more queries than it uses. |
 | F4 | I9 (a customer reply reopens a ticket) needs **comment events** with access to the parent record. | Allow `record_type: comment` rules. Provide `record.parent`. This is the same polymorphic parent the comments table needs anyway. |
 | F5 | After rules cannot loop, so cascading to many records (W3) must be a workflow. | Intended. Confirms `foreach` and subflows are v1 requirements. |
-| F6 | `freeze_window` is runtime-editable reference data. A data-only app cannot create a table for it. | For v1 the change module's freeze windows are a **core record type**. This is a concrete case for open question 1 (generic custom records). |
+| F6 | `freeze_window` is runtime-editable reference data. A data-only app cannot create a table for it. | Built as a **core table** (`freeze_windows`, migration 00024), not a record type, managed with `freezes:manage`. Still a concrete case for open question 1 (generic custom records). |
 | F7 | W4 is a hand-rolled SLA and is wrong: it does not pause while the incident is on hold, and it ignores business hours. | SLA is a **first-class concept** (`kind: sla` with start, stop and pause conditions, and a business calendar), not something built from waits. Add it to the roadmap. |
 | F8 | The examples need CEL helpers beyond the standard library: `scale(duration, double)`, `group("name")`, `has()`, and date arithmetic. | Ship a small documented function library on top of CEL. `group()` is a lookup and is only allowed where the design permits lookups. |
 | F9 | `state_category` appears in most lookups and workflows. | Core keeps a denormalised, indexed `state_category` column, updated when the status changes. It also fixes the queue's hardcoded "Open" filter. |

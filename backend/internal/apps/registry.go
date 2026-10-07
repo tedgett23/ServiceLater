@@ -136,9 +136,17 @@ func (r *Registry) Load(ctx context.Context) error {
 			// A guard that no longer compiles (say a platform upgrade removed a field) blocks only its own move.
 			lc.compileGuards()
 			for _, t := range lc.Transitions {
-				if t.guardErr != nil {
-					slog.Error("lifecycle guard does not compile: that move is blocked until the app is fixed",
-						"app", d.AppName, "from", t.From, "to", t.To, "err", t.guardErr)
+				for _, g := range t.checks {
+					if g.err != nil {
+						slog.Error("lifecycle guard does not compile: that move is blocked until the app is fixed",
+							"app", d.AppName, "from", t.From, "to", t.To, "err", g.err)
+					}
+				}
+				for name, l := range t.Lookups {
+					if l != nil && l.err != nil {
+						slog.Error("lifecycle lookup is invalid: that move is blocked until the app is fixed",
+							"app", d.AppName, "from", t.From, "to", t.To, "lookup", name, "err", l.err)
+					}
 				}
 			}
 			lc.App, lc.Version = d.AppName, versions[d.AppName]

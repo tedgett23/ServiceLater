@@ -220,6 +220,24 @@ func TestRealtimeNotifiesTheAssignee(t *testing.T) {
 	cl.none(t, "Lena must not hear about Tomás's notification or a ticket that is not hers")
 }
 
+// Everyone may read freezes, so declaring one tells everyone connected, end users included, with only its id.
+func TestRealtimeTellsEveryoneAboutFreezes(t *testing.T) {
+	hub := startHub(t)
+	h, pool, _ := setupWith(t, time.Minute, hub)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	admin := newActor(t, h, pool, "boss@x.test", "admin")
+	lena := newActor(t, h, pool, "lena@x.test", "end_user")
+	cl := mustDial(t, srv, lena)
+	f := decodeBody[struct{ ID string }](t, admin.do(h, "POST", "/api/v1/freeze-windows",
+		`{"name":"Year end","starts_at":"2026-12-20T00:00:00Z","ends_at":"2027-01-03T00:00:00Z"}`))
+	if e := cl.next(t, "freeze.changed"); e["id"] != f.ID || len(e) != 2 {
+		t.Errorf("the event carries the id and nothing else: %v", e)
+	}
+	expect(t, admin.do(h, "DELETE", "/api/v1/freeze-windows/"+f.ID, ""), 204, "lifting it")
+	cl.next(t, "freeze.changed")
+}
+
 func TestRealtimeHandshakeRules(t *testing.T) {
 	hub := startHub(t)
 	h, pool, _ := setupWith(t, time.Minute, hub)

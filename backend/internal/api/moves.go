@@ -41,7 +41,7 @@ func (h *handlers) movesFor(ctx context.Context, q *dbgen.Queries, p auth.Princi
 			continue // the process makes this move, not a person
 		}
 		m := moveDTO{To: t.To, Verb: t.Verb, Primary: t.Primary}
-		if t.When != "" {
+		if t.Guarded() {
 			if !loaded { // the acting user is only needed when some move here has a guard
 				u, err := q.GetUser(ctx, p.UserID)
 				if err != nil {
@@ -52,7 +52,7 @@ func (h *handlers) movesFor(ctx context.Context, q *dbgen.Queries, p auth.Princi
 				}
 				user, loaded = u, true
 			}
-			ok, msg, err := lc.Check(ctx, cur.Status, t.To, records.GuardInput(cur.Ticket, t.To, lc, user))
+			ok, msg, err := lc.Check(ctx, cur.Status, t.To, records.GuardInput(q, cur.Ticket, t.To, lc, user))
 			switch {
 			case err != nil:
 				slog.Error("move guard", "ticket", cur.Number, "from", cur.Status, "to", t.To, "err", err)

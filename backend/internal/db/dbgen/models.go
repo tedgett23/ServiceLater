@@ -59,6 +59,17 @@ type Change struct {
 	TestPlan           string             `json:"test_plan"`
 }
 
+type FreezeWindow struct {
+	ID        uuid.UUID          `json:"id"`
+	Name      string             `json:"name"`
+	Reason    string             `json:"reason"`
+	StartsAt  pgtype.Timestamptz `json:"starts_at"`
+	EndsAt    pgtype.Timestamptz `json:"ends_at"`
+	CreatedBy uuid.NullUUID      `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Group struct {
 	ID          uuid.UUID          `json:"id"`
 	Name        string             `json:"name"`

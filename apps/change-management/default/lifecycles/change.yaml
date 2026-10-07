@@ -5,6 +5,8 @@
 #   Authorize starts the board's approval (rules/ask-the-board.yaml), and its decision moves the change on. That move
 #   is automatic: nobody authorizes a change by hand.
 # - A standard change is pre-approved, so it skips the board and is scheduled straight from Assess.
+# - Change freezes (declared on the calendar) keep windows out of them (rules/respect-freeze-windows.yaml) and hold
+#   back work while one is on; emergency changes are exempt from both.
 #
 # Core code only understands each state's category, so states can be renamed or added, and guards changed, in local/.
 kind: lifecycle
@@ -52,8 +54,18 @@ transitions:
     to: implement
     verb: Start implementing
     primary: true
-    when: has(record.planned_start) && now >= record.planned_start
-    error: The planned window has not opened yet.
+    # A freeze declared after the change was scheduled holds its work back, unless it is an emergency.
+    lookups:
+      freezes_now:
+        count: freeze_window
+        where:
+          starts_at: { lte: =now }
+          ends_at:   { gt: =now }
+    guards:
+      - when: has(record.planned_start) && now >= record.planned_start
+        error: The planned window has not opened yet.
+      - when: record.change_type == "emergency" || lookups.freezes_now == 0
+        error: A change freeze is on. Only an emergency change can start during a freeze.
   - { from: scheduled, to: assess,    verb: Reassess }
   - { from: scheduled, to: cancelled, verb: Cancel }
 

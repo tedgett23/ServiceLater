@@ -2,6 +2,7 @@ package records
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -402,7 +403,7 @@ func (s *Service) Transition(ctx context.Context, q *dbgen.Queries, a Actor, cau
 		if err != nil {
 			return Ticket{}, err
 		}
-		ok, message, err := lc.Check(ctx, t.Status, to, GuardInput(cur, to, lc, user))
+		ok, message, err := lc.Check(ctx, t.Status, to, GuardInput(q, cur, to, lc, user))
 		if err != nil {
 			slog.Error("move guard", "ticket", cur.Number, "from", t.Status, "to", to, "err", err)
 			return Ticket{}, Invalid(CannotCheck)
@@ -456,15 +457,27 @@ func createExtension(ctx context.Context, q *dbgen.Queries, t dbgen.Task) error 
 	return nil
 }
 
-// GuardInput is what a transition guard sees: the ticket as it would be after the move, as it is now, and who is acting.
-func GuardInput(cur Ticket, to string, lc *apps.Lifecycle, u dbgen.User) expr.Input {
+// Counter runs lookups in q's transaction, so they count as the person (or app) acting, under RLS.
+func Counter(q *dbgen.Queries) func(context.Context, string, []expr.Filter) (int64, error) {
+	return func(ctx context.Context, target string, filters []expr.Filter) (int64, error) {
+		raw, err := json.Marshal(filters)
+		if err != nil {
+			return 0, err
+		}
+		return q.LookupCount(ctx, dbgen.LookupCountParams{Target: target, Filters: raw})
+	}
+}
+
+// GuardInput is what a transition guard sees: the ticket as it would be after the move, as it is now, who is acting,
+// and (through q) the lookups its transition declares.
+func GuardInput(q *dbgen.Queries, cur Ticket, to string, lc *apps.Lifecycle, u dbgen.User) expr.Input {
 	next := cur
 	next.Status = to
 	if c, ok := lc.Category(to); ok {
 		next.StateCategory = string(c)
 	}
 	return expr.Input{
-		Record: next.ExprRecord(), Old: cur.ExprRecord(), Now: time.Now(),
+		Record: next.ExprRecord(), Old: cur.ExprRecord(), Now: time.Now(), Count: Counter(q),
 		User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role},
 	}
 }
@@ -478,7 +491,7 @@ func (s *Service) ruleInput(ctx context.Context, q *dbgen.Queries, a Actor, even
 		return expr.Input{}, err
 	}
 	in := expr.Input{
-		Record: next.ExprRecord(), Event: event, Now: time.Now(),
+		Record: next.ExprRecord(), Event: event, Now: time.Now(), Count: Counter(q),
 		User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role},
 	}
 	if old != nil {

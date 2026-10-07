@@ -219,3 +219,31 @@ func TestAWorkflowStartIsAnEffectNotAnAction(t *testing.T) {
 		t.Errorf("got %+v, %v", fx, err)
 	}
 }
+
+// A rule's lookups are counted against the record as earlier rules left it. A count that fails breaks the rule,
+// which stops the save, unless the rule says on_error: skip.
+func TestLookupsAreCountedBeforeTheRuleAndFailClosed(t *testing.T) {
+	lookup := "lookups:\n  same:\n    count: incident\n    where:\n      status: { eq: =record.status }\n"
+	list := compile(t, "before",
+		"order: 1\nrun:\n  - action: set\n    field: priority\n    value: 1\n",
+		"order: 2\n"+lookup+"when: 'lookups.same > 0'\nrun:\n  - action: abort\n    message: =string(lookups.same) + ' already'\n",
+	)
+	in := input()
+	var asked any
+	in.Count = func(_ context.Context, _ string, f []expr.Filter) (int64, error) { asked = f[0].Value; return 2, nil }
+	_, err := rules.Before(context.Background(), list, in)
+	var ab *rules.Abort
+	if !errors.As(err, &ab) || ab.Message != "2 already" || asked != "new" {
+		t.Fatalf("the count reaches the rule: %v (asked %v)", err, asked)
+	}
+
+	in.Count = func(context.Context, string, []expr.Filter) (int64, error) { return 0, errors.New("db down") }
+	var br *rules.Broken
+	if _, err := rules.Before(context.Background(), list, in); !errors.As(err, &br) || !strings.Contains(err.Error(), "db down") {
+		t.Errorf("a failed count stops the save: %v", err)
+	}
+	skip := compile(t, "before", "on_error: skip\n"+lookup+"when: 'lookups.same > 0'\nrun:\n  - action: abort\n    message: no\n")
+	if _, err := rules.Before(context.Background(), skip, in); err != nil {
+		t.Errorf("on_error: skip skips it: %v", err)
+	}
+}
