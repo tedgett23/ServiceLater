@@ -32,7 +32,8 @@ func (e *Engine) run(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExe
 	if err != nil {
 		return outcome{}, err
 	}
-	in := expr.Input{User: &expr.User{ID: user.ID.String(), Name: user.Name, Email: user.Email, Role: user.Role}, Vars: vars, Now: time.Now(), Record: &expr.Record{}}
+	in := expr.Input{User: &expr.User{ID: user.ID.String(), Name: user.Name, Email: user.Email, Role: user.Role}, Vars: vars, Now: time.Now(),
+		Record: &expr.Record{}, Groups: groupMembers(q)}
 	var ticket *records.Ticket
 	if ex.RecordID.Valid {
 		t, err := records.Load(ctx, q, ex.RecordID.UUID)
@@ -209,11 +210,11 @@ func (e *Engine) doUpdate(ctx context.Context, q *dbgen.Queries, ex dbgen.Workfl
 			return out, failf("set.%s: %v", nv.Name, err)
 		}
 	}
-	want, err := records.FromRecord(t, &rec)
+	want, err := records.FromRecord(ctx, q, t, &rec)
 	if err != nil {
 		return out, failf("%v", err)
 	}
-	patch := diff(t, want)
+	patch := records.PatchBetween(t, want)
 	out.detail["fields"] = changed(patch)
 	if patch.Empty() {
 		return out, nil
@@ -264,31 +265,16 @@ func assign(rec *expr.Record, field string, x any) error {
 		} else {
 			rec.AssigneeID, rec.AssigneeName = &s, nil
 		}
+	case "assignment_group":
+		if s == "" {
+			rec.AssignmentGroup, rec.AssignmentGroupID = nil, nil
+		} else {
+			rec.AssignmentGroup, rec.AssignmentGroupID = &s, nil
+		}
 	default:
 		return fmt.Errorf("cannot set %q", field)
 	}
 	return nil
-}
-
-// diff is the patch that turns t into want.
-func diff(t, want records.Ticket) records.Patch {
-	var p records.Patch
-	if want.Title != t.Title {
-		p.Title = &want.Title
-	}
-	if want.Description != t.Description {
-		p.Description = &want.Description
-	}
-	if want.Priority != t.Priority {
-		p.Priority = &want.Priority
-	}
-	if (want.AssigneeID == nil) != (t.AssigneeID == nil) || (want.AssigneeID != nil && *want.AssigneeID != *t.AssigneeID) {
-		p.SetAssignee, p.AssigneeID = true, want.AssigneeID
-	}
-	if want.Resolution != t.Resolution {
-		p.Resolution = &want.Resolution
-	}
-	return p
 }
 
 func changed(p records.Patch) []string {
@@ -302,6 +288,7 @@ func changed(p records.Patch) []string {
 	add("description", p.Description != nil)
 	add("priority", p.Priority != nil)
 	add("assignee_id", p.SetAssignee)
+	add("assignment_group", p.SetAssignmentGroup)
 	add("resolution", p.Resolution != nil)
 	return out
 }
@@ -387,6 +374,25 @@ func (e *Engine) doApproval(ctx context.Context, q *dbgen.Queries, ex dbgen.Work
 	return out, nil
 }
 
+// groupMembers resolves group('name') in a step's expressions, in the step's transaction and as the person the
+// workflow runs as. A group that does not exist fails the step rather than silently asking nobody.
+func groupMembers(q *dbgen.Queries) func(ctx context.Context, name string) ([]string, error) {
+	return func(ctx context.Context, name string) ([]string, error) {
+		if _, err := q.GetGroupByName(ctx, name); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, fmt.Errorf("there is no group named %q", name)
+			}
+			return nil, err
+		}
+		ids, err := q.ListGroupMemberIDsByName(ctx, name)
+		out := make([]string, len(ids))
+		for i, id := range ids {
+			out[i] = id.String()
+		}
+		return out, err
+	}
+}
+
 // resolveApprovers evaluates an approval step's `approvers` into the distinct users it names, checking each exists.
 func resolveApprovers(ctx context.Context, q *dbgen.Queries, st *apps.Step, in expr.Input) ([]uuid.UUID, error) {
 	prog, err := st.ApproversProgram()
@@ -408,11 +414,15 @@ func resolveApprovers(ctx context.Context, q *dbgen.Queries, st *apps.Step, in e
 			continue
 		}
 		seen[id] = true
-		if _, err := q.GetUser(ctx, id); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil, failf("approvers: no such user %s", id)
-			}
+		u, err := q.GetUser(ctx, id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, failf("approvers: no such user %s", id)
+		}
+		if err != nil {
 			return nil, err
+		}
+		if u.DeactivatedAt.Valid {
+			continue // like group(), which leaves them out: they can no longer sign in to decide
 		}
 		out = append(out, id)
 	}

@@ -46,6 +46,20 @@ type AppDefinition struct {
 	Source    string             `json:"source"`
 }
 
+type Group struct {
+	ID          uuid.UUID          `json:"id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type GroupMember struct {
+	GroupID uuid.UUID          `json:"group_id"`
+	UserID  uuid.UUID          `json:"user_id"`
+	AddedAt pgtype.Timestamptz `json:"added_at"`
+}
+
 type Incident struct {
 	TaskID     uuid.UUID `json:"task_id"`
 	Type       string    `json:"type"`
@@ -94,18 +108,19 @@ type Session struct {
 }
 
 type Task struct {
-	ID            uuid.UUID          `json:"id"`
-	Number        int64              `json:"number"`
-	Title         string             `json:"title"`
-	Description   string             `json:"description"`
-	Status        string             `json:"status"`
-	Priority      int16              `json:"priority"`
-	RequesterID   uuid.UUID          `json:"requester_id"`
-	AssigneeID    uuid.NullUUID      `json:"assignee_id"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
-	StateCategory string             `json:"state_category"`
-	Type          string             `json:"type"`
+	ID                uuid.UUID          `json:"id"`
+	Number            int64              `json:"number"`
+	Title             string             `json:"title"`
+	Description       string             `json:"description"`
+	Status            string             `json:"status"`
+	Priority          int16              `json:"priority"`
+	RequesterID       uuid.UUID          `json:"requester_id"`
+	AssigneeID        uuid.NullUUID      `json:"assignee_id"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+	StateCategory     string             `json:"state_category"`
+	Type              string             `json:"type"`
+	AssignmentGroupID uuid.NullUUID      `json:"assignment_group_id"`
 }
 
 type TaskComment struct {
@@ -124,11 +139,12 @@ type TaskType struct {
 }
 
 type User struct {
-	ID        uuid.UUID          `json:"id"`
-	Email     string             `json:"email"`
-	Name      string             `json:"name"`
-	Role      string             `json:"role"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	ID            uuid.UUID          `json:"id"`
+	Email         string             `json:"email"`
+	Name          string             `json:"name"`
+	Role          string             `json:"role"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	DeactivatedAt pgtype.Timestamptz `json:"deactivated_at"`
 }
 
 type UserCredential struct {

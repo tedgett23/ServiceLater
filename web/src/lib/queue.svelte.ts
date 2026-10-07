@@ -2,14 +2,14 @@ import { api } from './api';
 import type { Ticket, TicketPage, User } from './types';
 import { isStaff } from './types';
 
-export type Filter = 'mine' | 'unassigned' | 'open' | 'all';
+export type Filter = 'mine' | 'groups' | 'unassigned' | 'open' | 'all';
 
 const STORE_KEY = 'sl.filter';
 
 function remembered(): Filter | null {
 	try {
 		const v = localStorage.getItem(STORE_KEY);
-		return v === 'mine' || v === 'unassigned' || v === 'open' || v === 'all' ? v : null;
+		return v === 'mine' || v === 'groups' || v === 'unassigned' || v === 'open' || v === 'all' ? v : null;
 	} catch {
 		return null; // storage blocked: fine, use the default
 	}
@@ -31,7 +31,7 @@ class Queue {
 		if (this.started) return;
 		this.started = true;
 		const saved = remembered();
-		const allowed: Filter[] = isStaff(user) ? ['mine', 'unassigned', 'open', 'all'] : ['open', 'all'];
+		const allowed: Filter[] = isStaff(user) ? ['mine', 'groups', 'unassigned', 'open', 'all'] : ['open', 'all'];
 		this.filter = saved && allowed.includes(saved) ? saved : isStaff(user) ? 'mine' : 'open';
 		void this.load();
 	}
@@ -50,6 +50,9 @@ class Queue {
 		const p = new URLSearchParams({ limit: '30', offset: String(offset) });
 		if (this.filter === 'mine') {
 			p.set('assignee', 'me');
+			p.set('open', 'true');
+		} else if (this.filter === 'groups') {
+			p.set('assignment_group', 'mine');
 			p.set('open', 'true');
 		} else if (this.filter === 'unassigned') {
 			p.set('assignee', 'none');

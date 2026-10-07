@@ -55,6 +55,7 @@ func NewRouter(d Deps) http.Handler {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(sameOrigin)
+		r.Get("/openapi.json", h.getOpenAPI)
 
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/login", h.login)
@@ -66,7 +67,30 @@ func NewRouter(d Deps) http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(d.Tokens.Authenticate)
 
-			r.With(auth.RequireRole("admin", "agent")).Get("/users/staff", h.listStaff)
+			r.Route("/users", func(r chi.Router) {
+				r.With(auth.RequireRole("admin", "agent")).Get("/", h.listUsers)
+				r.With(auth.RequireRole("admin", "agent")).Get("/staff", h.listStaff)
+				r.With(auth.RequireRole("admin")).Post("/", h.createUser)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Use(auth.RequireRole("admin"))
+					r.Get("/", h.getUser)
+					r.Patch("/", h.updateUser)
+					r.Delete("/", h.deleteUser)
+					r.Put("/password", h.setUserPassword)
+				})
+			})
+			r.Route("/groups", func(r chi.Router) {
+				r.Get("/", h.listGroups)
+				r.With(auth.RequireRole("admin")).Post("/", h.createGroup)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", h.getGroup)
+					r.With(auth.RequireRole("admin")).Patch("/", h.updateGroup)
+					r.With(auth.RequireRole("admin")).Delete("/", h.deleteGroup)
+					r.Get("/members", h.listGroupMembers)
+					r.With(auth.RequireRole("admin")).Put("/members/{userId}", h.addGroupMember)
+					r.With(auth.RequireRole("admin")).Delete("/members/{userId}", h.removeGroupMember)
+				})
+			})
 			r.Get("/lifecycles/{recordType}", h.getLifecycle)
 
 			r.Route("/tickets", func(r chi.Router) {

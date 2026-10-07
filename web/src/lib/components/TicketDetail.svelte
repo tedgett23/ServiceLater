@@ -4,6 +4,7 @@
 	import Signal from '$lib/components/Signal.svelte';
 	import Status from '$lib/components/Status.svelte';
 	import { priorityLabel, when } from '$lib/format';
+	import { groups } from '$lib/groups.svelte';
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { queue } from '$lib/queue.svelte';
 	import { realtime } from '$lib/realtime.svelte';
@@ -43,8 +44,27 @@
 	}
 
 	$effect(() => {
-		if (canEdit) void staff.ensure();
+		if (canEdit) {
+			void staff.ensure();
+			void groups.ensure();
+		}
 	});
+	$effect(() => {
+		const g = ticket.assignment_group_id;
+		if (canEdit && g) void groups.ensureMembers(g);
+	});
+
+	// Who may be assigned: the group's members when the ticket has a group (the server refuses anyone else), else any
+	// agent or admin. The current assignee stays listed so the picker never shows the wrong person.
+	const groupMembers = $derived(ticket.assignment_group_id ? groups.members[ticket.assignment_group_id] : undefined);
+	const assignable = $derived.by(() => {
+		if (!groupMembers) return staff.list;
+		const ids = new Set(groupMembers.map((m) => m.id));
+		return staff.list.filter((s) => ids.has(s.id) || s.id === ticket.assignee_id);
+	});
+	const canTakeIt = $derived(
+		ticket.assignee_id !== session.user?.id && (!groupMembers || groupMembers.some((m) => m.id === session.user?.id))
+	);
 
 	/** Apply `optimistic` now; keep the server's version on success, restore the old one on failure. */
 	async function change(optimistic: Partial<Ticket>, request: () => Promise<Ticket>, done: string) {
@@ -131,6 +151,18 @@
 			{ assignee_id: id, assignee_name: name },
 			() => api<Ticket>(path, { method: 'PATCH', body: { assignee_id: id } }),
 			id ? `Assigned to ${name}` : 'Unassigned'
+		);
+	}
+
+	function route(id: string | null) {
+		const name = id ? (groups.list.find((g) => g.id === id)?.name ?? null) : null;
+		const members = id ? groups.members[id] : undefined;
+		// Handing a ticket to another team lets go of an assignee who is not in it; the server does the same.
+		const keep = !id || !ticket.assignee_id || !members || members.some((m) => m.id === ticket.assignee_id);
+		return change(
+			{ assignment_group_id: id, assignment_group_name: name, ...(keep ? {} : { assignee_id: null, assignee_name: null }) },
+			() => api<Ticket>(path, { method: 'PATCH', body: { assignment_group_id: id } }),
+			id ? `Routed to ${name}` : 'Removed from its group'
 		);
 	}
 
@@ -302,15 +334,34 @@
 					</dd>
 				</div>
 
+				{#if canEdit || ticket.assignment_group_name}
+					<div>
+						<dt>Assignment group</dt>
+						<dd>
+							{#if canEdit}
+								<select class="select" value={ticket.assignment_group_id ?? ''} onchange={(e) => route(e.currentTarget.value || null)} aria-label="Assignment group">
+									<option value="">No group</option>
+									{#if ticket.assignment_group_id && !groups.list.some((g) => g.id === ticket.assignment_group_id)}
+										<option value={ticket.assignment_group_id}>{ticket.assignment_group_name}</option>
+									{/if}
+									{#each groups.list as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
+								</select>
+							{:else}
+								{ticket.assignment_group_name}
+							{/if}
+						</dd>
+					</div>
+				{/if}
+
 				<div>
 					<dt>Assigned to</dt>
 					<dd>
 						{#if canEdit}
 							<select class="select" value={ticket.assignee_id ?? ''} onchange={(e) => assign(e.currentTarget.value || null)} aria-label="Assignee">
 								<option value="">Unassigned</option>
-								{#each staff.list as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
+								{#each assignable as s (s.id)}<option value={s.id}>{s.name}</option>{/each}
 							</select>
-							{#if ticket.assignee_id !== session.user?.id}
+							{#if canTakeIt}
 								<button class="btn quiet-btn" onclick={() => assign(session.user!.id)}>Assign to me</button>
 							{/if}
 						{:else}

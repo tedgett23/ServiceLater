@@ -326,3 +326,71 @@ func TestWorkflowExpressionsSeeVarsAndTheRecord(t *testing.T) {
 		t.Error("`event` belongs to rules, not workflows")
 	}
 }
+
+// group('name') resolves only the groups the expression names, just before it runs, and only in workflows.
+func TestGroupResolvesNamedGroupsInWorkflows(t *testing.T) {
+	wf, err := Workflow()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
+	in := sample()
+	in.Groups = func(_ context.Context, name string) ([]string, error) {
+		asked = append(asked, name)
+		switch name {
+		case "CAB":
+			return []string{"u-ann", "u-bob"}, nil
+		case "Empty":
+			return []string{}, nil
+		}
+		return nil, fmt.Errorf("there is no group named %q", name)
+	}
+
+	p, err := wf.CompileAs(`group('CAB') + group("Empty") + [record.requester_id]`, StringList)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.EvalStringList(context.Background(), in)
+	if err != nil || strings.Join(got, ",") != "u-ann,u-bob,u-lena" {
+		t.Errorf("got %v, %v", got, err)
+	}
+	if strings.Join(asked, ",") != "CAB,Empty" {
+		t.Errorf("looked up %v", asked)
+	}
+	if ok, err := mustCompile(t, wf, `user.id in group('CAB')`).Eval(context.Background(), in); err != nil || ok {
+		t.Errorf("priya is not in CAB: %v %v", ok, err)
+	}
+
+	// A group that does not exist is an error, never an empty list that asks nobody.
+	if _, err := mustCompile(t, wf, `size(group('Ghosts')) == 0`).Eval(context.Background(), in); err == nil || !strings.Contains(err.Error(), "Ghosts") {
+		t.Errorf("missing group: %v", err)
+	}
+	// Without a resolver (anything but a workflow step), it cannot run.
+	in.Groups = nil
+	if _, err := mustCompile(t, wf, `size(group('CAB')) > 0`).Eval(context.Background(), in); err == nil {
+		t.Error("evaluated group() without a resolver")
+	}
+
+	for _, src := range []string{
+		`size(group(record.title)) > 0`, // the name must be written in quotes
+		`size(_groups) > 0`,             // the hidden variable is not a way around that
+		`size(_groups[record.title]) > 0`,
+	} {
+		if _, err := wf.Compile(src); err == nil {
+			t.Errorf("%q compiled", src)
+		}
+	}
+	// Rules and guards have no group().
+	if _, err := env(t).Compile(`size(group('CAB')) > 0`); err == nil {
+		t.Error("a guard compiled group()")
+	}
+}
+
+func mustCompile(t *testing.T, e *Env, src string) *Program {
+	t.Helper()
+	p, err := e.Compile(src)
+	if err != nil {
+		t.Fatalf("%q: %v", src, err)
+	}
+	return p
+}

@@ -50,6 +50,9 @@
 	{#if isStaff(session.user)}
 		<a href="/tickets" aria-current={page.url.pathname.startsWith('/tickets') ? 'page' : undefined}>Tickets</a>
 		<a href="/runs" aria-current={page.url.pathname.startsWith('/runs') ? 'page' : undefined}>Runs</a>
+		{#if session.user?.role === 'admin'}
+			<a href="/admin/users" aria-current={page.url.pathname.startsWith('/admin') ? 'page' : undefined}>Admin</a>
+		{/if}
 	{/if}
 	{#if approvals.items.length > 0}
 		<a href="/approvals" aria-current={page.url.pathname.startsWith('/approvals') ? 'page' : undefined}>
@@ -128,6 +131,7 @@
 		flex-direction: column;
 	}
 	header {
+		position: relative;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -325,6 +329,14 @@
 		}
 		header {
 			padding: 0 0.75rem;
+		}
+		/* No room for it in the bar (it pushed "Sign out" off the screen), so it hangs just below it instead. */
+		.offline {
+			position: absolute;
+			top: calc(100% + 0.4rem);
+			left: 50%;
+			transform: translateX(-50%);
+			z-index: 20;
 		}
 		/* The bell added a fourth item to .right; there is no room left at this width for full button padding too. */
 		.right {

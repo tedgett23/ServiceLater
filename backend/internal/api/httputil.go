@@ -14,6 +14,26 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// nullable is a PATCH field that tells "absent" (leave it alone) from null (clear it) from a value.
+type nullable[T any] struct {
+	Set   bool // the field was in the request, null or not
+	Value *T   // nil for null
+}
+
+func (n *nullable[T]) UnmarshalJSON(b []byte) error {
+	n.Set = true
+	if string(b) == "null" {
+		n.Value = nil
+		return nil
+	}
+	var v T
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	n.Value = &v
+	return nil
+}
+
 func writeError(w http.ResponseWriter, code int, msg string) {
 	writeJSON(w, code, map[string]string{"error": msg})
 }

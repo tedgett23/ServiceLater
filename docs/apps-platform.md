@@ -431,7 +431,9 @@ fixed depth. A rule also cannot re-trigger on a change made by its own app (the 
 Before and after rules run on create, update and status transitions (`delete` and `async` are rejected at install for
 now). The engine is `internal/rules`; it does no database work, so the API applies its result inside the save.
 
-- **Actions today:** `abort`, `set` (title, description, priority, assignee_id, resolution) and `comment.add`. Anything
+- **Actions today:** `abort`, `set` (title, description, priority, assignee_id, assignment_group, resolution) and
+  `comment.add`. `assignment_group` takes a group's *name* (an app cannot know the ids of the install it lands in);
+  a name that matches no group fails the save. Anything
   else is rejected at install with the list of what exists. `set` values are checked at install (a literal's type and
   range, an expression's result type) and again at save time, with the checks a request goes through.
 - **Order:** the `task` rules first, then the type's own; within each by `order`, then app, then rule name. `set`
@@ -605,8 +607,10 @@ optional `on_timeout` step; without one a timeout fails the run), `record.update
 rule's), `comment.add`, `approval` and `end`. Expressions see `record` (as it is *now*, re-read for every step),
 `user`, `now` and `vars`. Variables hold text, numbers or true/false, and are stored with the execution.
 
-**Approval.** `approvers` is an expression producing a list of user ids (there is no `group()` yet: list the ids you
-mean, e.g. `=[record.requester_id]`), `rule` is `any` (the default), `all` or `majority`, and `timeout`/`on_timeout`
+**Approval.** `approvers` is an expression producing a list of user ids: `group('CAB')` is the ids of a group's
+members, as of when the step runs, and lists combine (`group('CAB') + [record.requester_id]`). `group()` exists only in
+workflow expressions, takes the name in quotes (so the groups an expression needs are known when it is compiled), and
+fails the step if no such group exists rather than asking nobody; `rule` is `any` (the default), `all` or `majority`, and `timeout`/`on_timeout`
 work exactly as a `wait`'s. The first visit files one pending request per approver (`workflow_approvals`); later
 visits are the timer or someone deciding, waking it. The rule is recomputed from the requests every time, so it never
 disagrees with what is stored, and it short-circuits as soon as the outcome cannot change: `any` stops at the first

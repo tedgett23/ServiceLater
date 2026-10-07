@@ -39,23 +39,19 @@ Password login (bcrypt) issues two httpOnly, SameSite=Strict cookies: a 15-minut
 
 Endpoints: `POST /api/v1/auth/login`, `/refresh`, `/logout`, `GET /api/v1/auth/me`. Logins are limited to 10 attempts per 15 minutes per client IP and email.
 
-## Tickets API
+## API
 
-All under `/api/v1/tickets`, cookie-authenticated, and scoped by Postgres RLS (end users see only their own tickets; agents and admins see all).
+The reference is generated from the Go source, never written by hand: every running server serves it at `/docs/api` (readable without signing in) and as OpenAPI 3.1 at `/api/v1/openapi.json`. The generator (`internal/openapi`, run with `make openapi`) reads the routes, the roles they require, each handler's doc comment, and the request and response types; `make test` fails if the committed document is out of date or misses a route the router serves.
 
-| Route | Who | Notes |
-|---|---|---|
-| `GET /tickets` | all | Filters: `type`, `status`, `open=true` (hides resolved and closed), `priority`, `assignee` (user id, `me` or `none`), `requester` (user id or `me`), `q` (title substring). Paging: `limit` (default 25, max 100), `offset`; response has `has_more`. |
-| `POST /tickets` | all | `title`, `description`, `priority` (1 critical to 4 low, default 3). Staff may pass `requester_id`. |
-| `GET /tickets/{id}` | all | `{id}` is the UUID, a reference such as `INC42` (any case), or a bare number, which means an incident. Hidden tickets are 404. |
-| `PATCH /tickets/{id}` | staff | `title`, `description`, `priority`, `assignee_id` (staff user, or `null` to unassign), `resolution` (incidents only). |
-| `POST /tickets/{id}/transitions` | staff | `{"to": "in_progress"}`. Invalid moves are 409. `closed` is terminal. |
-| `GET /users/staff` | staff | Agents and admins, for assignee pickers. |
-| `GET/POST /tickets/{id}/comments` | all | `{"body", "internal"}`. Internal notes are staff-only, and hidden from everyone else by RLS. |
+Everything is under `/api/v1`, cookie-authenticated, and scoped by Postgres RLS (end users see only their own tickets; agents and admins see all). A record you may not see answers 404, like one that does not exist.
 
 Status flow: `new` to `in_progress`, `on_hold`, `resolved` or `closed`; `in_progress` and `on_hold` to `resolved`; `resolved` to `in_progress` (reopen) or `closed`.
 
-Tickets have a `type` (`incident`, `change` ...) and a `reference` (`INC42`): numbers count within a type. Ticket and comment responses include display names (`requester_name`, `assignee_name`, `author_name`), so clients never need a user lookup.
+Tickets have a `type` (`incident`, `change` ...) and a `reference` (`INC42`): numbers count within a type. Ticket and comment responses include display names (`requester_name`, `assignee_name`, `assignment_group_name`, `author_name`), so clients never need a user lookup.
+
+Groups are teams: a ticket's `assignment_group_id` routes it to one, and its assignee must be a member. Admins manage them in the UI (Admin, then Groups), through the API, or with `servicelater group list|create|members|add|remove`.
+
+Admins also manage people under Admin, then Users: add someone with a password, change their name, email or role, reset a password, add them to groups, and deactivate them. A deactivated person cannot sign in, is signed out everywhere, and is no longer offered as an assignee or asked to approve; their tickets and comments keep their name. Only someone with no history can be deleted. There is always at least one active admin, and an admin cannot demote, deactivate or delete themselves.
 
 ## UI
 

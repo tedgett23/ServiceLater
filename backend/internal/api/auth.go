@@ -17,6 +17,8 @@ import (
 
 const refreshPath = "/api/v1/auth"
 
+// POST /auth/login with {"email", "password"}: signs in. The session is in cookies (sl_access, short-lived, and
+// sl_refresh); the body is who signed in. Repeated failures from one address are rate limited.
 func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
@@ -39,6 +41,8 @@ func (h *handlers) login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess.User)
 }
 
+// POST /auth/refresh: swaps the refresh cookie for a new pair of cookies. Presenting an already used refresh token
+// again, after a few seconds' grace for tabs refreshing at once, ends that whole session.
 func (h *handlers) refresh(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie(auth.RefreshCookie)
 	if err != nil {
@@ -57,6 +61,7 @@ func (h *handlers) refresh(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sess.User)
 }
 
+// POST /auth/logout: ends the session and clears its cookies. It succeeds whether or not one was signed in.
 func (h *handlers) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(auth.RefreshCookie); err == nil {
 		if err := h.auth.Logout(r.Context(), c.Value); err != nil {
@@ -67,6 +72,7 @@ func (h *handlers) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// GET /auth/me: who is signed in.
 func (h *handlers) me(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFrom(r.Context())
 	var u dbgen.User
@@ -75,7 +81,7 @@ func (h *handlers) me(w http.ResponseWriter, r *http.Request) {
 		u, err = dbgen.New(tx).GetUser(r.Context(), p.UserID)
 		return err
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, pgx.ErrNoRows) || u.DeactivatedAt.Valid {
 		writeError(w, http.StatusUnauthorized, "not authenticated")
 		return
 	}

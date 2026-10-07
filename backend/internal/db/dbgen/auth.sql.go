@@ -70,7 +70,7 @@ const getLoginUser = `-- name: GetLoginUser :one
 
 SELECT u.id, u.email, u.name, u.role, c.password_hash
 FROM users u JOIN user_credentials c ON c.user_id = u.id
-WHERE u.email = lower($1::text)
+WHERE u.email = lower($1::text) AND u.deactivated_at IS NULL
 `
 
 type GetLoginUserRow struct {

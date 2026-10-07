@@ -3,6 +3,7 @@ import path from 'node:path';
 export const PASSWORD = 'e2e-password-123';
 
 export const USERS = {
+	admin: { email: 'ada@e2e.test', name: 'Ada Okafor', role: 'admin' },
 	agent: { email: 'priya@e2e.test', name: 'Priya Raman', role: 'agent' },
 	agent2: { email: 'tomas@e2e.test', name: 'Tomás Ibarra', role: 'agent' },
 	lena: { email: 'lena@e2e.test', name: 'Lena Fischer', role: 'end_user' },

@@ -38,6 +38,7 @@ var ruleNameRE = regexp.MustCompile(`^[a-z][a-z0-9-]{1,62}$`)
 // SettableFields are the fields a before rule may set, and the type each takes.
 var SettableFields = map[string]string{
 	"title": "text", "description": "text", "priority": "number", "assignee_id": "text", "resolution": "text",
+	"assignment_group": "text",
 }
 
 // Value is written in YAML as a literal (`5`, `"text"`, `true`) or, with a leading `=`, as an expression

@@ -227,7 +227,8 @@ func text(ctx context.Context, v *apps.Value, in expr.Input) (string, error) {
 	return s, nil
 }
 
-// set writes a field of the record the later rules will see. An empty assignee_id unassigns.
+// set writes a field of the record the later rules will see. An empty assignee_id unassigns, and an empty
+// assignment_group (a group's name) takes the ticket out of its group.
 func set(ctx context.Context, a *apps.Action, in expr.Input) error {
 	x, err := value(ctx, a.Value, in)
 	if err != nil {
@@ -258,6 +259,12 @@ func set(ctx context.Context, a *apps.Action, in expr.Input) error {
 			rec.AssigneeID, rec.AssigneeName = nil, nil
 		} else {
 			rec.AssigneeID, rec.AssigneeName = &s, nil
+		}
+	case "assignment_group":
+		if s == "" {
+			rec.AssignmentGroup, rec.AssignmentGroupID = nil, nil
+		} else {
+			rec.AssignmentGroup, rec.AssignmentGroupID = &s, nil
 		}
 	default:
 		return fmt.Errorf("cannot set %q", a.Field)

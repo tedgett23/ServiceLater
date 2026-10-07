@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const countUsers = `-- name: CountUsers :one
@@ -25,7 +26,7 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (email, name, role)
 VALUES (lower($3::text), $1, $2)
-RETURNING id, email, name, role, created_at
+RETURNING id, email, name, role, created_at, deactivated_at
 `
 
 type CreateUserParams struct {
@@ -43,12 +44,26 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Name,
 		&i.Role,
 		&i.CreatedAt,
+		&i.DeactivatedAt,
 	)
 	return i, err
 }
 
+const deleteUser = `-- name: DeleteUser :execrows
+DELETE FROM users WHERE id = $1
+`
+
+// Only someone with no history can be deleted: tickets, comments and approvals keep a reference to them.
+func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUser, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getUser = `-- name: GetUser :one
-SELECT id, email, name, role, created_at FROM users WHERE id = $1
+SELECT id, email, name, role, created_at, deactivated_at FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
@@ -60,14 +75,36 @@ func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.Name,
 		&i.Role,
 		&i.CreatedAt,
+		&i.DeactivatedAt,
+	)
+	return i, err
+}
+
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, email, name, role, created_at, deactivated_at FROM users WHERE email = lower($1::text)
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
+	row := q.db.QueryRow(ctx, getUserByEmail, email)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.Role,
+		&i.CreatedAt,
+		&i.DeactivatedAt,
 	)
 	return i, err
 }
 
 const listStaff = `-- name: ListStaff :many
-SELECT id, email, name, role, created_at FROM users WHERE role IN ('admin', 'agent') ORDER BY name
+SELECT id, email, name, role, created_at, deactivated_at FROM users
+WHERE role IN ('admin', 'agent') AND deactivated_at IS NULL
+ORDER BY name
 `
 
+// Who can be assigned a ticket: active agents and admins.
 func (q *Queries) ListStaff(ctx context.Context) ([]User, error) {
 	rows, err := q.db.Query(ctx, listStaff)
 	if err != nil {
@@ -83,6 +120,7 @@ func (q *Queries) ListStaff(ctx context.Context) ([]User, error) {
 			&i.Name,
 			&i.Role,
 			&i.CreatedAt,
+			&i.DeactivatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -92,4 +130,122 @@ func (q *Queries) ListStaff(ctx context.Context) ([]User, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const listUsers = `-- name: ListUsers :many
+SELECT id, email, name, role, created_at, deactivated_at FROM users
+WHERE ($1::text IS NULL OR name ILIKE '%' || $1 || '%' ESCAPE '\' OR email ILIKE '%' || $1 || '%' ESCAPE '\')
+  AND ($2::text IS NULL OR role = $2)
+  AND ($3::bool OR deactivated_at IS NULL)
+ORDER BY name, id
+LIMIT $5 OFFSET $4
+`
+
+type ListUsersParams struct {
+	Q                  pgtype.Text `json:"q"`
+	Role               pgtype.Text `json:"role"`
+	IncludeDeactivated bool        `json:"include_deactivated"`
+	Offset             int32       `json:"offset"`
+	Limit              int32       `json:"limit"`
+}
+
+// The directory, for pickers such as group membership. q matches a name or email. Deactivated people are left out
+// unless asked for (the admin's user list).
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, error) {
+	rows, err := q.db.Query(ctx, listUsers,
+		arg.Q,
+		arg.Role,
+		arg.IncludeDeactivated,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []User
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.Name,
+			&i.Role,
+			&i.CreatedAt,
+			&i.DeactivatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const revokeUserSessions = `-- name: RevokeUserSessions :exec
+SELECT app_revoke_sessions($1::uuid)
+`
+
+func (q *Queries) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, revokeUserSessions, userID)
+	return err
+}
+
+const setUserPassword = `-- name: SetUserPassword :exec
+SELECT app_set_password($1::uuid, $2::text)
+`
+
+type SetUserPasswordParams struct {
+	UserID       uuid.UUID `json:"user_id"`
+	PasswordHash string    `json:"password_hash"`
+}
+
+// Through SECURITY DEFINER functions (00017): credentials and sessions are owner-only tables.
+func (q *Queries) SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error {
+	_, err := q.db.Exec(ctx, setUserPassword, arg.UserID, arg.PasswordHash)
+	return err
+}
+
+const updateUser = `-- name: UpdateUser :one
+UPDATE users SET
+    email = COALESCE(lower($1::text), email),
+    name  = COALESCE($2, name),
+    role  = COALESCE($3, role),
+    deactivated_at = CASE
+        WHEN $4::bool IS NULL THEN deactivated_at
+        WHEN $4::bool THEN COALESCE(deactivated_at, now())
+        ELSE NULL END
+WHERE id = $5
+RETURNING id, email, name, role, created_at, deactivated_at
+`
+
+type UpdateUserParams struct {
+	Email       pgtype.Text `json:"email"`
+	Name        pgtype.Text `json:"name"`
+	Role        pgtype.Text `json:"role"`
+	Deactivated pgtype.Bool `json:"deactivated"`
+	ID          uuid.UUID   `json:"id"`
+}
+
+// An admin's edit. Deactivating keeps the first time it happened; reactivating clears it.
+func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error) {
+	row := q.db.QueryRow(ctx, updateUser,
+		arg.Email,
+		arg.Name,
+		arg.Role,
+		arg.Deactivated,
+		arg.ID,
+	)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.Role,
+		&i.CreatedAt,
+		&i.DeactivatedAt,
+	)
+	return i, err
 }

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -33,8 +32,8 @@ type ticketDTO struct {
 	Moves []moveDTO `json:"moves,omitempty"`
 }
 
-func toTicket(t dbgen.Task, prefix, requesterName string, assigneeName pgtype.Text, resolution string) ticketDTO {
-	return ticketDTO{Ticket: records.FromParts(t, prefix, requesterName, assigneeName, resolution)}
+func toTicket(t dbgen.Task, prefix, requesterName string, assigneeName, groupName pgtype.Text, resolution string) ticketDTO {
+	return ticketDTO{Ticket: records.FromParts(t, prefix, requesterName, assigneeName, groupName, resolution)}
 }
 
 // ticketView loads a ticket with its display names, by id, as one RLS-scoped query.
@@ -50,6 +49,11 @@ func loadTicketView(r *http.Request, q *dbgen.Queries) (ticketDTO, error) {
 		return ticketDTO{}, err
 	}
 	return ticketView(r.Context(), q, t.ID)
+}
+
+// likeEscape escapes LIKE wildcards so a search is a plain substring match.
+func likeEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }
 
 func isStaff(role string) bool { return records.IsStaff(role) }
@@ -96,8 +100,9 @@ func intParam(w http.ResponseWriter, raw, name string, lo, hi int, into *int) bo
 	return true
 }
 
-// GET /tickets?type=&status=&priority=&assignee=&requester=&q=&limit=&offset=
-// assignee and requester accept a user id or "me"; assignee also accepts "none". open=true hides resolved and closed.
+// GET /tickets?type=&status=&priority=&assignee=&requester=&assignment_group=&q=&limit=&offset=
+// assignee and requester accept a user id or "me"; assignee also accepts "none". assignment_group accepts a group id,
+// "mine" (any group the caller is in) or "none". open=true hides resolved and closed.
 func (h *handlers) listTickets(w http.ResponseWriter, r *http.Request) {
 	qs := r.URL.Query()
 	var args dbgen.ListTicketsParams
@@ -142,15 +147,27 @@ func (h *handlers) listTickets(w http.ResponseWriter, r *http.Request) {
 		args.Offset = int32(n)
 	}
 	if s := strings.TrimSpace(qs.Get("q")); s != "" {
-		// Escape LIKE wildcards so the search is a plain substring match.
-		s = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
-		args.Search = pgtype.Text{String: s, Valid: true}
+		args.Search = pgtype.Text{String: likeEscape(s), Valid: true}
 	}
 	args.OpenOnly = qs.Get("open") == "true"
 	p, _ := auth.PrincipalFrom(r.Context())
 	if qs.Get("assignee") == "none" {
 		args.Unassigned = true
 		qs.Del("assignee")
+	}
+	switch g := qs.Get("assignment_group"); g {
+	case "":
+	case "mine":
+		args.MyGroups = true
+	case "none":
+		args.NoGroup = true
+	default:
+		id, err := uuid.Parse(g)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, `assignment_group must be a group id, "mine" or "none"`)
+			return
+		}
+		args.AssignmentGroupID = uuid.NullUUID{UUID: id, Valid: true}
 	}
 	for name, dst := range map[string]*uuid.NullUUID{"assignee": &args.AssigneeID, "requester": &args.RequesterID} {
 		s := qs.Get(name)
@@ -184,7 +201,7 @@ func (h *handlers) listTickets(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]ticketDTO, len(rows))
 	for i, t := range rows {
-		items[i] = toTicket(t.Task, t.TypePrefix, t.RequesterName, t.AssigneeName, "")
+		items[i] = toTicket(t.Task, t.TypePrefix, t.RequesterName, t.AssigneeName, t.AssignmentGroupName, "")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "limit": limit, "offset": args.Offset, "has_more": more})
 }
@@ -219,6 +236,7 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 
 func actorOf(p auth.Principal) records.Actor { return records.Actor{ID: p.UserID, Role: p.Role} }
 
+// GET /tickets/{id}: one ticket, by id, reference (INC42) or incident number, with the moves the caller may make.
 func (h *handlers) getTicket(w http.ResponseWriter, r *http.Request) {
 	var out ticketDTO
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
@@ -234,30 +252,24 @@ func (h *handlers) getTicket(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// PATCH /tickets/{id} (staff). Fields that are absent are left alone; "assignee_id": null unassigns.
+// PATCH /tickets/{id} (staff). Fields that are absent are left alone; "assignee_id": null unassigns and
+// "assignment_group_id": null takes the ticket out of its group. Moving a ticket to a group its assignee is not in
+// also unassigns it; naming an assignee outside the group is refused.
 func (h *handlers) updateTicket(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Title       *string         `json:"title"`
-		Description *string         `json:"description"`
-		Priority    *int16          `json:"priority"`
-		AssigneeID  json.RawMessage `json:"assignee_id"`
-		Resolution  *string         `json:"resolution"`
+		Title             *string             `json:"title"`
+		Description       *string             `json:"description"`
+		Priority          *int16              `json:"priority"`
+		AssigneeID        nullable[uuid.UUID] `json:"assignee_id"`
+		AssignmentGroupID nullable[uuid.UUID] `json:"assignment_group_id"`
+		Resolution        *string             `json:"resolution"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	patch := records.Patch{Title: req.Title, Description: req.Description, Priority: req.Priority, Resolution: req.Resolution}
-	if req.AssigneeID != nil {
-		patch.SetAssignee = true
-		if string(req.AssigneeID) != "null" {
-			var id uuid.UUID
-			if err := json.Unmarshal(req.AssigneeID, &id); err != nil {
-				writeError(w, http.StatusBadRequest, "assignee_id must be a user id or null")
-				return
-			}
-			patch.AssigneeID = &id
-		}
-	}
+	patch := records.Patch{Title: req.Title, Description: req.Description, Priority: req.Priority, Resolution: req.Resolution,
+		SetAssignee: req.AssigneeID.Set, AssigneeID: req.AssigneeID.Value,
+		SetAssignmentGroup: req.AssignmentGroupID.Set, AssignmentGroupID: req.AssignmentGroupID.Value}
 	var out ticketDTO
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		row, err := loadTicket(r, q)

@@ -32,6 +32,9 @@ export interface Ticket {
 	requester_name: string;
 	assignee_id: string | null;
 	assignee_name: string | null;
+	/** The team the ticket is routed to. Its assignee, if any, is a member. */
+	assignment_group_id: string | null;
+	assignment_group_name: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -151,4 +154,37 @@ export interface Notification {
 	approval_id?: string;
 	created_at: string;
 	read_at?: string;
+}
+
+/** A team: what a ticket is routed to, and what group('name') in a workflow asks. */
+export interface Group {
+	id: string;
+	name: string;
+	description: string;
+	member_count: number;
+	created_at: string;
+	updated_at: string;
+}
+
+export interface Member extends User {
+	added_at: string;
+	/** Set for someone who can no longer sign in; group() approvals leave them out. */
+	deactivated_at: string | null;
+}
+
+/** Someone as an admin sees them in the user list. */
+export interface Person extends User {
+	created_at: string;
+	/** Set when an admin deactivated them: they cannot sign in, and pickers leave them out. */
+	deactivated_at: string | null;
+}
+
+export interface PersonDetail extends Person {
+	groups: { id: string; name: string }[];
+}
+
+export const roleLabel: Record<Role, string> = { admin: 'Admin', agent: 'Agent', end_user: 'End user' };
+
+export interface GroupDetail extends Group {
+	members: Member[];
 }

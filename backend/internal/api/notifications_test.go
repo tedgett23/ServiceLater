@@ -11,7 +11,7 @@ type notification struct {
 
 type notificationList struct {
 	Items       []notification `json:"items"`
-	UnreadCount int             `json:"unread_count"`
+	UnreadCount int            `json:"unread_count"`
 }
 
 func TestNotificationsRequireAuth(t *testing.T) {

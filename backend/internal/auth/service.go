@@ -144,6 +144,10 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (*Session, e
 		if err != nil {
 			return err
 		}
+		if u.DeactivatedAt.Valid { // deactivating revokes sessions too; this covers one that raced it
+			failure = ErrInvalidSession
+			return nil
+		}
 		if err := q.MarkSessionRotated(ctx, row.ID); err != nil {
 			return err
 		}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -44,18 +45,46 @@ type CreateInput struct {
 	RequesterID        *uuid.UUID // staff may file on behalf of someone else
 }
 
-// Patch is a change to a ticket. A nil field is left alone; SetAssignee with a nil AssigneeID unassigns.
+// Patch is a change to a ticket. A nil field is left alone; SetAssignee with a nil AssigneeID unassigns, and
+// SetAssignmentGroup with a nil AssignmentGroupID takes the ticket out of its group.
 type Patch struct {
 	Title, Description *string
 	Priority           *int16
 	SetAssignee        bool
 	AssigneeID         *uuid.UUID
+	SetAssignmentGroup bool
+	AssignmentGroupID  *uuid.UUID
 	Resolution         *string
 }
 
 // Empty reports whether the patch changes nothing.
 func (p Patch) Empty() bool {
-	return p.Title == nil && p.Description == nil && p.Priority == nil && !p.SetAssignee && p.Resolution == nil
+	return p.Title == nil && p.Description == nil && p.Priority == nil && !p.SetAssignee && !p.SetAssignmentGroup &&
+		p.Resolution == nil
+}
+
+// PatchBetween is the patch that turns t into want, for the fields a patch can change.
+func PatchBetween(t, want Ticket) Patch {
+	var p Patch
+	if want.Title != t.Title {
+		p.Title = &want.Title
+	}
+	if want.Description != t.Description {
+		p.Description = &want.Description
+	}
+	if want.Priority != t.Priority {
+		p.Priority = &want.Priority
+	}
+	if !sameUUID(want.AssigneeID, t.AssigneeID) {
+		p.SetAssignee, p.AssigneeID = true, want.AssigneeID
+	}
+	if !sameUUID(want.AssignmentGroupID, t.AssignmentGroupID) {
+		p.SetAssignmentGroup, p.AssignmentGroupID = true, want.AssignmentGroupID
+	}
+	if want.Resolution != t.Resolution {
+		p.Resolution = &want.Resolution
+	}
+	return p
 }
 
 // q must be built on the transaction of the save (db.WithUser), so the ticket, its comments, the jobs it queues and
@@ -95,7 +124,7 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	// A ticket is a task plus its type's own row. Both are written in this transaction, or neither is.
 	t, err := q.CreateTask(ctx, dbgen.CreateTaskParams{
 		Type: next.Type, Title: strings.TrimSpace(next.Title), Description: next.Description, Priority: next.Priority, RequesterID: requester,
-		Status: lc.Initial, StateCategory: string(category)})
+		Status: lc.Initial, StateCategory: string(category), AssignmentGroupID: nullUUID(next.AssignmentGroupID)})
 	if err != nil {
 		return Ticket{}, err
 	}
@@ -166,7 +195,20 @@ func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 			if !IsStaff(u.Role) {
 				return Ticket{}, Invalid("assignee must be an agent or admin")
 			}
+			if u.DeactivatedAt.Valid {
+				return Ticket{}, Invalid("assignee is deactivated")
+			}
 			next.AssigneeID = p.AssigneeID
+		}
+	}
+	if p.SetAssignmentGroup {
+		next.AssignmentGroupID, next.AssignmentGroup = nil, nil
+		if p.AssignmentGroupID != nil {
+			g, err := q.GetGroup(ctx, *p.AssignmentGroupID)
+			if err != nil {
+				return Ticket{}, Invalid("assignment group does not exist")
+			}
+			next.AssignmentGroupID, next.AssignmentGroup = &g.ID, &g.Name
 		}
 	}
 	if p.Resolution != nil {
@@ -320,7 +362,7 @@ func (s *Service) runBefore(ctx context.Context, q *dbgen.Queries, a Actor, even
 	if err != nil {
 		return next, s.ruleError(ctx, err, apps.TimingBefore, event, idOf(cur), next.Reference)
 	}
-	out, err := FromRecord(next, res)
+	out, err := FromRecord(ctx, q, next, res)
 	if err != nil {
 		return next, err
 	}
@@ -331,9 +373,24 @@ func (s *Service) runBefore(ctx context.Context, q *dbgen.Queries, a Actor, even
 }
 
 // FromRecord is the ticket with the fields rules may set taken from the record the rules left. Values a rule set are
-// range-checked here; whether they are allowed for this ticket is validateRuleChanges.
-func FromRecord(base Ticket, res *expr.Record) (Ticket, error) {
+// range-checked here, and an assignment group named by a rule is looked up; whether they are allowed for this ticket
+// is validateRuleChanges.
+func FromRecord(ctx context.Context, q *dbgen.Queries, base Ticket, res *expr.Record) (Ticket, error) {
 	out := base
+	// Rules name a group, not its id: an app cannot know the ids of the install it lands in.
+	if !sameString(res.AssignmentGroup, base.AssignmentGroup) {
+		out.AssignmentGroupID, out.AssignmentGroup = nil, nil
+		if res.AssignmentGroup != nil && *res.AssignmentGroup != "" {
+			g, err := q.GetGroupByName(ctx, *res.AssignmentGroup)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return base, Invalid(fmt.Sprintf("a rule set the assignment group to %q, and there is no such group", *res.AssignmentGroup))
+			}
+			if err != nil {
+				return base, err
+			}
+			out.AssignmentGroupID, out.AssignmentGroup = &g.ID, &g.Name
+		}
+	}
 	out.Title, out.Description, out.Resolution = res.Title, res.Description, res.Resolution
 	out.AssigneeID = nil
 	if res.AssigneeID != nil {
@@ -404,6 +461,12 @@ func changes(cur, final Ticket) (args dbgen.UpdateTaskParams, any bool) {
 			args.AssigneeID.UUID, args.AssigneeID.Valid = *final.AssigneeID, true
 		}
 	}
+	if !sameUUID(cur.AssignmentGroupID, final.AssignmentGroupID) {
+		args.SetAssignmentGroup, any = true, true
+		if final.AssignmentGroupID != nil {
+			args.AssignmentGroupID.UUID, args.AssignmentGroupID.Valid = *final.AssignmentGroupID, true
+		}
+	}
 	args.ID = cur.ID
 	return args, any
 }
@@ -415,8 +478,48 @@ func sameUUID(a, b *uuid.UUID) bool {
 	return *a == *b
 }
 
+func nullUUID(id *uuid.UUID) uuid.NullUUID {
+	if id == nil {
+		return uuid.NullUUID{}
+	}
+	return uuid.NullUUID{UUID: *id, Valid: true}
+}
+
+func sameString(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
+// reconcileAssignment keeps the assignee inside the assignment group. Moving a ticket to another group lets go of an
+// assignee who is not in it, the way handing work to another team does; naming an assignee outside the group is an
+// error, whether a person or a rule asks for it.
+func reconcileAssignment(ctx context.Context, q *dbgen.Queries, cur, final Ticket) (Ticket, error) {
+	if final.AssigneeID == nil || final.AssignmentGroupID == nil {
+		return final, nil
+	}
+	assigneeChanged := !sameUUID(cur.AssigneeID, final.AssigneeID)
+	if !assigneeChanged && sameUUID(cur.AssignmentGroupID, final.AssignmentGroupID) {
+		return final, nil
+	}
+	member, err := q.IsGroupMember(ctx, dbgen.IsGroupMemberParams{GroupID: *final.AssignmentGroupID, UserID: *final.AssigneeID})
+	if err != nil || member {
+		return final, err
+	}
+	if assigneeChanged {
+		return final, Invalid("the assignee is not a member of the assignment group")
+	}
+	final.AssigneeID, final.Assignee = nil, nil
+	return final, nil
+}
+
 // writeChanges saves final over cur, including an incident's resolution.
 func writeChanges(ctx context.Context, q *dbgen.Queries, cur, final Ticket) error {
+	final, err := reconcileAssignment(ctx, q, cur, final)
+	if err != nil {
+		return err
+	}
 	if args, any := changes(cur, final); any {
 		if _, err := q.UpdateTask(ctx, args); err != nil {
 			return err
@@ -432,6 +535,7 @@ func writeChanges(ctx context.Context, q *dbgen.Queries, cur, final Ticket) erro
 func withRuleFields(base, from Ticket) Ticket {
 	base.Title, base.Description, base.Priority = strings.TrimSpace(from.Title), from.Description, from.Priority
 	base.AssigneeID, base.Resolution = from.AssigneeID, from.Resolution
+	base.AssignmentGroupID, base.AssignmentGroup = from.AssignmentGroupID, from.AssignmentGroup
 	return base
 }
 

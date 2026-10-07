@@ -41,14 +41,17 @@ type Ticket struct {
 	Requester     string     `json:"requester_name"`
 	AssigneeID    *uuid.UUID `json:"assignee_id"`
 	Assignee      *string    `json:"assignee_name"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
+	// AssignmentGroupID is the team the ticket is routed to. An assignee, if there is one, is a member of it.
+	AssignmentGroupID *uuid.UUID `json:"assignment_group_id"`
+	AssignmentGroup   *string    `json:"assignment_group_name"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 	// Resolution is how an incident was fixed. It lives in the incident's own table; other types have none.
 	Resolution string `json:"resolution"`
 }
 
 // FromParts builds a ticket from a task row and the names around it.
-func FromParts(t dbgen.Task, prefix, requesterName string, assigneeName pgtype.Text, resolution string) Ticket {
+func FromParts(t dbgen.Task, prefix, requesterName string, assigneeName, groupName pgtype.Text, resolution string) Ticket {
 	d := Ticket{ID: t.ID, Type: t.Type, Number: t.Number, Reference: fmt.Sprintf("%s%d", prefix, t.Number), Resolution: resolution,
 		Title: t.Title, Description: t.Description, Status: t.Status, StateCategory: t.StateCategory,
 		Priority: t.Priority, RequesterID: t.RequesterID, Requester: requesterName,
@@ -60,6 +63,13 @@ func FromParts(t dbgen.Task, prefix, requesterName string, assigneeName pgtype.T
 	if assigneeName.Valid {
 		d.Assignee = &assigneeName.String
 	}
+	if t.AssignmentGroupID.Valid {
+		id := t.AssignmentGroupID.UUID
+		d.AssignmentGroupID = &id
+	}
+	if groupName.Valid {
+		d.AssignmentGroup = &groupName.String
+	}
 	return d
 }
 
@@ -69,7 +79,7 @@ func Load(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (Ticket, error) {
 	if err != nil {
 		return Ticket{}, err
 	}
-	return FromParts(v.Task, v.TypePrefix, v.RequesterName, v.AssigneeName, v.Resolution), nil
+	return FromParts(v.Task, v.TypePrefix, v.RequesterName, v.AssigneeName, v.AssignmentGroupName, v.Resolution), nil
 }
 
 // ExprRecord is the ticket as expressions see it. It is the only converter: a field added to expr.Record is filled
@@ -80,10 +90,15 @@ func (d Ticket) ExprRecord() *expr.Record {
 		Resolution: d.Resolution, Status: d.Status,
 		StateCategory: d.StateCategory, Priority: int64(d.Priority), RequesterID: d.RequesterID.String(),
 		RequesterName: d.Requester, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt, AssigneeName: d.Assignee,
+		AssignmentGroup: d.AssignmentGroup,
 	}
 	if d.AssigneeID != nil {
 		id := d.AssigneeID.String()
 		r.AssigneeID = &id
+	}
+	if d.AssignmentGroupID != nil {
+		id := d.AssignmentGroupID.String()
+		r.AssignmentGroupID = &id
 	}
 	return r
 }

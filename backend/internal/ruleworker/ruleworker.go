@@ -95,7 +95,7 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 					return err
 				}
 			}
-			patch, err := patchFrom(t, res)
+			patch, err := patchFrom(ctx, q, t, res)
 			if err != nil || patch.Empty() {
 				return err
 			}
@@ -123,26 +123,10 @@ func Handler(pool *pgxpool.Pool, reg *apps.Registry) jobs.Handler {
 }
 
 // patchFrom is what record.update changed: the fields of res that differ from the ticket the rule started with.
-func patchFrom(t records.Ticket, res *expr.Record) (records.Patch, error) {
-	want, err := records.FromRecord(t, res)
+func patchFrom(ctx context.Context, q *dbgen.Queries, t records.Ticket, res *expr.Record) (records.Patch, error) {
+	want, err := records.FromRecord(ctx, q, t, res)
 	if err != nil {
 		return records.Patch{}, err
 	}
-	var p records.Patch
-	if want.Title != t.Title {
-		p.Title = &want.Title
-	}
-	if want.Description != t.Description {
-		p.Description = &want.Description
-	}
-	if want.Priority != t.Priority {
-		p.Priority = &want.Priority
-	}
-	if (want.AssigneeID == nil) != (t.AssigneeID == nil) || (want.AssigneeID != nil && *want.AssigneeID != *t.AssigneeID) {
-		p.SetAssignee, p.AssigneeID = true, want.AssigneeID
-	}
-	if want.Resolution != t.Resolution {
-		p.Resolution = &want.Resolution
-	}
-	return p, nil
+	return records.PatchBetween(t, want), nil
 }

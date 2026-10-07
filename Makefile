@@ -1,4 +1,4 @@
-.PHONY: e2e lint check apps-validate sync-apps dev-db dev-backend dev-web build test sqlc pack-apps
+.PHONY: e2e lint check apps-validate sync-apps dev-db dev-backend dev-web build test sqlc openapi pack-apps
 
 dev-db:
 	docker compose -f docker-compose.dev.yml up -d db
@@ -42,6 +42,11 @@ check: lint test
 
 sqlc:
 	cd backend && sqlc generate
+
+# The API's OpenAPI document, generated from the handlers' source (internal/openapi). Run after changing a route, a
+# handler's doc comment, or a request or response type; TestOpenAPISpecIsCurrent fails until you do.
+openapi:
+	cd backend && go run ./cmd/openapi
 
 pack-apps:
 	for a in apps/*/; do backend/bin/servicelater app pack $$a; done

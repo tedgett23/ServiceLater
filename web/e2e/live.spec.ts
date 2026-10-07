@@ -92,4 +92,16 @@ test.describe('live updates', () => {
 		await expect(lena.page.getByText('Reconnecting')).toHaveCount(0);
 		await expect(details(lena.page).getByText('In progress')).toBeVisible();
 	});
+
+	// Regressed: on a phone the "Reconnecting…" badge sat in the app bar, which has no room for it, and pushed
+	// "Sign out" off the screen while the connection was down.
+	test('on a phone the app bar still fits while reconnecting', async ({ browser }) => {
+		const { page } = await as(browser, 'agent', { viewport: { width: 390, height: 844 } });
+		await page.routeWebSocket(/\/ws/, (ws) => ws.close());
+		await page.goto('/tickets');
+		await expect(page.getByRole('status').getByText('Reconnecting')).toBeVisible();
+		await expect(page.getByRole('status').getByText('Reconnecting')).toBeInViewport();
+		expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+		await expect(page.getByRole('button', { name: 'Sign out' })).toBeInViewport({ ratio: 1 });
+	});
 });

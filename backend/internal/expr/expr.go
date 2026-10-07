@@ -11,12 +11,15 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"cel.dev/cel-go/cel"
+	"cel.dev/cel-go/common"
 	"cel.dev/cel-go/common/ast"
+	"cel.dev/cel-go/common/operators"
 	"cel.dev/cel-go/common/types"
 	"cel.dev/cel-go/common/types/ref"
 	"cel.dev/cel-go/ext"
@@ -32,21 +35,24 @@ const (
 // Record is what an expression sees as `record` (and `old`): a ticket as flat, typed fields.
 // Optional fields are pointers, so has(record.assignee_id) is false when unset.
 type Record struct {
-	ID            string    `cel:"id"`
-	Type          string    `cel:"type"`
-	Number        int64     `cel:"number"`
-	Reference     string    `cel:"reference"`
-	Title         string    `cel:"title"`
-	Description   string    `cel:"description"`
-	Status        string    `cel:"status"`
-	StateCategory string    `cel:"state_category"`
-	Priority      int64     `cel:"priority"`
-	RequesterID   string    `cel:"requester_id"`
-	RequesterName string    `cel:"requester_name"`
-	AssigneeID    *string   `cel:"assignee_id"`
-	AssigneeName  *string   `cel:"assignee_name"`
-	CreatedAt     time.Time `cel:"created_at"`
-	UpdatedAt     time.Time `cel:"updated_at"`
+	ID            string  `cel:"id"`
+	Type          string  `cel:"type"`
+	Number        int64   `cel:"number"`
+	Reference     string  `cel:"reference"`
+	Title         string  `cel:"title"`
+	Description   string  `cel:"description"`
+	Status        string  `cel:"status"`
+	StateCategory string  `cel:"state_category"`
+	Priority      int64   `cel:"priority"`
+	RequesterID   string  `cel:"requester_id"`
+	RequesterName string  `cel:"requester_name"`
+	AssigneeID    *string `cel:"assignee_id"`
+	AssigneeName  *string `cel:"assignee_name"`
+	// AssignmentGroup is the name of the team the ticket is routed to; rules and workflows set it by name.
+	AssignmentGroupID *string   `cel:"assignment_group_id"`
+	AssignmentGroup   *string   `cel:"assignment_group"`
+	CreatedAt         time.Time `cel:"created_at"`
+	UpdatedAt         time.Time `cel:"updated_at"`
 	// Resolution is an incident's own column. It reads as empty for types that have none, so a guard written for
 	// `task` never fails to evaluate: the record is flat, whichever table a field lives in.
 	Resolution string `cel:"resolution"`
@@ -71,6 +77,59 @@ type Input struct {
 	Event string
 	// Vars are a workflow's variables. Only workflows see them.
 	Vars map[string]any
+	// Groups looks up the ids of a group's members by the group's name, for group('name'). Only workflows can use
+	// group(); an expression that does is refused if this is nil. A missing group is an error, never an empty list.
+	Groups func(ctx context.Context, name string) ([]string, error)
+}
+
+// groupsVar holds the members of each group an expression names. group('CAB') is a macro for groupsVar['CAB'], and
+// only the names written in the expression are looked up, just before it runs: a group is people, who change, so it
+// is data, not something an app can know when it is installed.
+const groupsVar = "_groups"
+
+// groupMacro expands group('name'). The name must be written in quotes, so which groups an expression needs is
+// known when it is compiled.
+var groupMacro = cel.GlobalMacro("group", 1, func(eh cel.MacroExprFactory, _ ast.Expr, args []ast.Expr) (ast.Expr, *common.Error) {
+	arg := args[0]
+	if arg.Kind() != ast.LiteralKind || arg.AsLiteral().Type() != types.StringType {
+		return nil, eh.NewError(arg.ID(), "group() takes a group's name in quotes, such as group('CAB')")
+	}
+	return eh.NewCall(operators.Index, eh.NewIdent(groupsVar), eh.Copy(arg)), nil
+})
+
+// groupNames lists the groups a checked expression names through group(). Any other use of the hidden variable is
+// refused, so the list is complete.
+func groupNames(a *cel.Ast) ([]string, error) {
+	var names []string
+	var bad bool
+	root := a.NativeRep()
+	seen := map[int64]bool{}
+	ast.PreOrderVisit(root.Expr(), ast.NewExprVisitor(func(e ast.Expr) {
+		switch e.Kind() {
+		case ast.CallKind:
+			c := e.AsCall()
+			if c.FunctionName() == operators.Index && len(c.Args()) == 2 && c.Args()[0].Kind() == ast.IdentKind && c.Args()[0].AsIdent() == groupsVar {
+				seen[c.Args()[0].ID()] = true
+				s, ok := "", false
+				if lit := c.Args()[1]; lit.Kind() == ast.LiteralKind {
+					s, ok = lit.AsLiteral().Value().(string)
+				}
+				if !ok {
+					bad = true
+				} else if !slices.Contains(names, s) {
+					names = append(names, s)
+				}
+			}
+		case ast.IdentKind:
+			if e.AsIdent() == groupsVar && !seen[e.ID()] {
+				bad = true
+			}
+		}
+	}))
+	if bad {
+		return nil, errors.New("use group('name') to name a group")
+	}
+	return names, nil
 }
 
 // Env compiles expressions for one context. It is safe for concurrent use.
@@ -134,7 +193,7 @@ var (
 
 // Workflow is the environment for a workflow step's expressions: the record as it is now, the person the workflow
 // runs as, the time, and the workflow's own variables (`vars.name`, of no fixed type: a variable is whatever a `set`
-// step stored in it).
+// step stored in it). group('name') is the ids of a group's members, so `approvers: group('CAB')` asks a team.
 func Workflow() (*Env, error) {
 	wfOnce.Do(func() {
 		var e *cel.Env
@@ -144,6 +203,8 @@ func Workflow() (*Env, error) {
 			cel.Variable("user", cel.ObjectType("expr.User")),
 			cel.Variable("now", cel.TimestampType),
 			cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
+			cel.Variable(groupsVar, cel.MapType(cel.StringType, cel.ListType(cel.StringType))),
+			cel.Macros(groupMacro),
 		)
 		wfEnv = &Env{env: e}
 	})
@@ -154,6 +215,7 @@ func Workflow() (*Env, error) {
 type Program struct {
 	prg    cel.Program
 	Source string
+	groups []string // names given to group(), looked up just before each run
 }
 
 // Compile parses and type-checks a boolean expression. The error is one readable sentence with a position.
@@ -222,11 +284,15 @@ func (e *Env) compile(source string, want *cel.Type) (*Program, error) {
 	if want != nil && !a.OutputType().IsExactType(want) {
 		return nil, fmt.Errorf("the expression must produce %s, not %s", describe(want), a.OutputType())
 	}
+	groups, err := groupNames(a)
+	if err != nil {
+		return nil, err
+	}
 	prg, err := e.env.Program(a, cel.EvalOptions(cel.OptTrackCost), cel.CostLimit(costLimit))
 	if err != nil {
 		return nil, err
 	}
-	p := &Program{prg: prg, Source: src}
+	p := &Program{prg: prg, Source: src, groups: groups}
 	e.cache.Store(key, p)
 	return p, nil
 }
@@ -286,7 +352,19 @@ func (p *Program) eval(ctx context.Context, in Input) (ref.Val, error) {
 	if vars == nil {
 		vars = map[string]any{}
 	}
-	out, _, err := p.prg.ContextEval(ctx, map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event, "vars": vars})
+	groups := map[string][]string{}
+	if len(p.groups) > 0 && in.Groups == nil {
+		return nil, errors.New("group() is not available here")
+	}
+	for _, name := range p.groups {
+		ids, err := in.Groups(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		groups[name] = ids
+	}
+	out, _, err := p.prg.ContextEval(ctx, map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event,
+		"vars": vars, groupsVar: groups})
 	return out, err
 }
 

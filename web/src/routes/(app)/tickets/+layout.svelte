@@ -16,6 +16,7 @@
 		staff
 			? [
 					{ id: 'mine', label: 'Mine' },
+					{ id: 'groups', label: 'My groups' },
 					{ id: 'unassigned', label: 'Unassigned' },
 					{ id: 'open', label: 'Open' },
 					{ id: 'all', label: 'All' }
@@ -119,6 +120,9 @@
 							<span class="sub">
 								<Status status={t.status} category={t.state_category} />
 								<span class="who"><span class="sr-only">Requested by </span>{t.requester_name}</span>
+								{#if t.assignment_group_name}
+									<span class="group"><span class="sr-only">Group </span>{t.assignment_group_name}</span>
+								{/if}
 								{#if t.assignee_name}
 									<span class="assignee"><span class="sr-only">Assigned to </span>{t.assignee_name}</span>
 								{:else if t.state_category === 'open' || t.state_category === 'waiting'}
@@ -172,9 +176,12 @@
 	.filters {
 		display: flex;
 		gap: 0.25rem;
+		overflow-x: auto; /* a last resort on the narrowest phones; the labels never wrap */
 	}
 	.filters button {
-		padding: 0.25rem 0.7rem;
+		flex: none;
+		white-space: nowrap;
+		padding: 0.25rem 0.6rem;
 		border: 1px solid transparent;
 		border-radius: var(--radius);
 		background: transparent;
@@ -267,6 +274,17 @@
 		margin-left: auto;
 		white-space: nowrap;
 		color: var(--ink);
+	}
+	/* The team, quieter than the person, beside them on the right. */
+	.group {
+		margin-left: auto;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 3rem;
+	}
+	.group + .assignee {
+		margin-left: 0;
 	}
 	/* Highlighter, so unowned work stands out in a scan. */
 	.assignee.unassigned {
