@@ -29,6 +29,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/secrets"
 	"github.com/servicelater/servicelater/backend/internal/slaclock"
 	"github.com/servicelater/servicelater/backend/internal/slatimer"
+	"github.com/servicelater/servicelater/backend/internal/storage"
 	"github.com/servicelater/servicelater/backend/internal/webui"
 	"github.com/servicelater/servicelater/backend/internal/workflow"
 	"github.com/servicelater/servicelater/backend/internal/workflowengine"
@@ -62,6 +63,8 @@ func Run(ctx context.Context, cfg config.Config) error {
 			slog.Warn("no secrets key: secrets (such as the mail server password) can be neither set nor used; set SL_SECRETS_KEY or SL_SECRETS_KEY_FILE")
 		}
 		deps.Keys = keys
+		// Attachments: each role reads the storage settings from the database when it needs them.
+		deps.Files = &storage.Manager{Pool: pool, Keys: keys, LocalDir: cfg.AttachmentsDir}
 
 		// Install or upgrade the first-party apps that ship in this binary, applying this instance's local layer.
 		// A problem with an app is logged and leaves it as it was: the instance keeps running.
@@ -77,6 +80,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 				return err
 			}
 			deps.Tokens = tokens
+			deps.Signer = storage.NewSigner(cfg.JWTSecret)
 			deps.Auth = auth.NewService(pool, tokens, cfg.RefreshTTL)
 			if cfg.BootstrapEmail != "" {
 				created, err := deps.Auth.Bootstrap(ctx, cfg.BootstrapEmail, cfg.BootstrapName, cfg.BootstrapPassword)
@@ -120,6 +124,9 @@ func Run(ctx context.Context, cfg config.Config) error {
 			worker.Register(workflow.RunKind, engine.Handler())
 			worker.Register(slaclock.AlertKind, slatimer.Handler(workerPool, workerApps))
 			worker.Register(notify.EmailKind, (&notify.Mailer{Pool: workerPool, Apps: workerApps, Keys: keys}).Handler())
+			workerFiles := &storage.Manager{Pool: workerPool, Keys: keys, LocalDir: cfg.AttachmentsDir}
+			worker.Register(storage.PurgeKind, workerFiles.PurgeHandler())
+			worker.Register(storage.ExpireKind, workerFiles.ExpireHandler())
 			background.Add(1)
 			go func() {
 				defer background.Done()

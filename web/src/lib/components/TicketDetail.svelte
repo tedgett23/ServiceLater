@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { api } from '$lib/api';
+	import { openAttachment, preview, previews } from '$lib/attachments.svelte';
 	import AffectedItems from '$lib/components/AffectedItems.svelte';
 	import TicketArticles from '$lib/components/TicketArticles.svelte';
+	import TicketAttachments from '$lib/components/TicketAttachments.svelte';
 	import Signal from '$lib/components/Signal.svelte';
 	import RecordFields from '$lib/components/RecordFields.svelte';
 	import SlaClocks from '$lib/components/SlaClocks.svelte';
 	import Status from '$lib/components/Status.svelte';
 	import { display, patchFor } from '$lib/fields';
-	import { priorityLabel, when } from '$lib/format';
+	import { bytes, priorityLabel, when } from '$lib/format';
 	import { forms } from '$lib/forms.svelte';
 	import { groups } from '$lib/groups.svelte';
 	import { lifecycle } from '$lib/lifecycle.svelte';
@@ -16,7 +18,7 @@
 	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
 	import { staff } from '$lib/staff.svelte';
-	import type { Comment, FieldValue, FormField, HistoryEntry, Status as StatusT, Ticket } from '$lib/types';
+	import type { Attachment, Comment, FieldValue, FormField, HistoryEntry, Status as StatusT, Ticket } from '$lib/types';
 	import { long, what, who } from '$lib/history';
 	import { can, canRecord, P, prefixOf } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
@@ -181,7 +183,9 @@
 		change({ priority: p }, () => api<Ticket>(path, { method: 'PATCH', body: { priority: p } }), `Priority set to ${priorityLabel[p]}`);
 
 	// What the Activity section shows: the conversation, the record's history (every change, by whom), or both in the
-	// order they happened. The choice is remembered in this browser.
+	// order they happened. The choice is remembered in this browser. Files are part of the conversation: each sits
+	// where it arrived among the comments, and one removed since is still accounted for (attached, then removed), so a
+	// comment about "the screenshot" never points at a gap.
 	type Show = 'comments' | 'history' | 'all';
 	function remembered(): Show {
 		try {
@@ -195,7 +199,6 @@
 	let show = $state<Show>(remembered());
 	let history = $state<HistoryEntry[]>([]);
 	async function loadHistory() {
-		if (show === 'comments') return;
 		try {
 			history = (await api<{ items: HistoryEntry[] }>(`${path}/history`)).items;
 		} catch {
@@ -215,12 +218,24 @@
 		void ticket;
 		void untrack(loadHistory);
 	});
-	type ActivityItem = { key: string; at: string; comment?: Comment; change?: HistoryEntry };
+	type ActivityItem = { key: string; at: string; comment?: Comment; change?: HistoryEntry; file?: Attachment };
 	const activity = $derived.by((): ActivityItem[] => {
-		const cs: ActivityItem[] = show === 'history' ? [] : comments.map((c) => ({ key: `c${c.id}`, at: c.created_at, comment: c }));
-		const hs: ActivityItem[] = show === 'comments' ? [] : history.map((e) => ({ key: `h${e.id}`, at: e.at, change: e }));
-		return show === 'all' ? [...cs, ...hs].sort((a, b) => a.at.localeCompare(b.at)) : [...cs, ...hs];
+		const files = ticket.attachments ?? [];
+		const here = new Set(files.map((f) => f.id));
+		const fileOf = (e: HistoryEntry) => (e.new as { id?: string } | null)?.id ?? '';
+		// A file still on the record is shown as itself; its "attached" line would say the same thing twice.
+		const shown = history.filter((e) => !(e.field === 'attachment' && e.action === 'linked' && here.has(fileOf(e))));
+		const hs: ActivityItem[] = (show === 'comments' ? shown.filter((e) => e.field === 'attachment') : shown).map((e) => ({
+			key: `h${e.id}`,
+			at: e.at,
+			change: e
+		}));
+		if (show === 'history') return hs;
+		const cs: ActivityItem[] = comments.map((c) => ({ key: `c${c.id}`, at: c.created_at, comment: c }));
+		const fs: ActivityItem[] = files.map((f) => ({ key: `f${f.id}`, at: f.attached_at ?? f.created_at, file: f }));
+		return [...cs, ...fs, ...hs].sort((a, b) => a.at.localeCompare(b.at));
 	});
+	$effect(() => (ticket.attachments ?? []).forEach(preview));
 
 	// Comments
 	let draft = $state('');
@@ -293,6 +308,9 @@
 				<RecordFields {ticket} {form} {canEdit} save={saveField} />
 			{/if}
 
+			<!-- Files: everyone who sees the record downloads them; its requester and staff attach more. -->
+			<TicketAttachments {ticket} onchange={(attachments) => (ticket = { ...ticket, attachments })} />
+
 			<!-- The configuration items it is about, for those who read the CMDB (the server sends cis only to them). -->
 			{#if can(session.user, P.cmdbRead)}
 				<AffectedItems {ticket} {canEdit} onchange={(cis) => (ticket = { ...ticket, cis })} />
@@ -329,6 +347,21 @@
 									<time datetime={c.created_at}>{c.pending ? 'Sending…' : when(c.created_at)}</time>
 								</div>
 								<p>{c.body}</p>
+							</li>
+						{:else if item.file}
+							{@const f = item.file}
+							<li class="file">
+								<div class="cmeta">
+									<strong>{f.created_by_name}</strong> <span class="did">attached a file</span>
+									<time datetime={item.at}>{when(item.at)}</time>
+								</div>
+								<button class="file-open" type="button" onclick={() => openAttachment(f).catch(() => {})} title={f.inline ? 'Open in a new tab' : 'Download'}>
+									{#if f.inline}
+										<span class="shot">{#if previews[f.id]}<img src={previews[f.id]} alt={f.filename} loading="lazy" />{/if}</span>
+									{/if}
+									<span class="fname">{f.filename}</span>
+									<span class="fsize">{bytes(f.size)}</span>
+								</button>
 							</li>
 						{:else if item.change}
 							{@const e = item.change}
@@ -576,6 +609,52 @@
 		border-radius: var(--radius);
 		background: var(--raised);
 		color: var(--ink);
+	}
+	/* A file sits among the comments: who sent it and when, then the file itself (a picture shows). */
+	.activity li.file .did {
+		color: var(--ink-2);
+	}
+	.file-open {
+		display: grid;
+		grid-template-columns: auto auto;
+		justify-content: start;
+		align-items: baseline;
+		gap: 0.35rem 0.6rem;
+		margin-top: 0.35rem;
+		padding: 0;
+		border: 0;
+		background: none;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.file-open .shot {
+		grid-column: 1 / -1;
+		display: block;
+		width: min(20rem, 100%);
+		min-height: 4rem;
+		border: 1px solid var(--rule);
+		border-radius: var(--radius);
+		background: var(--raised);
+		overflow: hidden;
+	}
+	.file-open img {
+		display: block;
+		width: 100%;
+		max-height: 14rem;
+		object-fit: contain;
+	}
+	.fname {
+		color: var(--blue);
+		font-weight: 600;
+		overflow-wrap: anywhere;
+	}
+	.file-open:hover .fname {
+		text-decoration: underline;
+	}
+	.fsize {
+		color: var(--ink-2);
+		font-size: 0.85rem;
 	}
 	/* A change is a line, quieter than a comment. */
 	.activity li.change {

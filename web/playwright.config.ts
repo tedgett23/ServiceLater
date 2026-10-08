@@ -6,6 +6,8 @@ import { defineConfig } from '@playwright/test';
 const PORT = Number(process.env.E2E_PORT ?? 18200);
 // Where this run's local overrides for bundled apps live (see e2e/apps.spec.ts).
 export const APPS_LOCAL_DIR = path.resolve(import.meta.dirname, 'e2e/.local-apps');
+// Where this run keeps attachments (emptied by global setup).
+export const ATTACHMENTS_DIR = path.resolve(import.meta.dirname, 'e2e/.attachments');
 export const DATABASE_URL =
 	process.env.SL_E2E_DATABASE_URL ?? 'postgres://servicelater:servicelater@localhost:5432/servicelater_e2e?sslmode=disable';
 
@@ -34,6 +36,7 @@ export default defineConfig({
 			SL_JWT_SECRET: 'e2e-only-secret-e2e-only-secret-e2e-only',
 			SL_DATABASE_URL: DATABASE_URL,
 			SL_APPS_LOCAL_DIR: APPS_LOCAL_DIR,
+			SL_ATTACHMENTS_DIR: ATTACHMENTS_DIR,
 			// Encrypts the mail server password (e2e/email.spec.ts). Any 32 bytes, base64; never a real key.
 			SL_SECRETS_KEY: 'ZTJlLW9ubHktc2VjcmV0cy1rZXktMzItYnl0ZXMhISE=',
 			// Chromium releases a closed test context's sockets late, and the suite opens many as one user.

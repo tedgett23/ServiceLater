@@ -1,1 +1,2 @@
-# TODO: image tags, ingress, HPA, external Postgres, secrets (§10.2)
+# TODO: image tags, ingress, HPA, external Postgres, secrets (§10.2), and attachments: a ReadWriteMany volume at
+# SL_ATTACHMENTS_DIR on every api and worker pod, or S3 (Admin > Storage)

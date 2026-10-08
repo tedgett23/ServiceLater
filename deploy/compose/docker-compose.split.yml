@@ -19,13 +19,16 @@ services:
     environment: &db
       SL_ROLES: api
       SL_APPS_LOCAL_DIR: /data/apps-local   # the same local layer on every api and worker
+      # Attachments kept in a folder (the default; Admin > Storage can switch to S3) must be the same folder on every
+      # api and worker. A named volume is, on one host; across hosts, mount shared storage (NFS, EFS) or use S3.
+      SL_ATTACHMENTS_DIR: /data/attachments
       SL_JWT_SECRET: ${SL_JWT_SECRET:?set in .env (openssl rand -base64 48)}  # identical on every api replica
       # Encrypts stored secrets such as the mail server password (servicelater secrets gen-key). Every api and worker needs the same one.
       SL_SECRETS_KEY: ${SL_SECRETS_KEY:-}
       SL_BOOTSTRAP_ADMIN_EMAIL: ${SL_BOOTSTRAP_ADMIN_EMAIL:-}
       SL_BOOTSTRAP_ADMIN_PASSWORD: ${SL_BOOTSTRAP_ADMIN_PASSWORD:-}
       SL_DATABASE_URL: postgres://servicelater:${POSTGRES_PASSWORD}@db:5432/servicelater?sslmode=disable
-    volumes: [apps-local:/data/apps-local]
+    volumes: [apps-local:/data/apps-local, attachments:/data/attachments]
     depends_on: [db]
 
   worker:
@@ -33,7 +36,7 @@ services:
     environment:
       <<: *db
       SL_ROLES: worker
-    volumes: [apps-local:/data/apps-local]
+    volumes: [apps-local:/data/apps-local, attachments:/data/attachments]
     depends_on: [db]
 
   web:
@@ -47,3 +50,4 @@ services:
 volumes:
   pgdata:
   apps-local:
+  attachments:

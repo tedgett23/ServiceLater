@@ -9,3 +9,5 @@ backend/internal/webui/dist/*
 
 # This instance's own overrides for bundled apps (never committed)
 /apps-local/
+# Attachments kept by `make dev-backend`
+/data/

@@ -60,6 +60,22 @@ type AppOverride struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Attachment struct {
+	ID          uuid.UUID          `json:"id"`
+	TaskID      uuid.UUID          `json:"task_id"`
+	Filename    string             `json:"filename"`
+	ContentType string             `json:"content_type"`
+	Size        int64              `json:"size"`
+	Backend     string             `json:"backend"`
+	Key         string             `json:"key"`
+	UploadID    string             `json:"upload_id"`
+	PartSize    int64              `json:"part_size"`
+	Status      string             `json:"status"`
+	CreatedBy   uuid.UUID          `json:"created_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	ReadyAt     pgtype.Timestamptz `json:"ready_at"`
+}
+
 type BusinessCalendar struct {
 	ID        uuid.UUID          `json:"id"`
 	Name      string             `json:"name"`

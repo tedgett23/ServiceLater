@@ -7,8 +7,9 @@
 //   - each handler's doc comment, as the operation's description;
 //   - the request body, from the value passed to decode(w, r, &req);
 //   - query parameters, from url.Values.Get calls, and path parameters, from the route pattern;
-//   - responses, from writeJSON(w, status, value) and w.WriteHeader(status), with the value's Go type (a struct, or
-//     a map[string]any literal) turned into a JSON schema through its json tags and field comments;
+//   - responses, from writeJSON(w, status, value), w.WriteHeader(status) and http.ServeContent (200 and 206), with the
+//     value's Go type (a struct, or a map[string]any literal) turned into a JSON schema through its json tags and
+//     field comments;
 //   - error statuses, from writeError and the apiError helpers, followed into the package's own functions.
 //
 // A handler the reader cannot make sense of (no response it can see, a route registered some other way) is an
@@ -539,6 +540,9 @@ func (g *gen) analyse(body *ast.BlockStmt) analysis {
 					a.success[code] = g.valueSchema(c.Args[2])
 				}
 			}
+		case g.isFunc(c, "net/http", "ServeContent"):
+			// A file's bytes, whole or a range of them.
+			a.success[http.StatusOK], a.success[http.StatusPartialContent] = nil, nil
 		case g.isLocal(c, "intParam") && len(c.Args) >= 2:
 			if inner, ok := c.Args[1].(*ast.CallExpr); ok {
 				if name, ok := g.queryGet(inner); ok {

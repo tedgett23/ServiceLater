@@ -23,8 +23,10 @@ export function what(e: HistoryEntry, subject = 'it'): string {
 		case 'deleted':
 			return `deleted ${subject}`;
 		case 'linked':
+			if (e.field === 'attachment') return `attached ${to}`;
 			return `linked ${label.toLowerCase()} ${to}`;
 		case 'unlinked':
+			if (e.field === 'attachment') return `removed the attachment ${from}`;
 			return `unlinked ${label.toLowerCase()} ${from}`;
 	}
 	if (e.kind === 'long') return from ? `changed ${label}` : `wrote ${label}`;

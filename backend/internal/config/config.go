@@ -37,6 +37,11 @@ type Config struct {
 	BundledApps  string
 	AppsLocalDir string
 
+	// AttachmentsDir is the folder attachments are kept in when the instance stores them locally
+	// (SL_ATTACHMENTS_DIR, default /data/attachments). On a cluster it must be the same shared folder on every api and
+	// worker server.
+	AttachmentsDir string
+
 	// MaxLiveConns is how many live (WebSocket) connections one person may hold at once: their open tabs and devices
 	// (SL_MAX_LIVE_CONNS, default 10).
 	MaxLiveConns int
@@ -71,6 +76,7 @@ func Load() (Config, error) {
 		MaxLiveConns:      10,
 		BundledApps:       os.Getenv("SL_BUNDLED_APPS"),
 		AppsLocalDir:      os.Getenv("SL_APPS_LOCAL_DIR"),
+		AttachmentsDir:    getenv("SL_ATTACHMENTS_DIR", "/data/attachments"),
 		BootstrapEmail:    os.Getenv("SL_BOOTSTRAP_ADMIN_EMAIL"),
 		BootstrapName:     getenv("SL_BOOTSTRAP_ADMIN_NAME", "Administrator"),
 		BootstrapPassword: os.Getenv("SL_BOOTSTRAP_ADMIN_PASSWORD"),

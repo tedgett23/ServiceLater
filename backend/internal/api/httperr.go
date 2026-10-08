@@ -23,9 +23,10 @@ type apiError struct {
 
 func (e *apiError) Error() string { return e.msg }
 
-func invalid(msg string) error   { return &apiError{http.StatusUnprocessableEntity, msg} }
-func forbidden(msg string) error { return &apiError{http.StatusForbidden, msg} }
-func notFound() error            { return &apiError{http.StatusNotFound, "not found"} }
+func invalid(msg string) error     { return &apiError{http.StatusUnprocessableEntity, msg} }
+func forbidden(msg string) error   { return &apiError{http.StatusForbidden, msg} }
+func notFound() error              { return &apiError{http.StatusNotFound, "not found"} }
+func unavailable(msg string) error { return &apiError{http.StatusServiceUnavailable, msg} }
 
 // tx runs fn as the authenticated user under RLS and writes the error response itself on failure.
 // It reports whether fn succeeded; on false the caller must just return.
