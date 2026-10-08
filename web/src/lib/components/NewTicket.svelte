@@ -1,21 +1,34 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
-	import { priorityLabel } from '$lib/format';
+	import FieldInput from '$lib/components/FieldInput.svelte';
+	import { wide } from '$lib/fields';
+	import { forms } from '$lib/forms.svelte';
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { queue } from '$lib/queue.svelte';
-	import type { Ticket } from '$lib/types';
+	import type { FieldState, FieldValue, FormField, Ticket } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let dialog: HTMLDialogElement;
-	let title = $state('');
-	let description = $state('');
-	let priority = $state<1 | 2 | 3 | 4>(3);
 	// Which kind of record to file. The choice is offered only when the person may file more than one type.
 	let chosen = $state('');
 	const kind = $derived(lifecycle.fileable.some((t) => t.type === chosen) ? chosen : (lifecycle.fileable[0]?.type ?? 'incident'));
 	let busy = $state(false);
 	let error = $state('');
+
+	// The type's form for filing: its fields in order, what has been filled in, and what the server says of each field
+	// now (shown, required, writable, which options).
+	const form = $derived(forms.of(kind));
+	const fields = $derived(
+		(form?.create ?? []).map((n) => form!.fields.find((f) => f.name === n)).filter((f): f is FormField => !!f)
+	);
+	let values = $state<Record<string, FieldValue | null>>({});
+	let states = $state<Record<string, FieldState>>({});
+	let filledFor = '';
+
+	$effect(() => {
+		for (const t of lifecycle.fileable) void forms.ensure(t.type);
+	});
 
 	// The dialog element owns focus trapping and Escape; we just mirror its open state.
 	$effect(() => {
@@ -23,9 +36,64 @@
 		if (!ui.newTicketOpen && dialog.open) dialog.close();
 	});
 
+	// A new type (or its form arriving) starts from the form's defaults.
+	$effect(() => {
+		if (!form || filledFor === kind) return;
+		filledFor = kind;
+		values = Object.fromEntries(form.fields.filter((f) => f.default !== undefined).map((f) => [f.name, f.default!]));
+		states = {};
+		void askStates();
+	});
+
+	/** The request body for what has been filled in. Read-only and hidden fields are left out when filing. */
+	function body(forSave: boolean) {
+		const out: Record<string, unknown> = {};
+		const change: Record<string, unknown> = {};
+		const extra: Record<string, unknown> = {};
+		for (const f of fields) {
+			const v = values[f.name];
+			if (forSave && (states[f.name]?.hidden || states[f.name]?.read_only)) continue;
+			if (v === null || v === undefined || v === '') continue;
+			if (!f.core) extra[f.name] = v;
+			else if (['title', 'description', 'priority'].includes(f.name)) out[f.name] = v;
+			else change[f.name] = v;
+		}
+		if (Object.keys(change).length) out.change = change;
+		if (Object.keys(extra).length) out.fields = extra;
+		return out;
+	}
+
+	// Asking again whenever a field the form's conditions read changes, a moment after the person stops.
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let asked = 0;
+	async function askStates() {
+		const type = kind;
+		const n = ++asked;
+		try {
+			const res = await api<{ states: Record<string, FieldState>; values: Record<string, FieldValue> | null }>(
+				`/api/v1/forms/${type}/states`,
+				{ method: 'POST', body: body(false) }
+			);
+			if (n !== asked || type !== kind) return;
+			states = res.states;
+			// A field the person cannot change shows what the rules will make it (priority from impact and urgency).
+			for (const [name, v] of Object.entries(res.values ?? {})) if (states[name]?.read_only) values[name] = v;
+		} catch {
+			/* keep the states we have: saving checks again */
+		}
+	}
+
+	function set(f: FormField, v: FieldValue | null) {
+		values[f.name] = v;
+		if (form?.reactive.includes(f.name)) {
+			clearTimeout(timer);
+			timer = setTimeout(askStates, 150);
+		}
+	}
+
 	function reset() {
-		title = description = error = chosen = '';
-		priority = 3;
+		error = chosen = '';
+		filledFor = '';
 	}
 
 	async function submit(e: SubmitEvent) {
@@ -33,7 +101,7 @@
 		busy = true;
 		error = '';
 		try {
-			const t = await api<Ticket>('/api/v1/tickets', { method: 'POST', body: { type: kind, title, description, priority } });
+			const t = await api<Ticket>('/api/v1/tickets', { method: 'POST', body: { type: kind, ...body(true) } });
 			queue.prepend(t);
 			ui.newTicketOpen = false;
 			ui.announce = `Created ${t.reference}`;
@@ -63,29 +131,32 @@
 			</fieldset>
 		{/if}
 
-		<label class="field">
-			<span>Summary</span>
-			<!-- svelte-ignore a11y_autofocus -->
-			<input name="title" required maxlength="200" autofocus bind:value={title} />
-		</label>
-		<label class="field">
-			<span>Details</span>
-			<textarea name="description" maxlength="10000" bind:value={description}></textarea>
-		</label>
-		<label class="field">
-			<span>Priority</span>
-			<select name="priority" bind:value={priority}>
-				{#each [1, 2, 3, 4] as const as p (p)}
-					<option value={p}>{priorityLabel[p]}</option>
-				{/each}
-			</select>
-		</label>
+		<div class="fields">
+			{#each fields as f, i (f.name)}
+				{@const st = states[f.name] ?? {}}
+				{#if !st.hidden}
+					<div class="field" class:wide={wide(f) || f.type === 'datetime' || f.name === 'title'}>
+						<label for="nt-{f.name}">{f.label}{#if (st.required ?? f.required) && f.name !== 'title'}<span class="req" aria-hidden="true"> *</span>{/if}</label>
+						<FieldInput
+							field={f}
+							value={values[f.name] ?? null}
+							fieldState={st}
+							id="nt-{f.name}"
+							disabled={!!st.read_only}
+							live
+							autofocus={i === 0}
+							onchange={(v) => set(f, v)}
+						/>
+					</div>
+				{/if}
+			{/each}
+		</div>
 
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
 
 		<div class="actions">
 			<button type="button" class="btn" onclick={() => (ui.newTicketOpen = false)}>Cancel</button>
-			<button class="btn primary" disabled={busy}>{busy ? 'Creating…' : 'Create ticket'}</button>
+			<button class="btn primary" disabled={busy || !form}>{busy ? 'Creating…' : 'Create ticket'}</button>
 		</div>
 	</form>
 </dialog>
@@ -93,6 +164,8 @@
 <style>
 	dialog {
 		width: min(32rem, calc(100vw - 2rem));
+		max-height: calc(100dvh - 2rem);
+		overflow-y: auto;
 		padding: 0;
 		border: 1px solid var(--rule);
 		border-radius: var(--radius);
@@ -145,6 +218,18 @@
 	.kind input:focus-visible + span {
 		outline: 2px solid var(--blue);
 		outline-offset: 2px;
+	}
+	.fields {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+		gap: 1rem;
+		align-items: start;
+	}
+	.wide {
+		grid-column: 1 / -1;
+	}
+	.req {
+		color: var(--red);
 	}
 	.actions {
 		display: flex;

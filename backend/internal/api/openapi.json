@@ -390,6 +390,189 @@
         ],
         "type": "object"
       },
+      "FieldState": {
+        "properties": {
+          "hidden": {
+            "type": "boolean"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "Form": {
+        "description": "How a record type's fields are laid out: every field the form places, which go on the form for filing one and in which sections on the record. Whether each is shown, required or writable right now is a ticket's field_states, or for a record being filed, POST /forms/{type}/states.",
+        "properties": {
+          "app": {
+            "description": "The app that defines the form; empty for the form a type has without one.",
+            "type": "string"
+          },
+          "create": {
+            "description": "Lists the fields on the form for filing one, in order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "detail": {
+            "description": "Lists the sections of fields shown on the record, in order. Title, description and priority have places of their own there and are not listed.",
+            "items": {
+              "$ref": "#/components/schemas/Section"
+            },
+            "type": "array"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/FormField"
+            },
+            "type": "array"
+          },
+          "reactive": {
+            "description": "The fields the form's conditions read: when one of them changes while filing, ask for the states again.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "record_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "create",
+          "detail",
+          "fields",
+          "reactive",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "FormField": {
+        "description": "One field: one of the record's own (core) or an extra field the form declares.",
+        "properties": {
+          "core": {
+            "description": "Set for the record's own fields, which requests name directly (title, resolution) or under change; extra fields go under fields.",
+            "type": "boolean"
+          },
+          "default": {
+            "description": "What a new record starts with, for extra fields that have one."
+          },
+          "help": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "max": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_length": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "min": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            },
+            "type": "array"
+          },
+          "required": {
+            "description": "Set when the field is always required; field_states says when it is now.",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "Text, textarea, number, boolean, date, datetime or choice; the core priority field is priority.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "core",
+          "label",
+          "name",
+          "type"
+        ],
+        "type": "object"
+      },
+      "FormStates": {
+        "description": "How the form for filing stands for a draft.",
+        "properties": {
+          "states": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FieldState"
+            },
+            "description": "Each field's state, by name.",
+            "type": "object"
+          },
+          "values": {
+            "additionalProperties": {},
+            "description": "What the before rules would set fields to, by name, where that differs from the draft.",
+            "type": "object"
+          }
+        },
+        "required": [
+          "states",
+          "values"
+        ],
+        "type": "object"
+      },
+      "FormStatesRequest": {
+        "description": "A record being filed, as far as it is filled in.",
+        "properties": {
+          "change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChangeFields"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {},
+            "description": "The extra fields filled in so far, by name.",
+            "type": "object"
+          },
+          "priority": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Freeze": {
         "description": "A change freeze: a period when changes may not be scheduled. What a freeze stops is up to the apps installed (change-management refuses a planned window that overlaps one, except for an emergency change, and holds back work that would start during one).",
         "properties": {
@@ -864,6 +1047,22 @@
         ],
         "type": "object"
       },
+      "Option": {
+        "description": "One value a choice offers.",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
       "Permission": {
         "properties": {
           "description": {
@@ -1219,6 +1418,23 @@
         ],
         "type": "object"
       },
+      "Section": {
+        "properties": {
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fields"
+        ],
+        "type": "object"
+      },
       "State": {
         "properties": {
           "category": {
@@ -1327,6 +1543,17 @@
           "description": {
             "type": "string"
           },
+          "field_states": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FieldState"
+            },
+            "description": "Says, for each field of the type's form, whether it is shown, required and writable now, and which options a choice offers (single-ticket responses). A field with no entry is shown, optional and writable.",
+            "type": "object"
+          },
+          "fields": {
+            "additionalProperties": {},
+            "type": "object"
+          },
           "id": {
             "format": "uuid",
             "type": "string"
@@ -1401,6 +1628,7 @@
           "assignment_group_name",
           "created_at",
           "description",
+          "fields",
           "id",
           "number",
           "priority",
@@ -2669,6 +2897,180 @@
         "summary": "List calendar",
         "tags": [
           "calendar"
+        ]
+      }
+    },
+    "/api/v1/forms/{type}": {
+      "get": {
+        "description": "The form for a record type, for anyone signed in (people file incidents). A type no app gives a form to has one made of its own fields.",
+        "operationId": "getForm",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Form"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get form",
+        "tags": [
+          "forms"
+        ]
+      }
+    },
+    "/api/v1/forms/{type}/states": {
+      "post": {
+        "description": "Whether each field of the form is shown, required and writable for a record being filed with these values, which options a choice offers, and in values what the type's before rules would set fields to (a priority worked out from impact and urgency). Nothing is saved. The form for filing asks again when a field listed in the form's reactive changes. Saving checks all of it again.",
+        "operationId": "formStates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormStatesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormStates"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Form states",
+        "tags": [
+          "forms"
         ]
       }
     },
@@ -5465,6 +5867,11 @@
                   "description": {
                     "type": "string"
                   },
+                  "fields": {
+                    "additionalProperties": {},
+                    "description": "Fills in extra fields, by name, as the type's form declares them (GET /forms/{type}).",
+                    "type": "object"
+                  },
                   "priority": {
                     "format": "int32",
                     "type": [
@@ -5740,6 +6147,11 @@
                       "string",
                       "null"
                     ]
+                  },
+                  "fields": {
+                    "additionalProperties": {},
+                    "description": "Sets extra fields by name; null clears one. Fields not named are left alone.",
+                    "type": "object"
                   },
                   "priority": {
                     "format": "int32",
@@ -7674,6 +8086,9 @@
     },
     {
       "name": "calendar"
+    },
+    {
+      "name": "forms"
     },
     {
       "name": "freeze-windows"

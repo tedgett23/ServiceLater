@@ -268,9 +268,10 @@ func buildPlan(ctx context.Context, q *dbgen.Queries, c *Compiled) (*Plan, error
 		ref := DefRef{d.Kind, d.Name}
 		seen[ref] = true
 		plan.Sources[ref] = d.Source()
-		// A record type has one lifecycle, and a role name means one set of permissions, so two apps cannot both
-		// provide either. Rules do not compete: each is named within its own app, and every applicable rule runs.
-		if d.Kind == "lifecycle" || d.Kind == "role" {
+		// A record type has one lifecycle and one form, and a role name means one set of permissions, so two apps
+		// cannot both provide any of them. Rules do not compete: each is named within its own app, and every
+		// applicable rule runs.
+		if d.Kind == "lifecycle" || d.Kind == "role" || d.Kind == "form" {
 			if other, err := q.FindDefinitionProvider(ctx, dbgen.FindDefinitionProviderParams{Kind: d.Kind, Name: d.Name, AppName: m.Name}); err == nil {
 				problems = append(problems, fmt.Sprintf("the %s is already provided by %s: uninstall it first, or remove it from one of the apps", ref, other))
 				continue

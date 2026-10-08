@@ -1,18 +1,20 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { api } from '$lib/api';
-	import ChangePlan from '$lib/components/ChangePlan.svelte';
 	import Signal from '$lib/components/Signal.svelte';
+	import RecordFields from '$lib/components/RecordFields.svelte';
 	import SlaClocks from '$lib/components/SlaClocks.svelte';
 	import Status from '$lib/components/Status.svelte';
+	import { display, patchFor } from '$lib/fields';
 	import { priorityLabel, when } from '$lib/format';
+	import { forms } from '$lib/forms.svelte';
 	import { groups } from '$lib/groups.svelte';
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { queue } from '$lib/queue.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
 	import { staff } from '$lib/staff.svelte';
-	import type { ChangeFields, Comment, Status as StatusT, Ticket } from '$lib/types';
+	import type { Comment, FieldValue, FormField, Status as StatusT, Ticket } from '$lib/types';
 	import { can, canRecord, P, prefixOf } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
@@ -22,8 +24,6 @@
 	let ticket = $state(untrack(() => props.ticket));
 	let comments = $state(untrack(() => props.comments));
 	let error = $state('');
-	let resolutionDraft = $state(untrack(() => props.ticket.resolution));
-	let editingResolution = false; // while typing, live updates must not overwrite the draft
 	let inflight = $state(0); // local edits awaiting the server; live refetches wait so they can't undo them, and actions pause
 	let stale = false; // a live update arrived while an edit was in flight: refetch as soon as the edit settles
 
@@ -33,17 +33,22 @@
 	// The server says which moves to offer (the natural next step first) and which are blocked right now, and why.
 	const moves = $derived(ticket.moves ?? []);
 
-	// Keep the notes box in step with the ticket (another agent may edit it), except while it is being typed in.
-	$effect(() => {
-		const saved = ticket.resolution;
-		if (!editingResolution) resolutionDraft = saved;
-	});
+	// The type's form says which fields the record shows and in which sections; the ticket says their state now.
+	$effect(() => void forms.ensure(ticket.type));
+	const form = $derived(forms.of(ticket.type));
+	const priorityField = $derived(form?.fields.find((f) => f.name === 'priority'));
+	const priorityLocked = $derived(!!ticket.field_states?.priority?.read_only);
 
-	async function saveResolution() {
-		editingResolution = false;
-		const text = resolutionDraft;
-		if (text === ticket.resolution) return;
-		await change({ resolution: text }, () => api<Ticket>(path, { method: 'PATCH', body: { resolution: text } }), 'Resolution notes saved');
+	function saveField(f: FormField, v: FieldValue | null) {
+		const { body, optimistic } = patchFor(ticket, f, v);
+		// Say what a choice became; text is too long to read back.
+		const done =
+			v === null || v === ''
+				? `${f.label} cleared`
+				: f.type === 'text' || f.type === 'textarea'
+					? `${f.label} saved`
+					: `${f.label} set to ${display(f, v)}`;
+		void change(optimistic, () => api<Ticket>(path, { method: 'PATCH', body }), done);
 	}
 
 	$effect(() => {
@@ -169,11 +174,6 @@
 		);
 	}
 
-	// A change's own fields, sent nested as the API takes them.
-	async function saveChange(fields: Partial<ChangeFields>, done: string) {
-		await change({ change: { ...ticket.change!, ...fields } }, () => api<Ticket>(path, { method: 'PATCH', body: { change: fields } }), done);
-	}
-
 	const setPriority = (p: 1 | 2 | 3 | 4) =>
 		change({ priority: p }, () => api<Ticket>(path, { method: 'PATCH', body: { priority: p } }), `Priority set to ${priorityLabel[p]}`);
 
@@ -243,29 +243,9 @@
 				<p class="desc none">No details were added.</p>
 			{/if}
 
-			<!-- Resolution notes are an incident's own field: staff write them, everyone who can see the ticket reads them. -->
-			{#if ticket.type === 'incident'}
-				{#if canEdit}
-					<label class="field resolution">
-						<span>Resolution notes</span>
-						<textarea
-							bind:value={resolutionDraft}
-							onfocus={() => (editingResolution = true)}
-							onblur={saveResolution}
-							maxlength="10000"
-							placeholder="How was this fixed?"
-						></textarea>
-					</label>
-				{:else if ticket.resolution}
-					<section class="resolved" aria-labelledby="resolution-h">
-						<h2 id="resolution-h">Resolution</h2>
-						<p>{ticket.resolution}</p>
-					</section>
-				{/if}
-			{/if}
-
-			{#if ticket.change}
-				<ChangePlan change={ticket.change} {canEdit} save={saveChange} />
+			<!-- The rest of the record's fields, as its form lays them out: staff edit them, everyone who can see it reads them. -->
+			{#if form}
+				<RecordFields {ticket} {form} {canEdit} save={saveField} />
 			{/if}
 		</div>
 
@@ -341,12 +321,20 @@
 				{/if}
 
 				<div>
-					<dt>Priority</dt>
+					<dt>{priorityField?.label ?? 'Priority'}</dt>
 					<dd>
 						{#if canEdit}
-							<select class="select" value={ticket.priority} onchange={(e) => setPriority(+e.currentTarget.value as 1 | 2 | 3 | 4)} aria-label="Priority">
+							<select
+								class="select"
+								value={ticket.priority}
+								disabled={priorityLocked}
+								onchange={(e) => setPriority(+e.currentTarget.value as 1 | 2 | 3 | 4)}
+								aria-label={priorityField?.label ?? 'Priority'}
+								aria-describedby={priorityLocked && priorityField?.help ? 'priority-help' : undefined}
+							>
 								{#each [1, 2, 3, 4] as const as p (p)}<option value={p}>{priorityLabel[p]}</option>{/each}
 							</select>
+							{#if priorityLocked && priorityField?.help}<p class="help" id="priority-help">{priorityField.help}</p>{/if}
 						{:else}
 							<span class="inline"><Signal priority={ticket.priority} /> {priorityLabel[ticket.priority]}</span>
 						{/if}
@@ -520,21 +508,6 @@
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
 	}
-	.resolution textarea {
-		min-height: 5rem;
-	}
-	.resolved {
-		padding-left: 0.9rem;
-		border-left: 3px solid var(--ink-2);
-	}
-	.resolved h2 {
-		margin-bottom: 0.4rem;
-		font-size: 1.15rem;
-	}
-	.resolved p {
-		white-space: pre-wrap;
-		overflow-wrap: anywhere;
-	}
 	.none {
 		color: var(--ink-2);
 	}
@@ -655,6 +628,11 @@
 		gap: 0.4rem;
 	}
 	/* Why a move is unavailable, right under it, so nobody has to guess or try and fail. */
+	.help {
+		margin-top: 0.3rem;
+		font-size: 0.8rem;
+		color: var(--ink-2);
+	}
 	.why {
 		margin: -0.15rem 0 0.35rem;
 		padding-left: 0.6rem;

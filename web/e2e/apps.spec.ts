@@ -20,7 +20,7 @@ test('changing an app updates screens that are already open, with no reload', as
 
 	// An operator ships a new version of the app: new label and a new button name.
 	const app = modifiedIncidentApp({
-		'app.yaml': bumpVersion('0.2.1'),
+		'app.yaml': bumpVersion('0.3.1'),
 		'default/lifecycles/incident.yaml': (text) =>
 			text.replace('label: New,', 'label: Fresh,').replace('verb: Start work', 'verb: Pick it up')
 	});
@@ -52,7 +52,7 @@ test('an update that would strand tickets is refused, and nothing changes', asyn
 
 	// A version of the app with no on_hold state, while a ticket is on hold.
 	const app = modifiedIncidentApp({
-		'app.yaml': bumpVersion('0.3.0'),
+		'app.yaml': bumpVersion('0.4.0'),
 		'default/lifecycles/incident.yaml': (text) =>
 			text
 				.replace(/^  on_hold:.*\n/m, '')
@@ -68,7 +68,7 @@ test('an update that would strand tickets is refused, and nothing changes', asyn
 	// The installed lifecycle is untouched.
 	const res = await context.request.get('/api/v1/lifecycles/incident');
 	const lifecycle = await res.json();
-	expect(lifecycle.version).toBe('0.2.0');
+	expect(lifecycle.version).toBe('0.3.0');
 	expect(lifecycle.states.map((s: { id: string }) => s.id)).toContain('on_hold');
 });
 
@@ -129,7 +129,7 @@ test('a guard blocks a move, says why, and lifts as soon as the ticket is fixed'
 
 	// A new release of the app: starting work now needs an assignee.
 	const app = modifiedIncidentApp({
-		'app.yaml': bumpVersion('0.3.0'),
+		'app.yaml': bumpVersion('0.4.0'),
 		'default/lifecycles/incident.yaml': (text) =>
 			text.replace(
 				/verb: Start work,\s+primary: true \}/,
@@ -161,7 +161,7 @@ test('a guard blocks a move, says why, and lifts as soon as the ticket is fixed'
 
 test('an app with a mistake in a guard is refused before it can do any harm', async () => {
 	const app = modifiedIncidentApp({
-		'app.yaml': bumpVersion('0.4.0'),
+		'app.yaml': bumpVersion('0.5.0'),
 		'default/lifecycles/incident.yaml': (text) =>
 			text.replace(/verb: Start work,\s+primary: true \}/, "verb: Start work, primary: true, when: 'record.prioity <= 2', error: Nope }")
 	});
@@ -183,7 +183,7 @@ test('a guard can require resolution notes, and writing them unlocks the move', 
 	await expect(resolve).toBeEnabled();
 
 	const app = modifiedIncidentApp({
-		'app.yaml': bumpVersion('0.5.0'),
+		'app.yaml': bumpVersion('0.6.0'),
 		'default/lifecycles/incident.yaml': (text) =>
 			text.replace(
 				/verb: Resolve,\s+primary: true \}/,

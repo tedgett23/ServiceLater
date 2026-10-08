@@ -67,9 +67,9 @@ func (q *Queries) CreateIncident(ctx context.Context, taskID uuid.UUID) error {
 
 const createTask = `-- name: CreateTask :one
 
-INSERT INTO tasks (type, title, description, priority, requester_id, status, state_category, assignment_group_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id
+INSERT INTO tasks (type, title, description, priority, requester_id, status, state_category, assignment_group_id, fields)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::jsonb, '{}'::jsonb))
+RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields
 `
 
 type CreateTaskParams struct {
@@ -81,6 +81,7 @@ type CreateTaskParams struct {
 	Status            string        `json:"status"`
 	StateCategory     string        `json:"state_category"`
 	AssignmentGroupID uuid.NullUUID `json:"assignment_group_id"`
+	Fields            []byte        `json:"fields"`
 }
 
 // Tasks are the shared base of every record type; a type with typed columns adds an extension table
@@ -98,6 +99,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		arg.Status,
 		arg.StateCategory,
 		arg.AssignmentGroupID,
+		arg.Fields,
 	)
 	var i Task
 	err := row.Scan(
@@ -114,6 +116,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		&i.StateCategory,
 		&i.Type,
 		&i.AssignmentGroupID,
+		&i.Fields,
 	)
 	return i, err
 }
@@ -148,7 +151,7 @@ func (q *Queries) GetCommentView(ctx context.Context, id uuid.UUID) (GetCommentV
 }
 
 const getTask = `-- name: GetTask :one
-SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id FROM tasks WHERE id = $1
+SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields FROM tasks WHERE id = $1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id uuid.UUID) (Task, error) {
@@ -168,12 +171,13 @@ func (q *Queries) GetTask(ctx context.Context, id uuid.UUID) (Task, error) {
 		&i.StateCategory,
 		&i.Type,
 		&i.AssignmentGroupID,
+		&i.Fields,
 	)
 	return i, err
 }
 
 const getTaskByReference = `-- name: GetTaskByReference :one
-SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id FROM tasks t JOIN task_types tt ON tt.type = t.type WHERE tt.prefix = $1 AND t.number = $2
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields FROM tasks t JOIN task_types tt ON tt.type = t.type WHERE tt.prefix = $1 AND t.number = $2
 `
 
 type GetTaskByReferenceParams struct {
@@ -199,12 +203,13 @@ func (q *Queries) GetTaskByReference(ctx context.Context, arg GetTaskByReference
 		&i.StateCategory,
 		&i.Type,
 		&i.AssignmentGroupID,
+		&i.Fields,
 	)
 	return i, err
 }
 
 const getTaskByTypeNumber = `-- name: GetTaskByTypeNumber :one
-SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id FROM tasks WHERE type = $1 AND number = $2
+SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields FROM tasks WHERE type = $1 AND number = $2
 `
 
 type GetTaskByTypeNumberParams struct {
@@ -229,12 +234,13 @@ func (q *Queries) GetTaskByTypeNumber(ctx context.Context, arg GetTaskByTypeNumb
 		&i.StateCategory,
 		&i.Type,
 		&i.AssignmentGroupID,
+		&i.Fields,
 	)
 	return i, err
 }
 
 const getTaskForUpdate = `-- name: GetTaskForUpdate :one
-SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id FROM tasks WHERE id = $1 FOR UPDATE
+SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields FROM tasks WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetTaskForUpdate(ctx context.Context, id uuid.UUID) (Task, error) {
@@ -254,6 +260,7 @@ func (q *Queries) GetTaskForUpdate(ctx context.Context, id uuid.UUID) (Task, err
 		&i.StateCategory,
 		&i.Type,
 		&i.AssignmentGroupID,
+		&i.Fields,
 	)
 	return i, err
 }
@@ -275,7 +282,7 @@ func (q *Queries) GetTaskType(ctx context.Context, type_ string) (TaskType, erro
 }
 
 const getTicketView = `-- name: GetTicketView :one
-SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
        g.name AS assignment_group_name, COALESCE(i.resolution, '')::text AS resolution,
        c.change_type, COALESCE(c.risk, '')::text AS risk, COALESCE(c.impact, '')::text AS impact,
        c.planned_start, c.planned_end, COALESCE(c.implementation_plan, '')::text AS implementation_plan,
@@ -326,6 +333,7 @@ func (q *Queries) GetTicketView(ctx context.Context, id uuid.UUID) (GetTicketVie
 		&i.Task.StateCategory,
 		&i.Task.Type,
 		&i.Task.AssignmentGroupID,
+		&i.Task.Fields,
 		&i.TypePrefix,
 		&i.RequesterName,
 		&i.AssigneeName,
@@ -488,7 +496,7 @@ func (q *Queries) ListTaskTypes(ctx context.Context) ([]TaskType, error) {
 }
 
 const listTickets = `-- name: ListTickets :many
-SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
        g.name AS assignment_group_name, sla.due_at::timestamptz AS sla_due_at, COALESCE(sla.breached, false)::bool AS sla_breached
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
@@ -589,6 +597,7 @@ func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]Lis
 			&i.Task.StateCategory,
 			&i.Task.Type,
 			&i.Task.AssignmentGroupID,
+			&i.Task.Fields,
 			&i.TypePrefix,
 			&i.RequesterName,
 			&i.AssigneeName,
@@ -663,9 +672,11 @@ UPDATE tasks SET
     priority    = COALESCE($3, priority),
     assignee_id = CASE WHEN $4::bool THEN $5 ELSE assignee_id END,
     assignment_group_id = CASE WHEN $6::bool THEN $7
-                               ELSE assignment_group_id END
-WHERE id = $8
-RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id
+                               ELSE assignment_group_id END,
+    -- The whole object: the save works out the fields from the form and writes the result.
+    fields      = COALESCE($8::jsonb, fields)
+WHERE id = $9
+RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields
 `
 
 type UpdateTaskParams struct {
@@ -676,6 +687,7 @@ type UpdateTaskParams struct {
 	AssigneeID         uuid.NullUUID `json:"assignee_id"`
 	SetAssignmentGroup bool          `json:"set_assignment_group"`
 	AssignmentGroupID  uuid.NullUUID `json:"assignment_group_id"`
+	Fields             []byte        `json:"fields"`
 	ID                 uuid.UUID     `json:"id"`
 }
 
@@ -688,6 +700,7 @@ func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) (Task, e
 		arg.AssigneeID,
 		arg.SetAssignmentGroup,
 		arg.AssignmentGroupID,
+		arg.Fields,
 		arg.ID,
 	)
 	var i Task
@@ -705,12 +718,13 @@ func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) (Task, e
 		&i.StateCategory,
 		&i.Type,
 		&i.AssignmentGroupID,
+		&i.Fields,
 	)
 	return i, err
 }
 
 const updateTaskStatus = `-- name: UpdateTaskStatus :one
-UPDATE tasks SET status = $2, state_category = $3 WHERE id = $1 RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id
+UPDATE tasks SET status = $2, state_category = $3 WHERE id = $1 RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields
 `
 
 type UpdateTaskStatusParams struct {
@@ -736,6 +750,7 @@ func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusPara
 		&i.StateCategory,
 		&i.Type,
 		&i.AssignmentGroupID,
+		&i.Fields,
 	)
 	return i, err
 }

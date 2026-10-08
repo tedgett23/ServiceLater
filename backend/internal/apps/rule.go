@@ -160,6 +160,8 @@ type Rule struct {
 	// Lookups are counted before the rule's expressions run, which read them as lookups.name.
 	Lookups Lookups  `json:"lookups,omitempty"`
 	Run     []Action `json:"run"`
+	// Fields are the extra fields of the app's form the rule reads or sets, with their types when it was installed.
+	Fields expr.FieldTypes `json:"fields,omitempty"`
 
 	// App and Version say where the rule came from. They are set at runtime and are not part of the definition.
 	App     string `json:"-"`
@@ -198,7 +200,7 @@ type actionFile struct {
 	To       []string `yaml:"to"`
 }
 
-func parseRule(file string, data []byte, p *Problems) *Rule {
+func parseRule(file string, data []byte, forms formSet, p *Problems) *Rule {
 	var f ruleFile
 	if err := decodeStrict(data, &f); err != nil {
 		p.add(file, "%v", err)
@@ -208,7 +210,8 @@ func parseRule(file string, data []byte, p *Problems) *Rule {
 		p.add(file, "kind must be rule in this folder, got %q", f.Kind)
 		return nil
 	}
-	r := &Rule{Name: f.Name, RecordType: f.RecordType, Timing: f.Timing, On: f.On, Order: defaultOrder, When: f.When, OnError: f.OnError, RunAs: f.RunAs, Lookups: f.Lookups}
+	r := &Rule{Name: f.Name, RecordType: f.RecordType, Timing: f.Timing, On: f.On, Order: defaultOrder, When: f.When, OnError: f.OnError, RunAs: f.RunAs, Lookups: f.Lookups,
+		Fields: forms.fieldsUsed(f.RecordType, data)}
 	if f.Order != nil {
 		r.Order = *f.Order
 	}
@@ -233,7 +236,7 @@ func parseRule(file string, data []byte, p *Problems) *Rule {
 func (r *Rule) validate(file string, p *Problems) {
 	r.validateStructure(file, p)
 	r.compile()
-	env, envErr := expr.Rule()
+	env, envErr := expr.RuleFor(r.Fields)
 	for _, msg := range r.Lookups.validate(env, envErr) {
 		p.add(file, "%s", msg)
 	}
@@ -364,9 +367,15 @@ func (a *Action) structureProblems(r *Rule, _ int) (out []string) {
 		extra("message", a.Message != nil)
 		extra("body", a.Body != nil)
 		kind, ok := SettableFields[a.Field]
+		extra, isExtra := strings.CutPrefix(a.Field, "fields.")
 		switch {
 		case a.Field == "":
 			add("%s needs a field", a.Action)
+		case isExtra:
+			kind, ok = r.Fields[extra], r.Fields[extra] != ""
+			if !ok {
+				add("%s: this app's form for %s records has no field %q", a.Action, r.RecordType, extra)
+			}
 		case !ok:
 			add("%s cannot change %q (it can change: %s)", a.Action, a.Field, settableList())
 		case ownerProblem(a.Field, r.RecordType, "a rule") != "":
@@ -455,6 +464,10 @@ func settableList() string {
 
 func literalProblems(field, kind string, lit any) (out []string) {
 	switch kind {
+	case expr.FieldBool:
+		if _, ok := lit.(bool); !ok {
+			out = append(out, fmt.Sprintf("%s takes true or false", field))
+		}
 	case "number":
 		n, ok := lit.(int64)
 		switch {
@@ -482,7 +495,7 @@ func literalProblems(field, kind string, lit any) (out []string) {
 // compile compiles every expression in the rule. Anything that fails is remembered, so at run time the rule is
 // treated as broken (blocked or skipped, per on_error) instead of being silently ignored.
 func (r *Rule) compile() {
-	env, err := expr.Rule()
+	env, err := expr.RuleFor(r.Fields)
 	r.Lookups.compile(env, err)
 	r.when, r.whenErr = nil, err
 	if err == nil && r.When != "" {
@@ -497,6 +510,9 @@ func (r *Rule) compile() {
 		want := expr.String
 		if SettableFields[a.Field] == "number" {
 			want = expr.Int
+		}
+		if name, ok := strings.CutPrefix(a.Field, "fields."); ok {
+			want = expr.KindType(r.Fields[name])
 		}
 		a.Value.compile(env, err, want)
 		a.Message.compile(env, err, expr.String)

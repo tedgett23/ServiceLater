@@ -1,0 +1,12 @@
+# Priority follows impact and urgency once both are set: the usual matrix, impact + urgency - 1, at most 4. The form
+# makes priority read-only for people while they are, so the two never disagree.
+kind: rule
+name: priority-from-impact
+record_type: incident
+timing: before
+on: [create, update]
+when: has(record.fields.impact) && has(record.fields.urgency)
+run:
+  - action: set
+    field: priority
+    value: "=int(record.fields.impact) + int(record.fields.urgency) - 1 > 4 ? 4 : int(record.fields.impact) + int(record.fields.urgency) - 1"

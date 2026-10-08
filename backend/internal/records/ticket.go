@@ -4,7 +4,9 @@
 package records
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -53,6 +55,9 @@ type Ticket struct {
 	Resolution string `json:"resolution"`
 	// Change is a change's own fields; absent for other types.
 	Change *Change `json:"change,omitempty"`
+	// Fields are the record's extra fields, the ones its type's form declares, by name: text, a whole number, true or
+	// false, a date as YYYY-MM-DD or a time as RFC 3339 text. A field that is not set is absent.
+	Fields map[string]any `json:"fields"`
 }
 
 // Change is what a change record has beyond the base: its kind, assessment, planned window and plans.
@@ -107,7 +112,7 @@ func FromParts(t dbgen.Task, prefix, requesterName string, assigneeName, groupNa
 	d := Ticket{ID: t.ID, Type: t.Type, Number: t.Number, Reference: fmt.Sprintf("%s%d", prefix, t.Number), Resolution: resolution,
 		Title: t.Title, Description: t.Description, Status: t.Status, StateCategory: t.StateCategory,
 		Priority: t.Priority, RequesterID: t.RequesterID, Requester: requesterName,
-		CreatedAt: t.CreatedAt.Time, UpdatedAt: t.UpdatedAt.Time}
+		CreatedAt: t.CreatedAt.Time, UpdatedAt: t.UpdatedAt.Time, Fields: decodeFields(t.Fields)}
 	if t.AssigneeID.Valid {
 		id := t.AssigneeID.UUID
 		d.AssigneeID = &id
@@ -123,6 +128,86 @@ func FromParts(t dbgen.Task, prefix, requesterName string, assigneeName, groupNa
 		d.AssignmentGroup = &groupName.String
 	}
 	return d
+}
+
+// decodeFields reads the stored extra fields. Whole numbers come back as int64, as a rule or a form check gives them.
+func decodeFields(raw []byte) map[string]any {
+	out := map[string]any{}
+	if len(raw) == 0 {
+		return out
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&out); err != nil {
+		return map[string]any{}
+	}
+	for k, v := range out {
+		if n, ok := v.(json.Number); ok {
+			if i, err := n.Int64(); err == nil {
+				out[k] = i
+			} else if f, err := n.Float64(); err == nil {
+				out[k] = f
+			}
+		}
+	}
+	return out
+}
+
+func encodeFields(f map[string]any) []byte {
+	if f == nil {
+		return []byte("{}")
+	}
+	raw, _ := json.Marshal(f)
+	return raw
+}
+
+// sameFields reports whether two sets of extra fields hold the same values.
+func sameFields(a, b map[string]any) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		w, ok := b[k]
+		if !ok || !sameValue(v, w) {
+			return false
+		}
+	}
+	return true
+}
+
+func sameValue(a, b any) bool {
+	ai, aok := wholeNumber(a)
+	bi, bok := wholeNumber(b)
+	if aok || bok {
+		return aok && bok && ai == bi
+	}
+	return a == b
+}
+
+func wholeNumber(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	case float64:
+		if n == float64(int64(n)) {
+			return int64(n), true
+		}
+	case json.Number:
+		if i, err := n.Int64(); err == nil {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
+func cloneFields(f map[string]any) map[string]any {
+	out := make(map[string]any, len(f))
+	for k, v := range f {
+		out[k] = v
+	}
+	return out
 }
 
 // Load reads a ticket by id as one RLS-scoped query. A ticket the caller cannot see is pgx.ErrNoRows.
@@ -148,7 +233,7 @@ func (d Ticket) ExprRecord() *expr.Record {
 		Resolution: d.Resolution, Status: d.Status,
 		StateCategory: d.StateCategory, Priority: int64(d.Priority), RequesterID: d.RequesterID.String(),
 		RequesterName: d.Requester, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt, AssigneeName: d.Assignee,
-		AssignmentGroup: d.AssignmentGroup,
+		AssignmentGroup: d.AssignmentGroup, Fields: d.Fields,
 	}
 	if d.AssigneeID != nil {
 		id := d.AssigneeID.String()

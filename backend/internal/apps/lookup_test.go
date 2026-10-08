@@ -136,7 +136,7 @@ func TestLookupsAreCheckedAtInstall(t *testing.T) {
 		"unknown op":    {rule("  f:\n    count: change\n    where:\n      status: { like: x }\n", "true"), `"like" is not an operator`},
 		"no filter":     {rule("  f:\n    count: change\n    where: {}\n", "true"), "needs where: at least one filter"},
 		"time literal":  {rule("  f:\n    count: freeze_window\n    where:\n      starts_at: { lt: '2026-01-01' }\n", "true"), "a time is written as an =expression"},
-		"wrong type":    {rule("  f:\n    count: freeze_window\n    where:\n      starts_at: { lt: =record.title }\n", "true"), "must produce google.protobuf.Timestamp"},
+		"wrong type":    {rule("  f:\n    count: freeze_window\n    where:\n      starts_at: { lt: =record.title }\n", "true"), "must produce a time"},
 		"in literal":    {rule("  f:\n    count: change\n    where:\n      status: { in: open }\n", "true"), "in takes an =expression giving a list of text"},
 		"reads lookups": {rule("  f:\n    count: change\n    where:\n      status: { eq: '=string(lookups.f)' }\n", "true"), "a lookup's filter cannot read lookups"},
 		"bad name":      {rule("  Bad:\n    count: change\n    where:\n      status: { eq: open }\n", "true"), "a lookup's name must be lowercase"},

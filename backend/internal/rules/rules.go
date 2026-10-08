@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
@@ -288,6 +289,11 @@ func set(ctx context.Context, a *apps.Action, in expr.Input) error {
 		return err
 	}
 	rec := in.Record
+	if name, ok := strings.CutPrefix(a.Field, "fields."); ok {
+		// The type was checked when the rule was compiled; the value is checked against the form when the record is saved.
+		rec.SetField(name, x)
+		return nil
+	}
 	if a.Field == "priority" {
 		n, ok := x.(int64)
 		if !ok {

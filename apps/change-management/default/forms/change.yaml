@@ -1,0 +1,15 @@
+# How a change is filled in and shown. Change any of it in local/: relabel a field, add one, make one required, or
+# move it between the layouts.
+kind: form
+record_type: change
+fields:
+  change_type:
+    label: Change type
+    help: "Standard changes are pre-approved; normal ones go to the change advisory board; emergency ones to a smaller board, fast."
+  planned_end:
+    help: When the change must be finished, after the planned start.
+layout:
+  create: [title, description, change_type, priority, planned_start, planned_end]
+  detail:
+    - section: Change
+      fields: [change_type, risk, impact, planned_start, planned_end, implementation_plan, backout_plan, test_plan]

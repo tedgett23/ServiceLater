@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { approvals } from '$lib/approvals.svelte';
 	import { age } from '$lib/format';
+	import { forms } from '$lib/forms.svelte';
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { notifications } from '$lib/notifications.svelte';
 	import { queue } from '$lib/queue.svelte';
@@ -31,7 +32,10 @@
 		const off = realtime.on((e) => {
 			if (e.type === 'ticket.changed' || e.type === 'resync') queue.scheduleRefresh();
 			// An app was installed or removed somewhere: pick up new labels and flows without a reload.
-			if (e.type === 'definitions.changed' || e.type === 'resync') void lifecycle.reload();
+			if (e.type === 'definitions.changed' || e.type === 'resync') {
+				void lifecycle.reload();
+				void forms.reload();
+			}
 			if (e.type === 'definitions.changed') queue.scheduleRefresh();
 			// Pending approvals and app notifications (an assignment, say) both arrive as this.
 			if (e.type === 'notification.changed' || e.type === 'resync') {

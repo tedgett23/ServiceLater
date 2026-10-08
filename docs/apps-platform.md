@@ -350,7 +350,7 @@ show/hide and validation, workflow branches and step inputs.
 | Lifecycle guards | `record` (the ticket as it would be after the move), `old` (as it is now), `user` (the actor), `now`, and the transition's `lookups` |
 | Rules (slice 5) | the same, plus `event` (`create`, `update` or `delete`; on create `old` is an empty record), `config`, and the rule's own `lookups` |
 | Workflows | `record` (live), `inputs` (for subflows; an input named `record` binds `record`), `item` (inside `foreach`), `trigger`, `vars`, `steps.<id>.output`, `user`, `now`, `config` |
-| Forms | `form` (current field values), `user` |
+| Forms | the rule environment: `record` (the record as the save would leave it, extra fields as `record.fields.name`), `old`, `user`, `now`, `event`; no lookups |
 
 `now` is an input, not a function, so evaluation is repeatable. The set of variables and their types is part of the
 platform contract and is versioned with `apiVersion`.
@@ -850,12 +850,88 @@ highlighting of the running step arrives with the visual builder; the viewer ref
 
 Apps describe what to show; the core Svelte UI renders it (D4).
 
-- **Forms**: fields (type, label, required, options), layout, and expression-driven show/hide and validation.
+- **Forms** (built, §8.1): fields (type, label, required, options), layout, and expression-driven show/hide and validation.
 - **List views**: columns, default filters, and sort for a record type.
 - **Dashboards**: tiles bound to saved queries.
 
 There is no way for an app to ship executable UI code in v1. If we later want custom components, they would be
 prebuilt web components loaded into named slots, but that is deliberately deferred.
+
+### 8.1 Forms (built)
+
+A form is a definition kind (`forms/<type>.yaml`, `internal/apps/form.go`), one per record type: two apps cannot
+both provide the form for a type, as with lifecycles. It does three things.
+
+**It declares extra fields.** They are stored in `tasks.fields` (jsonb, migration 00026), so an app adds fields
+without a table change (D6). Types: `text`, `textarea`, `number` (whole), `boolean`, `date` (YYYY-MM-DD), `datetime`
+(RFC 3339), `choice` (options, each optionally offered only `when` a condition holds). Each can have a `label`,
+`help`, `default`, `max_length`, `min`/`max`, and the conditions below. A field name is lowercase with underscores
+and may not be one of the record type's own columns.
+
+**It places and relabels core fields.** A record's own columns (title, description, priority; an incident's
+resolution; a change's type, risk, impact, window and plans) are listed in `apps.CoreFields`. A form can give one a
+label and help and the same conditions, never a type or options.
+
+**It lays them out and says when each applies.** `layout.create` is the form for filing one (it must include
+`title`); `layout.detail` is the record's sections (title, description and priority have places of their own).
+Every extra field must be in one of them. Conditions are CEL in the rule environment (no lookups):
+`required` or `required_when`, `visible_when` (a hidden field is never required), `read_only_when` (people may not
+change it; rules and workflows may), and `validate` checks on the whole record (`when` must hold, else `error`).
+
+```yaml
+kind: form
+record_type: incident
+fields:
+  category: { type: choice, label: Category, options: [hardware, network] }
+  subcategory:
+    type: choice
+    label: Subcategory
+    visible_when: has(record.fields.category)
+    options:
+      - { value: vpn, label: VPN, when: 'record.fields.category == "network"' }
+  priority:                      # a core field: only label, help and conditions
+    read_only_when: has(record.fields.impact) && has(record.fields.urgency)
+layout:
+  create: [title, description, category, subcategory, priority]
+  detail:
+    - section: Classification
+      fields: [category, subcategory]
+validate:
+  - when: '!has(record.fields.subcategory) || has(record.fields.category)'
+    error: Choose a category first
+```
+
+**The server enforces all of it, on every save** (`records.checkForm`, after the before rules, for creates, edits
+and moves alike, whether a person, a rule or a workflow saves): an extra field that changed must be declared and
+hold a value of its type within its limits, an offered option, and every shown required field must be filled in.
+A value already stored that the form no longer allows stays until someone changes it. Read-only is judged on what a
+person's request asked for, before the rules run (`checkReadOnly`), so a rule can keep setting a read-only field and
+a person's own change to it is refused, not silently undone. A condition that cannot be evaluated refuses the save,
+as a guard that cannot be checked blocks its move. Making a field required affects every later save of a record
+that lacks it, including a workflow's.
+
+**Other definitions read and set extra fields** as `record.fields.name` (and `set` / `record.update` with
+`field: fields.name`), type-checked at install against **the same app's** form for their record type: a typo or a
+text field compared with a number fails the install. Each definition stores the types of the fields it names
+(`fields` in its body), so it compiles the same way from storage, from a clock's or an execution's snapshot,
+whatever the form becomes. A field that is not set is an error to read, so test it with `has(record.fields.x)`.
+Reading another app's fields is not supported yet.
+
+**API and UI.** `GET /forms/{type}` gives the form (every placed field, resolved, with `reactive`: the fields its
+conditions read). Single tickets carry `fields` and `field_states` (hidden, required, read-only, offered options).
+While filing, `POST /forms/{type}/states` gives the states for a draft and, in `values`, what the before rules would
+set (they are tried on the draft; nothing is written or audited), so a read-only priority shows its worked-out value;
+the dialog asks again when a reactive field changes. The web keeps no field list: `NewTicket.svelte` and
+`RecordFields.svelte` render whatever the form says. A type with no app form gets one made of its own fields
+(`apps.FormFor`).
+
+**Customising.** Operators change a shipped form in `local/` like any definition: fields merge by name, so a
+local file can add a field or relabel one; layout lists replace the shipped ones whole. Editing forms in the UI
+would write the same local layer, once it can be kept in the database (open question 16).
+
+Not built yet: forms on `task` (inherited by every type), user and group pickers as field types, reading another
+app's fields, per-field read permissions (a hidden field is not a secret: anyone who can read the record can read
+its fields through the API), extra fields in list views, search and lookups, and editing forms in the UI.
 
 ## 9. Data model and ownership
 
@@ -1113,6 +1189,10 @@ save, not built yet). `app install` takes several paths and installs dependencie
 14. ~~Bundled first-party apps.~~ **Resolved (D16).** They are embedded and installed at startup; local changes live
     outside the binary (§4.5).
 15. **Signing and marketplace.** Out of scope for v1; worth deciding the archive format so signatures can be added.
+16. **Editing definitions in the UI.** The local layer lives on disk (`SL_APPS_LOCAL_DIR`), so changing a form, a
+    lifecycle label or a notification's wording needs file access and a sync. A UI editor should write the same
+    local overrides, kept in the database (an `app_local_files` table merged as the instance layer, hot-reloaded by
+    NOTIFY like installs), so upgrades still never overwrite what an admin changed. Forms are the first candidate.
 
 ## 14. Roadmap in small slices
 
@@ -1123,7 +1203,7 @@ Each slice is shippable and leaves the product working.
 | **1. Skeleton and lifecycle** (done) | Manifest and validator; `apps` and `app_definitions` tables; `app install / uninstall / validate / pack`; the ticket lifecycle moves from Go into `incident-management`; the API serves it and the UI reads labels, verbs and categories from it; hot reload. | This doc agreed |
 | **2. Expressions and a benchmark** (done) | CEL in transition guards, with install-time type checking and fail-closed evaluation; benchmark of the save path. Rule filters use the same engine when rules arrive in slice 5. | Slice 1 |
 | **3. Record types** (done) | The `tasks` base and the `incidents` extension table (D14); the `task_types` registry with per-type numbering and references (INC42); comments referencing `tasks.id`; lifecycle inheritance from `task`; incident resolution notes. Extension tables for change, request and problem come with their apps, and rule inheritance with rules in slice 5. | Slice 1 |
-| **4. Forms** | Field definitions, `fields jsonb`, form rendering. | Slices 2 and 3 |
+| **4. Forms** (done, §8.1) | Field definitions, `fields jsonb`, form rendering. | Slices 2 and 3 |
 | **5. Rules** (done: job queue and worker, before/after/async rules, `action_runs` audit, one shared save path, `record.update` and loop protection) | Before, after and async rules with the built-in actions; job queue and worker role; transactional outbox; `action_runs` audit; loop protection. | Slices 2 and 3 |
 | **6. Workflow engine** (done: durable engine, `set` / `condition` / `wait` / `record.update` / `comment.add` / `end`, rule and manual triggers, run history API and viewer, load harness; the rest of the step library follows, see §7.6) | Durable execution, the v1 step library, workflows as YAML, run history API and a read-only run viewer. | Slice 5 |
 | **6b. SLAs** (done, §6.6) | First-class SLA definitions with pause and resume, business calendars and breach actions. | Slice 6 |

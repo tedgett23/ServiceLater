@@ -94,6 +94,8 @@ type Workflow struct {
 	RecordType string `json:"record_type"`
 	Start      string `json:"start"`
 	Steps      []Step `json:"steps"`
+	// Fields are the extra fields of the app's form the workflow reads or sets, with their types when it was installed.
+	Fields expr.FieldTypes `json:"fields,omitempty"`
 
 	// App and Version say where the workflow came from. They are set at runtime and are not part of the definition.
 	App     string `json:"-"`
@@ -175,7 +177,7 @@ func (o *orderedValues) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
-func parseWorkflow(file string, data []byte, p *Problems) *Workflow {
+func parseWorkflow(file string, data []byte, forms formSet, p *Problems) *Workflow {
 	var f workflowFile
 	if err := decodeStrict(data, &f); err != nil {
 		p.add(file, "%v", err)
@@ -185,7 +187,7 @@ func parseWorkflow(file string, data []byte, p *Problems) *Workflow {
 		p.add(file, "kind must be workflow in this folder, got %q", f.Kind)
 		return nil
 	}
-	w := &Workflow{Name: f.Name, RecordType: f.RecordType, Start: f.Start, Steps: f.Steps}
+	w := &Workflow{Name: f.Name, RecordType: f.RecordType, Start: f.Start, Steps: f.Steps, Fields: forms.fieldsUsed(f.RecordType, data)}
 	before := len(*p)
 	w.validate(file, p)
 	if len(*p) > before {
@@ -359,6 +361,12 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 		}
 		out = append(out, assignProblems("set", s.Set, func(name string) []string {
 			_, ok := SettableFields[name]
+			if extra, isExtra := strings.CutPrefix(name, "fields."); isExtra {
+				if w.Fields[extra] == "" {
+					return []string{fmt.Sprintf("record.update: this app's form for %s records has no field %q", w.RecordType, extra)}
+				}
+				return nil
+			}
 			switch {
 			case !ok:
 				return []string{fmt.Sprintf("record.update cannot change %q (it can change: %s)", name, settableList())}
@@ -368,7 +376,11 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 			return nil
 		})...)
 		for _, nv := range s.Set {
-			if kind, ok := SettableFields[nv.Name]; ok && nv.Value != nil && nv.Value.Expr == "" {
+			kind, ok := SettableFields[nv.Name]
+			if extra, isExtra := strings.CutPrefix(nv.Name, "fields."); isExtra {
+				kind, ok = w.Fields[extra], w.Fields[extra] != ""
+			}
+			if ok && nv.Value != nil && nv.Value.Expr == "" {
 				out = append(out, literalProblems(nv.Name, kind, nv.Value.Literal)...)
 			}
 		}
@@ -478,7 +490,7 @@ func (w *Workflow) graphProblems(file string, byID map[string]*Step, p *Problems
 // compile compiles every expression and duration in the workflow. Anything that fails is remembered, so at run time
 // the step fails (and the execution with it) instead of being silently skipped.
 func (w *Workflow) compile() {
-	env, envErr := expr.Workflow()
+	env, envErr := expr.WorkflowFor(w.Fields)
 	for i := range w.Steps {
 		s := &w.Steps[i]
 		s.cond, s.until, s.approvers, s.compileEr = nil, nil, nil, envErr
@@ -524,6 +536,9 @@ func (w *Workflow) compile() {
 			want := expr.String
 			if SettableFields[nv.Name] == "number" {
 				want = expr.Int
+			}
+			if extra, ok := strings.CutPrefix(nv.Name, "fields."); ok {
+				want = expr.KindType(w.Fields[extra])
 			}
 			nv.Value.compile(env, envErr, want)
 			fail("set."+nv.Name, nv.Value.err)

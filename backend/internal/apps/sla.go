@@ -57,6 +57,8 @@ type SLA struct {
 	Calendar string       `json:"calendar,omitempty"`
 	Warnings []SLAWarning `json:"warnings,omitempty"`
 	OnBreach []Action     `json:"on_breach,omitempty"`
+	// Fields are the extra fields of the app's form the SLA reads, with their types when it was installed.
+	Fields expr.FieldTypes `json:"fields,omitempty"`
 
 	// App and Version say where the SLA came from. They are set at runtime and are not part of the definition.
 	App     string `json:"-"`
@@ -106,7 +108,7 @@ func actionsFrom(files []actionFile) []Action {
 	return out
 }
 
-func parseSLA(file string, data []byte, p *Problems) *SLA {
+func parseSLA(file string, data []byte, forms formSet, p *Problems) *SLA {
 	var f slaFile
 	if err := decodeStrict(data, &f); err != nil {
 		p.add(file, "%v", err)
@@ -117,7 +119,7 @@ func parseSLA(file string, data []byte, p *Problems) *SLA {
 		return nil
 	}
 	s := &SLA{Name: f.Name, Label: f.Label, RecordType: f.RecordType, Start: f.Start, Pause: f.Pause, Stop: f.Stop,
-		Target: f.Target, Calendar: f.Calendar, OnBreach: actionsFrom(f.OnBreach)}
+		Target: f.Target, Calendar: f.Calendar, OnBreach: actionsFrom(f.OnBreach), Fields: forms.fieldsUsed(f.RecordType, data)}
 	if s.Start == "" {
 		s.Start = DefaultSLAStart
 	}
@@ -268,12 +270,12 @@ func (s *SLA) stageRule(actions []Action) *Rule {
 		return nil
 	}
 	return &Rule{Name: s.Name, RecordType: s.RecordType, Timing: TimingAsync, On: []string{EventUpdate}, Order: defaultOrder,
-		OnError: OnErrorBlock, Run: slices.Clone(actions), App: s.App, Version: s.Version}
+		OnError: OnErrorBlock, Run: slices.Clone(actions), App: s.App, Version: s.Version, Fields: s.Fields}
 }
 
 // compile compiles every expression. Anything that fails is remembered, and the clock reports it as its problem.
 func (s *SLA) compile() {
-	env, err := expr.Rule()
+	env, err := expr.RuleFor(s.Fields)
 	compile := func(src string) (*expr.Program, error) {
 		if err != nil {
 			return nil, err

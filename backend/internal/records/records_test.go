@@ -19,6 +19,7 @@ func TestExprRecordSetsEveryField(t *testing.T) {
 		// No real ticket has both an incident's and a change's own fields; this one has, so every field is checked.
 		Change: &records.Change{ChangeType: "normal", Risk: "low", Impact: "high", PlannedStart: &now, PlannedEnd: &now,
 			ImplementationPlan: "i", BackoutPlan: "b", TestPlan: "t"},
+		Fields: map[string]any{"category": "network"},
 	}.ExprRecord()
 	v := reflect.ValueOf(*r)
 	for i := 0; i < v.NumField(); i++ {

@@ -1,8 +1,8 @@
 apiVersion: 1
 name: incident-management
-version: 0.2.0
+version: 0.3.0
 author: ServiceLater
-description: "Incident lifecycle and response and resolution SLAs."
+description: "Incident lifecycle, form, and response and resolution SLAs."
 ServiceLater_min_version: 0.1.0
 dependencies:
   - core-itsm: ">=0.1.0"

@@ -78,6 +78,8 @@ type Lifecycle struct {
 	Initial     string       `json:"initial"`
 	States      []State      `json:"states"`
 	Transitions []Transition `json:"transitions"`
+	// Fields are the extra fields of the app's form the guards read, with their types when it was installed.
+	Fields expr.FieldTypes `json:"fields,omitempty"`
 
 	// Source says where the lifecycle came from. It is set at runtime and is not part of the stored definition.
 	App     string `json:"-"`
@@ -144,7 +146,7 @@ func (o *orderedStates) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
-func parseLifecycle(file string, data []byte, p *Problems) *Lifecycle {
+func parseLifecycle(file string, data []byte, forms formSet, p *Problems) *Lifecycle {
 	var f lifecycleFile
 	if err := decodeStrict(data, &f); err != nil {
 		p.add(file, "%v", err)
@@ -154,7 +156,7 @@ func parseLifecycle(file string, data []byte, p *Problems) *Lifecycle {
 		p.add(file, "kind must be lifecycle in this folder, got %q", f.Kind)
 		return nil
 	}
-	lc := &Lifecycle{RecordType: f.RecordType, Initial: f.Initial, States: f.States}
+	lc := &Lifecycle{RecordType: f.RecordType, Initial: f.Initial, States: f.States, Fields: forms.fieldsUsed(f.RecordType, data)}
 	before := len(*p)
 	for _, t := range f.Transitions {
 		tr := Transition{From: t.From, To: t.To, Verb: t.Verb, Primary: t.Primary, Automatic: t.Automatic, When: t.When, Error: t.Error, Lookups: t.Lookups}
@@ -177,7 +179,7 @@ func parseLifecycle(file string, data []byte, p *Problems) *Lifecycle {
 func (l *Lifecycle) validate(file string, p *Problems) {
 	l.validateStructure(file, p)
 	l.compileGuards()
-	env, envErr := expr.LifecycleGuard()
+	env, envErr := expr.LifecycleGuardFor(l.Fields)
 	for i := range l.Transitions {
 		t := &l.Transitions[i]
 		at := fmt.Sprintf("transitions[%d]: %s to %s", i, t.From, t.To)
@@ -212,7 +214,7 @@ func boolInt(b bool) int {
 // compileGuards compiles each transition's guards and lookups. A guard that fails to compile is remembered, and the
 // move it guards is blocked when attempted, so a broken rule can never let something through.
 func (l *Lifecycle) compileGuards() {
-	env, envErr := expr.LifecycleGuard()
+	env, envErr := expr.LifecycleGuardFor(l.Fields)
 	for i := range l.Transitions {
 		t := &l.Transitions[i]
 		t.Lookups.compile(env, envErr)

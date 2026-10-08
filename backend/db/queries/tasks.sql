@@ -5,8 +5,8 @@
 -- The assignment group is written with the row, not after it: a before rule routes an end user's ticket as it is
 -- filed, and only staff may update a task.
 -- name: CreateTask :one
-INSERT INTO tasks (type, title, description, priority, requester_id, status, state_category, assignment_group_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO tasks (type, title, description, priority, requester_id, status, state_category, assignment_group_id, fields)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE(sqlc.narg('fields')::jsonb, '{}'::jsonb))
 RETURNING *;
 
 -- The extension row for an incident. Every incident has one; the composite key guarantees the task really is one.
@@ -95,7 +95,9 @@ UPDATE tasks SET
     priority    = COALESCE(sqlc.narg('priority'), priority),
     assignee_id = CASE WHEN sqlc.arg('set_assignee')::bool THEN sqlc.narg('assignee_id') ELSE assignee_id END,
     assignment_group_id = CASE WHEN sqlc.arg('set_assignment_group')::bool THEN sqlc.narg('assignment_group_id')
-                               ELSE assignment_group_id END
+                               ELSE assignment_group_id END,
+    -- The whole object: the save works out the fields from the form and writes the result.
+    fields      = COALESCE(sqlc.narg('fields')::jsonb, fields)
 WHERE id = sqlc.arg('id')
 RETURNING *;
 

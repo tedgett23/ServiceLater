@@ -162,7 +162,7 @@ func TestCompileRejectsBadApps(t *testing.T) {
 		{"stale rename", withLifecycle("active: { label: Active,", "active: { renamed_from: done, label: Active,"), "renamed_from \"done\" is still a state"},
 		{"scripts are gone", map[string]string{"app.yaml": goodManifest, "default/scripts/x.star": "x"}, "apps contain no code"},
 		{"migrations are reserved", map[string]string{"app.yaml": goodManifest, "default/migrations/1.sql": "x"}, "migrations are reserved"},
-		{"forms not yet", map[string]string{"app.yaml": goodManifest, "default/forms/a.yaml": "kind: form"}, "forms are not supported yet"},
+		{"catalog not yet", map[string]string{"app.yaml": goodManifest, "default/catalog/a.yaml": "kind: item"}, "catalog items are not supported yet"},
 		{"unknown folder", map[string]string{"app.yaml": goodManifest, "default/widgets/a.yaml": "x"}, "unknown folder"},
 		{"stray top-level file", map[string]string{"app.yaml": goodManifest, "notes.txt": "x"}, "unexpected file"},
 		{"not yaml", map[string]string{"app.yaml": goodManifest, "default/lifecycles/incident.json": "{}"}, "only .yaml files"},

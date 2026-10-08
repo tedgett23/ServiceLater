@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -290,6 +291,10 @@ func (e *Engine) doUpdate(ctx context.Context, q *dbgen.Queries, ex dbgen.Workfl
 
 // assign sets one field of the working record, checking the kind of value it was given.
 func assign(rec *expr.Record, field string, x any) error {
+	if name, ok := strings.CutPrefix(field, "fields."); ok {
+		rec.SetField(name, x)
+		return nil
+	}
 	if field == "priority" {
 		n, ok := x.(int64)
 		if !ok {
@@ -346,7 +351,12 @@ func changed(p records.Patch) []string {
 	add("resolution", p.Resolution != nil)
 	add("risk", p.Change != nil && p.Change.Risk != nil)
 	add("impact", p.Change != nil && p.Change.Impact != nil)
-	return out
+	names := make([]string, 0, len(p.Fields))
+	for name := range p.Fields {
+		names = append(names, "fields."+name)
+	}
+	slices.Sort(names)
+	return append(out, names...)
 }
 
 func (e *Engine) doComment(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExecution, st *apps.Step, in expr.Input, out outcome) (outcome, error) {

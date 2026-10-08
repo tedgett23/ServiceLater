@@ -87,6 +87,8 @@ type CreateInput struct {
 	RequesterID        *uuid.UUID // staff may file on behalf of someone else
 	// Change is what to fill in of a change's own fields; only a change has them.
 	Change *ChangePatch
+	// Fields are extra fields to fill in, by name; a nil value is left out. The form's defaults fill the rest.
+	Fields map[string]any
 }
 
 // ChangePatch is a change to a change's own fields. A nil field is left alone; SetPlannedStart with a nil
@@ -160,12 +162,42 @@ type Patch struct {
 	AssignmentGroupID  *uuid.UUID
 	Resolution         *string
 	Change             *ChangePatch
+	// Fields sets extra fields by name; a nil value clears one.
+	Fields map[string]any
 }
 
 // Empty reports whether the patch changes nothing.
 func (p Patch) Empty() bool {
 	return p.Title == nil && p.Description == nil && p.Priority == nil && !p.SetAssignee && !p.SetAssignmentGroup &&
-		p.Resolution == nil && p.Change.empty()
+		p.Resolution == nil && p.Change.empty() && len(p.Fields) == 0
+}
+
+// touched lists the fields a person's patch writes, by form field name, for the read-only check.
+func (p Patch) touched() []string {
+	var out []string
+	add := func(name string, set bool) {
+		if set {
+			out = append(out, name)
+		}
+	}
+	add("title", p.Title != nil)
+	add("description", p.Description != nil)
+	add("priority", p.Priority != nil)
+	add("resolution", p.Resolution != nil)
+	if c := p.Change; c != nil {
+		add("change_type", c.ChangeType != nil)
+		add("risk", c.Risk != nil)
+		add("impact", c.Impact != nil)
+		add("planned_start", c.SetPlannedStart)
+		add("planned_end", c.SetPlannedEnd)
+		add("implementation_plan", c.ImplementationPlan != nil)
+		add("backout_plan", c.BackoutPlan != nil)
+		add("test_plan", c.Test != nil)
+	}
+	for name := range p.Fields {
+		out = append(out, name)
+	}
+	return out
 }
 
 // PatchBetween is the patch that turns t into want, for the fields a patch can change.
@@ -190,6 +222,22 @@ func PatchBetween(t, want Ticket) Patch {
 		p.Resolution = &want.Resolution
 	}
 	p.Change = changeBetween(t.Change, want.Change)
+	for k, v := range want.Fields {
+		if w, ok := t.Fields[k]; !ok || !sameValue(v, w) {
+			if p.Fields == nil {
+				p.Fields = map[string]any{}
+			}
+			p.Fields[k] = v
+		}
+	}
+	for k := range t.Fields {
+		if _, ok := want.Fields[k]; !ok {
+			if p.Fields == nil {
+				p.Fields = map[string]any{}
+			}
+			p.Fields[k] = nil
+		}
+	}
 	return p
 }
 
@@ -243,15 +291,29 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	} else if !in.Change.empty() {
 		return Ticket{}, Invalid("only a change has change fields")
 	}
+	form := s.Apps.Form(tt.Type)
+	next.Fields = form.Defaults()
+	for k, v := range in.Fields {
+		if v != nil {
+			next.Fields[k] = v
+		}
+	}
+	if err := s.checkReadOnly(ctx, q, a, apps.EventCreate, nil, next, createTouched(in)); err != nil {
+		return Ticket{}, err
+	}
 	// Before rules see the ticket as it is about to be written and may change it or stop the save.
 	next, err = s.runBefore(ctx, q, a, apps.EventCreate, nil, next)
 	if err != nil {
 		return Ticket{}, err
 	}
+	if next, err = s.checkForm(ctx, q, a, apps.EventCreate, nil, next); err != nil {
+		return Ticket{}, err
+	}
 	// A ticket is a task plus its type's own row. Both are written in this transaction, or neither is.
 	t, err := q.CreateTask(ctx, dbgen.CreateTaskParams{
 		Type: next.Type, Title: strings.TrimSpace(next.Title), Description: next.Description, Priority: next.Priority, RequesterID: requester,
-		Status: lc.Initial, StateCategory: string(category), AssignmentGroupID: nullUUID(next.AssignmentGroupID)})
+		Status: lc.Initial, StateCategory: string(category), AssignmentGroupID: nullUUID(next.AssignmentGroupID),
+		Fields: encodeFields(next.Fields)})
 	if err != nil {
 		return Ticket{}, err
 	}
@@ -356,8 +418,24 @@ func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 			return Ticket{}, err
 		}
 	}
+	if len(p.Fields) > 0 {
+		next.Fields = cloneFields(cur.Fields)
+		for k, v := range p.Fields {
+			if v == nil || v == "" {
+				delete(next.Fields, k)
+			} else {
+				next.Fields[k] = v
+			}
+		}
+	}
+	if err := s.checkReadOnly(ctx, q, a, apps.EventUpdate, &cur, next, p.touched()); err != nil {
+		return Ticket{}, err
+	}
 	final, err := s.runBefore(ctx, q, a, apps.EventUpdate, &cur, next)
 	if err != nil {
+		return Ticket{}, err
+	}
+	if final, err = s.checkForm(ctx, q, a, apps.EventUpdate, &cur, final); err != nil {
 		return Ticket{}, err
 	}
 	if err := writeChanges(ctx, q, cur, final); err != nil {
@@ -418,6 +496,9 @@ func (s *Service) Transition(ctx context.Context, q *dbgen.Queries, a Actor, cau
 	next.Status, next.StateCategory = to, string(category)
 	final, err := s.runBefore(ctx, q, a, apps.EventUpdate, &cur, next)
 	if err != nil {
+		return Ticket{}, err
+	}
+	if final, err = s.checkForm(ctx, q, a, apps.EventUpdate, &cur, final); err != nil {
 		return Ticket{}, err
 	}
 	if _, err = q.UpdateTaskStatus(ctx, dbgen.UpdateTaskStatusParams{ID: id, Status: to, StateCategory: string(category)}); err != nil {
@@ -570,6 +651,7 @@ func FromRecord(ctx context.Context, q *dbgen.Queries, base Ticket, res *expr.Re
 		}
 	}
 	out.Title, out.Description, out.Resolution = res.Title, res.Description, res.Resolution
+	out.Fields = cloneFields(res.Fields)
 	if base.Change != nil {
 		out.Change = base.Change.clone()
 		out.Change.Risk, out.Change.Impact = res.Risk, res.Impact
@@ -656,6 +738,9 @@ func changes(cur, final Ticket) (args dbgen.UpdateTaskParams, any bool) {
 			args.AssignmentGroupID.UUID, args.AssignmentGroupID.Valid = *final.AssignmentGroupID, true
 		}
 	}
+	if !sameFields(cur.Fields, final.Fields) {
+		args.Fields, any = encodeFields(final.Fields), true
+	}
 	args.ID = cur.ID
 	return args, any
 }
@@ -739,6 +824,7 @@ func withRuleFields(base, from Ticket) Ticket {
 	base.Title, base.Description, base.Priority = strings.TrimSpace(from.Title), from.Description, from.Priority
 	base.AssigneeID, base.Resolution, base.Change = from.AssigneeID, from.Resolution, from.Change.clone()
 	base.AssignmentGroupID, base.AssignmentGroup = from.AssignmentGroupID, from.AssignmentGroup
+	base.Fields = from.Fields
 	return base
 }
 

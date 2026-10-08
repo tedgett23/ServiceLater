@@ -66,11 +66,15 @@ type ticketDTO struct {
 	// has breached (lists).
 	SLADueAt    *time.Time `json:"sla_due_at,omitempty"`
 	SLABreached bool       `json:"sla_breached,omitempty"`
+	// FieldStates says, for each field of the type's form, whether it is shown, required and writable now, and which
+	// options a choice offers (single-ticket responses). A field with no entry is shown, optional and writable.
+	FieldStates map[string]apps.FieldState `json:"field_states,omitempty"`
 }
 
 // detail adds what a single-ticket response carries beyond the ticket: the moves and the SLA clocks.
 func (h *handlers) detail(ctx context.Context, q *dbgen.Queries, p auth.Principal, out *ticketDTO) error {
 	out.Moves = h.movesFor(ctx, q, p, *out)
+	out.FieldStates = h.svc.FieldStates(ctx, q, actorOf(p), out.Ticket)
 	var err error
 	out.SLAs, err = records.LoadSLAs(ctx, q, out.ID)
 	return err
@@ -275,6 +279,8 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 		RequesterID *uuid.UUID `json:"requester_id"`
 		// Change fills in a change's own fields; only for type change.
 		Change *changeFields `json:"change"`
+		// Fields fills in extra fields, by name, as the type's form declares them (GET /forms/{type}).
+		Fields map[string]any `json:"fields"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -286,7 +292,7 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		saved, err := h.svc.Create(r.Context(), q, actorOf(p), ruleruns.Cause{}, records.CreateInput{Type: req.Type,
 			Title: req.Title, Description: req.Description, Priority: req.Priority, RequesterID: req.RequesterID,
-			Change: req.Change.patch()})
+			Change: req.Change.patch(), Fields: req.Fields})
 		if err != nil {
 			return err
 		}
@@ -329,12 +335,14 @@ func (h *handlers) updateTicket(w http.ResponseWriter, r *http.Request) {
 		Resolution        *string             `json:"resolution"`
 		// Change edits a change's own fields; only for a change.
 		Change *changeFields `json:"change"`
+		// Fields sets extra fields by name; null clears one. Fields not named are left alone.
+		Fields map[string]any `json:"fields"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
 	patch := records.Patch{Title: req.Title, Description: req.Description, Priority: req.Priority, Resolution: req.Resolution,
-		Change:      req.Change.patch(),
+		Change: req.Change.patch(), Fields: req.Fields,
 		SetAssignee: req.AssigneeID.Set, AssigneeID: req.AssigneeID.Value,
 		SetAssignmentGroup: req.AssignmentGroupID.Set, AssignmentGroupID: req.AssignmentGroupID.Value}
 	var out ticketDTO

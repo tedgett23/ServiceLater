@@ -1,0 +1,60 @@
+# How an incident is filled in and shown. Category and subcategory sort it; impact and urgency, once both are set,
+# decide its priority (the priority-from-impact rule), so priority is then read-only for people. Change any of it in
+# local/: relabel a field, add one, make one required, or move it between the layouts.
+kind: form
+record_type: incident
+fields:
+  category:
+    type: choice
+    label: Category
+    help: What kind of problem this is.
+    options:
+      - { value: hardware, label: Hardware }
+      - { value: software, label: Software }
+      - { value: network, label: Network }
+      - { value: access, label: Access and accounts }
+      - { value: other, label: Something else }
+  subcategory:
+    type: choice
+    label: Subcategory
+    # Offered once a category is chosen, and only the options of that category.
+    visible_when: has(record.fields.category) && record.fields.category != "other"
+    options:
+      - { value: computer, label: Laptop or desktop, when: 'record.fields.category == "hardware"' }
+      - { value: printer, label: Printer or scanner, when: 'record.fields.category == "hardware"' }
+      - { value: phone, label: Phone, when: 'record.fields.category == "hardware"' }
+      - { value: peripheral, label: "Monitor, keyboard or mouse", when: 'record.fields.category == "hardware"' }
+      - { value: install, label: Install or update, when: 'record.fields.category == "software"' }
+      - { value: error, label: Error or crash, when: 'record.fields.category == "software"' }
+      - { value: licence, label: Licence, when: 'record.fields.category == "software"' }
+      - { value: wifi, label: Wi-Fi, when: 'record.fields.category == "network"' }
+      - { value: vpn, label: VPN, when: 'record.fields.category == "network"' }
+      - { value: wired, label: Wired network, when: 'record.fields.category == "network"' }
+      - { value: password, label: Password or lock-out, when: 'record.fields.category == "access"' }
+      - { value: permissions, label: Permissions, when: 'record.fields.category == "access"' }
+      - { value: new_account, label: New account, when: 'record.fields.category == "access"' }
+  impact:
+    type: choice
+    label: Impact
+    help: How many people it stops.
+    options:
+      - { value: "1", label: Many people or a whole service }
+      - { value: "2", label: A team }
+      - { value: "3", label: One person }
+  urgency:
+    type: choice
+    label: Urgency
+    help: How soon it hurts.
+    options:
+      - { value: "1", label: Work has stopped }
+      - { value: "2", label: Work is slowed }
+      - { value: "3", label: It can wait }
+  priority:
+    help: Worked out from impact and urgency once both are set.
+    read_only_when: has(record.fields.impact) && has(record.fields.urgency)
+layout:
+  create: [title, description, category, subcategory, impact, urgency, priority]
+  detail:
+    - section: Classification
+      fields: [category, subcategory, impact, urgency]
+    - fields: [resolution]

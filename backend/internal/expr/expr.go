@@ -8,6 +8,7 @@ package expr
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -67,6 +68,189 @@ type Record struct {
 	ImplementationPlan string    `cel:"implementation_plan"`
 	BackoutPlan        string    `cel:"backout_plan"`
 	TestPlan           string    `cel:"test_plan"`
+	// Fields are the record's extra fields, the ones a form declares (docs/apps-platform.md §8), read as
+	// record.fields.name. Values are as stored: text, a whole number (int64 or json.Number), true or false, and times
+	// as RFC 3339 or YYYY-MM-DD text. What type each has in an expression is the FieldTypes it was compiled with.
+	Fields map[string]any `cel:"fields"`
+}
+
+// SetField sets an extra field on a working copy of a record, as a rule or a workflow step does: empty text clears
+// it. The map is copied, so the record the copy was made from keeps its own.
+func (r *Record) SetField(name string, v any) {
+	next := make(map[string]any, len(r.Fields)+1)
+	for k, x := range r.Fields {
+		next[k] = x
+	}
+	if s, ok := v.(string); ok && s == "" {
+		delete(next, name)
+	} else {
+		next[name] = v
+	}
+	r.Fields = next
+}
+
+// Kinds of extra field as expressions see them.
+const (
+	FieldText   = "text"   // a CEL string: text, long text and choices
+	FieldNumber = "number" // a whole number
+	FieldBool   = "bool"
+	FieldTime   = "time" // a timestamp: dates are midnight UTC
+)
+
+// FieldTypes are the extra fields an expression may read as record.fields.name, and the kind of each. An expression
+// compiled with none can read no extra field: record.fields.x is then "undefined field".
+type FieldTypes map[string]string
+
+// signature is a stable text form of the types, for caching an environment per set.
+func (f FieldTypes) signature() string {
+	names := make([]string, 0, len(f))
+	for n := range f {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	var b strings.Builder
+	for _, n := range names {
+		b.WriteString(n + ":" + f[n] + ";")
+	}
+	return b.String()
+}
+
+func (f FieldTypes) celType(name string) (*types.Type, bool) {
+	switch f[name] {
+	case FieldText:
+		return types.StringType, true
+	case FieldNumber:
+		return types.IntType, true
+	case FieldBool:
+		return types.BoolType, true
+	case FieldTime:
+		return types.TimestampType, true
+	}
+	return nil, false
+}
+
+// fieldsType is the object type record.fields has: one field per extra field.
+const fieldsType = "expr.Fields"
+
+// fieldsProvider declares record.fields as an object whose fields are the FieldTypes, so an expression is checked
+// against them like any other field, and reads them from the record's map, converting stored values to their kind.
+type fieldsProvider struct {
+	types.Provider
+	fields FieldTypes
+}
+
+func (p fieldsProvider) FindStructType(name string) (*types.Type, bool) {
+	if name == fieldsType {
+		return types.NewTypeTypeWithParam(types.NewObjectType(fieldsType)), true
+	}
+	return p.Provider.FindStructType(name)
+}
+
+func (p fieldsProvider) FindStructFieldNames(name string) ([]string, bool) {
+	if name == fieldsType {
+		names := make([]string, 0, len(p.fields))
+		for n := range p.fields {
+			names = append(names, n)
+		}
+		slices.Sort(names)
+		return names, true
+	}
+	return p.Provider.FindStructFieldNames(name)
+}
+
+func (p fieldsProvider) FindStructFieldType(name, field string) (*types.FieldType, bool) {
+	switch {
+	case name == "expr.Record" && field == "fields":
+		return &types.FieldType{
+			Type:  types.NewObjectType(fieldsType),
+			IsSet: func(any) bool { return true },
+			GetFrom: func(obj any) (any, error) {
+				if r, ok := obj.(*Record); ok {
+					return fieldMap(r.Fields), nil
+				}
+				return nil, fmt.Errorf("fields of %T", obj)
+			},
+		}, true
+	case name == fieldsType:
+		t, ok := p.fields.celType(field)
+		if !ok {
+			return nil, false
+		}
+		kind := p.fields[field]
+		return &types.FieldType{
+			Type: t,
+			IsSet: func(obj any) bool {
+				v, ok := obj.(fieldMap)[field]
+				return ok && v != nil
+			},
+			GetFrom: func(obj any) (any, error) {
+				v, ok := obj.(fieldMap)[field]
+				if !ok || v == nil {
+					return nil, fmt.Errorf("record.fields.%s is not set: test it with has(record.fields.%s) first", field, field)
+				}
+				return FieldValue(kind, v)
+			},
+		}, true
+	}
+	return p.Provider.FindStructFieldType(name, field)
+}
+
+// fieldMap is a record's extra fields as the provider passes them between the steps of a select.
+type fieldMap map[string]any
+
+// FieldValue converts a stored extra field to the Go value of its kind: a string, an int64, a bool or a time.Time.
+func FieldValue(kind string, v any) (any, error) {
+	bad := func() (any, error) { return nil, fmt.Errorf("holds %v, which is not %s", v, kindName(kind)) }
+	switch kind {
+	case FieldText:
+		if s, ok := v.(string); ok {
+			return s, nil
+		}
+	case FieldNumber:
+		switch n := v.(type) {
+		case int64:
+			return n, nil
+		case int:
+			return int64(n), nil
+		case json.Number:
+			if i, err := n.Int64(); err == nil {
+				return i, nil
+			}
+		case float64:
+			if n == float64(int64(n)) {
+				return int64(n), nil
+			}
+		}
+	case FieldBool:
+		if b, ok := v.(bool); ok {
+			return b, nil
+		}
+	case FieldTime:
+		switch t := v.(type) {
+		case time.Time:
+			return t, nil
+		case string:
+			if at, err := time.Parse(time.RFC3339, t); err == nil {
+				return at, nil
+			}
+			if at, err := time.Parse(time.DateOnly, t); err == nil {
+				return at, nil
+			}
+		}
+	}
+	return bad()
+}
+
+func kindName(kind string) string {
+	switch kind {
+	case FieldNumber:
+		return "a whole number"
+	case FieldBool:
+		return "true or false"
+	case FieldTime:
+		return "a time"
+	}
+	return "text"
 }
 
 // User is what an expression sees as `user`: the person acting.
@@ -177,82 +361,87 @@ type Env struct {
 	cache sync.Map // source -> *Program, so an expression is compiled once
 }
 
-var (
-	guardOnce sync.Once
-	guardEnv  *Env
-	guardErr  error
+// The environments an expression can be compiled in.
+const (
+	kindGuard    = "guard"
+	kindRule     = "rule"
+	kindWorkflow = "workflow"
 )
+
+type envEntry struct {
+	once sync.Once
+	env  *Env
+	err  error
+}
+
+// envs holds one environment per kind and set of extra fields, built when first asked for.
+var envs sync.Map // kind|signature -> *envEntry
+
+func envFor(kind string, fields FieldTypes) (*Env, error) {
+	v, _ := envs.LoadOrStore(kind+"|"+fields.signature(), &envEntry{})
+	e := v.(*envEntry)
+	e.once.Do(func() { e.env, e.err = buildEnv(kind, fields) })
+	return e.env, e.err
+}
+
+func buildEnv(kind string, fields FieldTypes) (*Env, error) {
+	base, err := cel.NewEnv(ext.NativeTypes(reflect.TypeOf(&Record{}), reflect.TypeOf(&User{}), ext.ParseStructTags(true)))
+	if err != nil {
+		return nil, err
+	}
+	opts := []cel.EnvOption{
+		cel.CustomTypeProvider(fieldsProvider{Provider: base.CELTypeProvider(), fields: fields}),
+		cel.Variable("record", cel.ObjectType("expr.Record")),
+		cel.Variable("user", cel.ObjectType("expr.User")),
+		cel.Variable("now", cel.TimestampType),
+	}
+	switch kind {
+	case kindGuard:
+		opts = append(opts,
+			cel.Variable("old", cel.ObjectType("expr.Record")),
+			cel.Variable(lookupsVar, cel.MapType(cel.StringType, cel.IntType)))
+	case kindRule:
+		opts = append(opts,
+			cel.Variable("old", cel.ObjectType("expr.Record")),
+			cel.Variable("event", cel.StringType),
+			cel.Variable(lookupsVar, cel.MapType(cel.StringType, cel.IntType)))
+	case kindWorkflow:
+		opts = append(opts,
+			cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
+			cel.Variable(lookups[0].variable, cel.MapType(cel.StringType, cel.ListType(cel.StringType))),
+			cel.Variable(lookups[1].variable, cel.MapType(cel.StringType, cel.ListType(cel.StringType))),
+			cel.Macros(lookups[0].macro(), lookups[1].macro()))
+	}
+	e, err := base.Extend(opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &Env{env: e}, nil
+}
 
 // LifecycleGuard is the environment for a lifecycle transition's `when`: record (as it would be after the move),
 // old (as it is now), user, now, and the counts of the transition's lookups (lookups.name).
-func LifecycleGuard() (*Env, error) {
-	guardOnce.Do(func() {
-		var e *cel.Env
-		e, guardErr = cel.NewEnv(
-			ext.NativeTypes(reflect.TypeOf(&Record{}), reflect.TypeOf(&User{}), ext.ParseStructTags(true)),
-			cel.Variable("record", cel.ObjectType("expr.Record")),
-			cel.Variable("old", cel.ObjectType("expr.Record")),
-			cel.Variable("user", cel.ObjectType("expr.User")),
-			cel.Variable("now", cel.TimestampType),
-			cel.Variable(lookupsVar, cel.MapType(cel.StringType, cel.IntType)),
-		)
-		guardEnv = &Env{env: e}
-	})
-	return guardEnv, guardErr
-}
+func LifecycleGuard() (*Env, error) { return LifecycleGuardFor(nil) }
 
-var (
-	ruleOnce sync.Once
-	ruleEnv  *Env
-	ruleErr  error
-)
+// LifecycleGuardFor is LifecycleGuard where record.fields has these extra fields.
+func LifecycleGuardFor(fields FieldTypes) (*Env, error) { return envFor(kindGuard, fields) }
 
 // Rule is the environment for a rule's `when`, its per-action `when`, and the values its actions compute. It is the
 // guard environment plus `event`; lookups are the rule's own. On create, `old` is an empty record, so use event == "create" to tell.
-func Rule() (*Env, error) {
-	ruleOnce.Do(func() {
-		var e *cel.Env
-		e, ruleErr = cel.NewEnv(
-			ext.NativeTypes(reflect.TypeOf(&Record{}), reflect.TypeOf(&User{}), ext.ParseStructTags(true)),
-			cel.Variable("record", cel.ObjectType("expr.Record")),
-			cel.Variable("old", cel.ObjectType("expr.Record")),
-			cel.Variable("user", cel.ObjectType("expr.User")),
-			cel.Variable("now", cel.TimestampType),
-			cel.Variable("event", cel.StringType),
-			cel.Variable(lookupsVar, cel.MapType(cel.StringType, cel.IntType)),
-		)
-		ruleEnv = &Env{env: e}
-	})
-	return ruleEnv, ruleErr
-}
+// Form conditions are compiled here too.
+func Rule() (*Env, error) { return RuleFor(nil) }
 
-var (
-	wfOnce sync.Once
-	wfEnv  *Env
-	wfErr  error
-)
+// RuleFor is Rule where record.fields has these extra fields.
+func RuleFor(fields FieldTypes) (*Env, error) { return envFor(kindRule, fields) }
 
 // Workflow is the environment for a workflow step's expressions: the record as it is now, the person the workflow
 // runs as, the time, and the workflow's own variables (`vars.name`, of no fixed type: a variable is whatever a `set`
 // step stored in it). group('name') is the ids of a group's members, so `approvers: group('CAB')` asks a team, and
 // role('name') the ids of everyone holding a role.
-func Workflow() (*Env, error) {
-	wfOnce.Do(func() {
-		var e *cel.Env
-		e, wfErr = cel.NewEnv(
-			ext.NativeTypes(reflect.TypeOf(&Record{}), reflect.TypeOf(&User{}), ext.ParseStructTags(true)),
-			cel.Variable("record", cel.ObjectType("expr.Record")),
-			cel.Variable("user", cel.ObjectType("expr.User")),
-			cel.Variable("now", cel.TimestampType),
-			cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
-			cel.Variable(lookups[0].variable, cel.MapType(cel.StringType, cel.ListType(cel.StringType))),
-			cel.Variable(lookups[1].variable, cel.MapType(cel.StringType, cel.ListType(cel.StringType))),
-			cel.Macros(lookups[0].macro(), lookups[1].macro()),
-		)
-		wfEnv = &Env{env: e}
-	})
-	return wfEnv, wfErr
-}
+func Workflow() (*Env, error) { return WorkflowFor(nil) }
+
+// WorkflowFor is Workflow where record.fields has these extra fields.
+func WorkflowFor(fields FieldTypes) (*Env, error) { return envFor(kindWorkflow, fields) }
 
 // Program is a compiled, checked expression.
 type Program struct {
@@ -260,7 +449,12 @@ type Program struct {
 	Source string
 	names  map[string][]string // per lookup variable, the names written in the expression, looked up before each run
 	counts []string            // the lookups (lookups.name) the expression reads
+	reads  []string            // the record's fields it reads: record.title is "title", record.fields.x is "fields.x"
 }
+
+// Reads lists the fields of `record` the expression reads, extra fields as "fields.name". A form asks again for its
+// conditions only when one of these changes.
+func (p *Program) Reads() []string { return p.reads }
 
 // Lookups lists the lookups the expression reads, so a definition can check that it declares each one.
 func (p *Program) Lookups() []string { return p.counts }
@@ -275,7 +469,21 @@ var (
 	String     = cel.StringType
 	StringList = cel.ListType(cel.StringType)
 	Duration   = cel.DurationType
+	Timestamp  = cel.TimestampType
 )
+
+// KindType is the type an expression setting an extra field of this kind must produce.
+func KindType(kind string) *cel.Type {
+	switch kind {
+	case FieldNumber:
+		return Int
+	case FieldBool:
+		return Bool
+	case FieldTime:
+		return Timestamp
+	}
+	return String
+}
 
 func describe(t *cel.Type) string {
 	switch {
@@ -289,6 +497,8 @@ func describe(t *cel.Type) string {
 		return "a list of text"
 	case t.IsExactType(cel.DurationType):
 		return `a duration, such as duration("4h")`
+	case t.IsExactType(cel.TimestampType):
+		return `a time, such as now + duration("24h")`
 	}
 	return t.String()
 }
@@ -329,6 +539,9 @@ func (e *Env) compile(source string, want *cel.Type) (*Program, error) {
 	}
 	a, iss := e.env.Check(parsed)
 	if err := issues(iss); err != nil {
+		if strings.Contains(err.Error(), "undefined field") && strings.Contains(src, "fields.") {
+			return nil, fmt.Errorf("%w (record.fields has only the fields this app's form for the record type declares)", err)
+		}
 		return nil, err
 	}
 	if want != nil && !a.OutputType().IsExactType(want) {
@@ -352,7 +565,7 @@ func (e *Env) compile(source string, want *cel.Type) (*Program, error) {
 	if err != nil {
 		return nil, err
 	}
-	p := &Program{prg: prg, Source: src, names: names, counts: counts}
+	p := &Program{prg: prg, Source: src, names: names, counts: counts, reads: recordReads(a)}
 	e.cache.Store(key, p)
 	return p, nil
 }
@@ -397,6 +610,32 @@ func countNames(a *cel.Ast) ([]string, error) {
 		return nil, errors.New("read a lookup as lookups.name")
 	}
 	return names, nil
+}
+
+// recordReads lists the fields of record an expression selects: record.x as "x", record.fields.x as "fields.x".
+func recordReads(a *cel.Ast) []string {
+	var out []string
+	add := func(n string) {
+		if !slices.Contains(out, n) {
+			out = append(out, n)
+		}
+	}
+	ast.PreOrderVisit(a.NativeRep().Expr(), ast.NewExprVisitor(func(e ast.Expr) {
+		if e.Kind() != ast.SelectKind {
+			return
+		}
+		sel := e.AsSelect()
+		op := sel.Operand()
+		switch {
+		case op.Kind() == ast.IdentKind && op.AsIdent() == "record" && sel.FieldName() != "fields":
+			add(sel.FieldName())
+		case op.Kind() == ast.SelectKind && op.AsSelect().FieldName() == "fields" &&
+			op.AsSelect().Operand().Kind() == ast.IdentKind && op.AsSelect().Operand().AsIdent() == "record":
+			add("fields." + sel.FieldName())
+		}
+	}))
+	slices.Sort(out)
+	return out
 }
 
 // issues turns CEL's multi-line diagnostics into one line: the first problem and where it is.

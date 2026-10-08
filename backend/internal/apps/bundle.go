@@ -57,6 +57,8 @@ type Definition struct {
 	Role *Role
 	// SLA is a service level agreement (slas/).
 	SLA *SLA
+	// Form lays out and checks a record type's fields (forms/).
+	Form *Form
 }
 
 // Source is the layers joined for storage and display, for example "default+local".
@@ -73,7 +75,7 @@ var definitionDirs = map[string]struct{ kind, unsupported string }{
 	"lifecycles":    {kind: "lifecycle"},
 	"rules":         {kind: "rule"},
 	"workflows":     {kind: "workflow"},
-	"forms":         {unsupported: "forms are not supported yet"},
+	"forms":         {kind: "form"},
 	"catalog":       {unsupported: "catalog items are not supported yet"},
 	"knowledge":     {unsupported: "knowledge articles are not supported yet"},
 	"notifications": {kind: "notification"},
@@ -283,8 +285,14 @@ func (b *Bundle) Compile() (*Compiled, error) {
 	}
 	sort.Strings(rels)
 
-	var defs []Definition
-	seen := map[string]string{}
+	// Merge the layers of each file first: forms are compiled before everything else, because other definitions'
+	// expressions are checked against the extra fields the app's forms declare.
+	type merged struct {
+		rel, display string
+		content      []byte
+		used         []string
+	}
+	var files []merged
 	for _, rel := range rels {
 		var used []string
 		var content []byte
@@ -299,25 +307,36 @@ func (b *Bundle) Compile() (*Compiled, error) {
 				content, display = over, l.display(rel)
 				continue
 			}
-			merged, err := mergeYAML(content, over)
+			mergedYAML, err := mergeYAML(content, over)
 			if err != nil {
 				p.add(l.display(rel), "cannot apply this override to the shipped %s: %v", rel, err)
 				content = nil
 				break
 			}
-			content, display = merged, rel+" ("+strings.Join(used, " + ")+")"
+			content, display = mergedYAML, rel+" ("+strings.Join(used, " + ")+")"
 		}
-		if content == nil {
-			continue
+		if content != nil {
+			files = append(files, merged{rel: rel, display: display, content: content, used: used})
 		}
-		dir, _, _ := strings.Cut(rel, "/")
-		if d := compileDefinition(definitionDirs[dir].kind, display, content, &p); d != nil {
-			d.Layers = used
+	}
+	isForm := func(rel string) bool { return strings.HasPrefix(rel, "forms/") }
+	sort.SliceStable(files, func(i, j int) bool { return isForm(files[i].rel) && !isForm(files[j].rel) })
+
+	var defs []Definition
+	seen := map[string]string{}
+	forms := formSet{}
+	for _, f := range files {
+		dir, _, _ := strings.Cut(f.rel, "/")
+		if d := compileDefinition(definitionDirs[dir].kind, f.display, f.content, forms, &p); d != nil {
+			d.Layers = f.used
 			key := d.Kind + "/" + d.Name
 			if other, dup := seen[key]; dup {
-				p.add(display, "defines %s %q, which %s already defines", d.Kind, d.Name, other)
+				p.add(f.display, "defines %s %q, which %s already defines", d.Kind, d.Name, other)
 			}
-			seen[key] = display
+			seen[key] = f.display
+			if d.Form != nil {
+				forms[d.Form.RecordType] = d.Form
+			}
 			defs = append(defs, *d)
 		}
 	}
@@ -359,10 +378,20 @@ func checkDefinitionFile(display, rel string, p *Problems) bool {
 	return false
 }
 
-func compileDefinition(kind, file string, data []byte, p *Problems) *Definition {
+// compileDefinition parses and checks one definition. forms are the app's forms compiled so far (all of them, by the
+// time anything but a form is compiled).
+func compileDefinition(kind, file string, data []byte, forms formSet, p *Problems) *Definition {
 	switch kind {
+	case "form":
+		f := parseForm(file, data, p)
+		if f == nil {
+			return nil
+		}
+		body, _ := json.Marshal(f)
+		sum := sha256.Sum256(body)
+		return &Definition{Kind: kind, Name: f.RecordType, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Form: f}
 	case "lifecycle":
-		lc := parseLifecycle(file, data, p)
+		lc := parseLifecycle(file, data, forms, p)
 		if lc == nil {
 			return nil
 		}
@@ -370,7 +399,7 @@ func compileDefinition(kind, file string, data []byte, p *Problems) *Definition 
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: lc.RecordType, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Lifecycle: lc}
 	case "rule":
-		r := parseRule(file, data, p)
+		r := parseRule(file, data, forms, p)
 		if r == nil {
 			return nil
 		}
@@ -378,7 +407,7 @@ func compileDefinition(kind, file string, data []byte, p *Problems) *Definition 
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: r.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Rule: r}
 	case "workflow":
-		w := parseWorkflow(file, data, p)
+		w := parseWorkflow(file, data, forms, p)
 		if w == nil {
 			return nil
 		}
@@ -402,7 +431,7 @@ func compileDefinition(kind, file string, data []byte, p *Problems) *Definition 
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: r.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Role: r}
 	case "sla":
-		s := parseSLA(file, data, p)
+		s := parseSLA(file, data, forms, p)
 		if s == nil {
 			return nil
 		}

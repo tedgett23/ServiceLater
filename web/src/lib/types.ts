@@ -46,6 +46,52 @@ export interface Ticket {
 	/** Lists: when the soonest running SLA clock falls due, and whether any clock has breached. */
 	sla_due_at?: string;
 	sla_breached?: boolean;
+	/** Extra fields, the ones the type's form declares, by name. A field that is not set is absent. */
+	fields?: Record<string, FieldValue>;
+	/** Single-ticket responses: each form field's state now. A field with no entry is shown, optional and writable. */
+	field_states?: Record<string, FieldState>;
+}
+
+/** What a field holds: text (also dates as YYYY-MM-DD and times as ISO), a whole number, or true/false. */
+export type FieldValue = string | number | boolean;
+
+/** Whether a field is shown, required and writable right now, and which options a choice offers. */
+export interface FieldState {
+	hidden?: boolean;
+	required?: boolean;
+	read_only?: boolean;
+	/** The values offered, when not all of a choice's options are. */
+	options?: string[];
+}
+
+export type FieldType = 'text' | 'textarea' | 'number' | 'boolean' | 'date' | 'datetime' | 'choice' | 'priority';
+
+/** One field of a form: the record's own (core) or an extra field. */
+export interface FormField {
+	name: string;
+	type: FieldType;
+	label: string;
+	help?: string;
+	core: boolean;
+	options?: { value: string; label: string }[];
+	required?: boolean;
+	default?: FieldValue;
+	max_length?: number;
+	min?: number;
+	max?: number;
+}
+
+/** How a record type is filled in and shown, from GET /forms/{type}. */
+export interface FormDef {
+	record_type: string;
+	fields: FormField[];
+	/** The fields on the form for filing one, in order. */
+	create: string[];
+	/** The sections shown on the record. */
+	detail: { label?: string; fields: string[] }[];
+	/** Fields the form's conditions read: ask for the states again when one changes while filing. */
+	reactive: string[];
+	app?: string;
 }
 
 /** An SLA clock on a ticket. The server works everything out; the page only counts down to due_at. */

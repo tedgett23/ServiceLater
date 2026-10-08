@@ -2,6 +2,7 @@ package expr
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -437,4 +438,67 @@ func mustCompileAs(t *testing.T, e *Env, src string) *Program {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func TestExtraFieldsAreTypedByTheirForm(t *testing.T) {
+	fields := FieldTypes{"category": FieldText, "seats": FieldNumber, "vip": FieldBool, "needed_by": FieldTime, "notes": FieldText}
+	e, err := RuleFor(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := sample()
+	// Stored as JSON gives them: a number may arrive as json.Number or a float, a date as text.
+	in.Record.Fields = map[string]any{"category": "network", "seats": json.Number("12"), "vip": true, "needed_by": "2026-09-30"}
+	for _, c := range []struct {
+		source string
+		want   bool
+	}{
+		{`record.fields.category == "network"`, true},
+		{`record.fields.seats > 10 && record.fields.vip`, true},
+		{`record.fields.needed_by < now`, false},
+		{`has(record.fields.category) && !has(old.fields.category)`, true},
+		{`has(record.fields.notes)`, false},
+	} {
+		p, err := e.Compile(c.source)
+		if err != nil {
+			t.Fatalf("%s: %v", c.source, err)
+		}
+		if got, err := p.Eval(context.Background(), in); err != nil || got != c.want {
+			t.Errorf("%s = %v, %v", c.source, got, err)
+		}
+	}
+
+	// Install time: a field the form does not declare, or used as the wrong type, is refused.
+	for src, want := range map[string]string{
+		`record.fields.categroy == "network"`: "undefined field 'categroy'",
+		`record.fields.seats == "12"`:         "no matching overload",
+		`record.fields["category"] == "x"`:    "no matching overload",
+	} {
+		if _, err := e.Compile(src); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %v, want %q", src, err, want)
+		}
+	}
+	// Without a form, no extra field exists.
+	plain, _ := Rule()
+	if _, err := plain.Compile(`record.fields.category == "x"`); err == nil || !strings.Contains(err.Error(), "form") {
+		t.Errorf("plain env: %v", err)
+	}
+
+	// Reading a field that is not set fails, so a condition that forgot has() never passes.
+	in.Record.Fields = map[string]any{}
+	p, _ := e.Compile(`record.fields.category == "network"`)
+	if _, err := p.Eval(context.Background(), in); err == nil || !strings.Contains(err.Error(), "has(record.fields.category)") {
+		t.Errorf("unset field: %v", err)
+	}
+	// A stored value of the wrong kind (the form changed under it) fails too.
+	in.Record.Fields = map[string]any{"seats": "a dozen"}
+	p, _ = e.Compile(`record.fields.seats > 1`)
+	if _, err := p.Eval(context.Background(), in); err == nil {
+		t.Error("text read as a number")
+	}
+
+	p, _ = e.Compile(`has(record.fields.category) && record.priority < 3 || record.title == ""`)
+	if got := strings.Join(p.Reads(), ","); got != "fields.category,priority,title" {
+		t.Errorf("reads %s", got)
+	}
 }

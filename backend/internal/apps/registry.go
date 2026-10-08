@@ -22,6 +22,7 @@ type snapshot struct {
 	workflows  map[string]*Workflow     // by "app/name"
 	templates  map[string]*Notification // by "app/name"
 	slas       map[string][]*SLA        // by record type, by app then name
+	forms      map[string]*Form         // by record type
 	apps       []Installed
 }
 
@@ -40,7 +41,7 @@ type Registry struct {
 // ever does (useful in tests and before any app is installed).
 func NewRegistry(pool *pgxpool.Pool) *Registry {
 	r := &Registry{pool: pool}
-	r.snap.Store(&snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}, slas: map[string][]*SLA{}})
+	r.snap.Store(&snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}, slas: map[string][]*SLA{}, forms: map[string]*Form{}})
 	return r
 }
 
@@ -49,7 +50,7 @@ func (r *Registry) Load(ctx context.Context) error {
 	if r.pool == nil {
 		return nil
 	}
-	next := &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}, slas: map[string][]*SLA{}}
+	next := &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}, slas: map[string][]*SLA{}, forms: map[string]*Form{}}
 	err := db.WithSystem(ctx, r.pool, func(tx pgx.Tx) error {
 		q := dbgen.New(tx)
 		apps, err := q.ListApps(ctx)
@@ -139,6 +140,18 @@ func (r *Registry) Load(ctx context.Context) error {
 				next.slas[sla.RecordType] = append(next.slas[sla.RecordType], &sla)
 				continue
 			}
+			if d.Kind == "form" {
+				var f Form
+				if err := json.Unmarshal(d.Body, &f); err != nil {
+					slog.Error("skipping unreadable form", "app", d.AppName, "form", d.Name, "err", err)
+					continue
+				}
+				// A condition that no longer compiles stays, and refuses saves until the app is fixed.
+				f.compile()
+				f.App, f.Version = d.AppName, versions[d.AppName]
+				next.forms[f.RecordType] = &f
+				continue
+			}
 			if d.Kind != "lifecycle" {
 				continue
 			}
@@ -221,6 +234,24 @@ func (r *Registry) SLAs(recordType string) []*SLA {
 		out = append(out, s.slas[recordType]...)
 	}
 	return out
+}
+
+// Form returns the form for a record type: an installed app's, or the one every type has without it (FormFor).
+func (r *Registry) Form(recordType string) *Form {
+	if f, ok := r.snap.Load().forms[recordType]; ok {
+		return f
+	}
+	return builtinForm(recordType)
+}
+
+var builtinForms sync.Map // record type -> *Form
+
+func builtinForm(recordType string) *Form {
+	if f, ok := builtinForms.Load(recordType); ok {
+		return f.(*Form)
+	}
+	f, _ := builtinForms.LoadOrStore(recordType, FormFor(recordType))
+	return f.(*Form)
 }
 
 // Notification finds a notification template by the app that defines it and its name. It is nil when there is none

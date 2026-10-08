@@ -180,6 +180,7 @@ type Task struct {
 	StateCategory     string             `json:"state_category"`
 	Type              string             `json:"type"`
 	AssignmentGroupID uuid.NullUUID      `json:"assignment_group_id"`
+	Fields            []byte             `json:"fields"`
 }
 
 type TaskComment struct {
