@@ -20,11 +20,19 @@ func TestExprRecordSetsEveryField(t *testing.T) {
 		Change: &records.Change{ChangeType: "normal", Risk: "low", Impact: "high", PlannedStart: &now, PlannedEnd: &now,
 			ImplementationPlan: "i", BackoutPlan: "b", TestPlan: "t"},
 		Fields: map[string]any{"category": "network"},
+		CIs: []records.CI{{ID: id, Class: "server", Name: "db-1", Status: "active", SupportGroupID: &other, SupportGroup: &name,
+			OwnerGroupID: &other, OwnerGroup: &name}},
 	}.ExprRecord()
 	v := reflect.ValueOf(*r)
 	for i := 0; i < v.NumField(); i++ {
 		if v.Field(i).IsZero() {
 			t.Errorf("expr.Record.%s is not set by Ticket.ExprRecord", v.Type().Field(i).Name)
+		}
+	}
+	ci := reflect.ValueOf(r.CIs[0])
+	for i := 0; i < ci.NumField(); i++ {
+		if ci.Field(i).IsZero() {
+			t.Errorf("expr.CI.%s is not set by Ticket.ExprRecord", ci.Type().Field(i).Name)
 		}
 	}
 }

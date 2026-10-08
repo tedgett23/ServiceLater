@@ -1,5 +1,5 @@
 import { expect, test, type BrowserContext } from '@playwright/test';
-import { as, createTicket, openTicket, uid } from './helpers';
+import { as, createTicket, details, openTicket, uid } from './helpers';
 
 type CI = { id: string; name: string };
 
@@ -115,5 +115,70 @@ test.describe('CMDB', () => {
 		}
 		await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'CMDB' }).click();
 		await expect(page.getByRole('heading', { name: 'Configuration items' })).toBeVisible();
+	});
+
+	test('linking an item routes an unrouted ticket to the item\'s support group', async ({ browser }) => {
+		const admin = await as(browser, 'admin');
+		const id = uid();
+		const group = (await (await admin.context.request.post('/api/v1/groups', { data: { name: `DB team ${id}` } })).json()) as { id: string };
+		await addItem(admin.context, 'database', `orders-db-${id}`, { support_group_id: group.id });
+
+		const { context, page } = await as(browser, 'agent');
+		const t = await createTicket(context, { title: `Orders time out ${id}` });
+		await openTicket(page, t.number);
+		await expect(details(page).getByLabel('Assignment group')).toHaveValue('');
+		const affected = page.getByRole('region', { name: 'Affected items' });
+		await affected.getByLabel('Link an item').fill(`orders-db-${id}`);
+		await affected.getByRole('button', { name: `Link orders-db-${id}` }).click();
+		// The cmdb app's rule routed it as the link was saved; the panel follows.
+		await expect(details(page).getByLabel('Assignment group')).toHaveValue(group.id);
+	});
+
+	test('a freeze limited to an item holds back only the changes linked to it', async ({ browser }) => {
+		const admin = await as(browser, 'admin');
+		const agent = await as(browser, 'agent');
+		const id = uid();
+		const frozen = await addItem(admin.context, 'database', `ledger-db-${id}`);
+		const free = await addItem(admin.context, 'database', `wiki-db-${id}`);
+		// Years ahead, on days of their own, so no other test's changes land in it.
+		const base = new Date(2033, 0, 6 + Math.floor(Math.random() * 300));
+		const at = (days: number, hours = 0) => new Date(base.getFullYear(), base.getMonth(), base.getDate() + days, hours);
+		const local = (d: Date) =>
+			`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:00`;
+		const window = { planned_start: at(2, 10).toISOString(), planned_end: at(2, 12).toISOString() };
+		let freezeID = '';
+		try {
+			await admin.page.goto(`/calendar?date=${local(at(2)).slice(0, 10)}`);
+			await admin.page.getByRole('button', { name: 'Declare freeze' }).click();
+			const form = admin.page.getByRole('form', { name: 'Declare a change freeze' });
+			await form.getByLabel('Name').fill(`Ledger close ${id}`);
+			await form.getByLabel('Starts').fill(local(at(1)));
+			await form.getByLabel('Ends').fill(local(at(3)));
+			await form.getByLabel('Limit it to an item').fill(`ledger-db-${id}`);
+			// Enter in the item search must not declare the freeze before an item is picked.
+			await form.getByLabel('Limit it to an item').press('Enter');
+			await form.getByRole('button', { name: `Add ledger-db-${id}` }).click();
+			const created = admin.page.waitForResponse((r) => r.url().endsWith('/api/v1/freeze-windows') && r.request().method() === 'POST');
+			await form.getByRole('button', { name: 'Declare freeze' }).click();
+			freezeID = ((await (await created).json()) as { id: string }).id;
+			await expect(admin.page.locator('li.freeze', { hasText: `Ledger close ${id}` })).toContainText(`Only changes to ledger-db-${id}`);
+
+			// A change to another item is planned into it; one to the frozen item is not.
+			const refused = await agent.context.request.post('/api/v1/tickets', {
+				data: { type: 'change', title: `Ledger patch ${id}`, cis: [frozen.id], change: window }
+			});
+			expect(refused.status()).toBe(422);
+			const other = await createTicket(agent.context, { type: 'change', title: `Wiki upgrade ${id}`, change: window });
+			const linked = await agent.context.request.put(`/api/v1/tickets/${other.id}/cis/${free.id}`);
+			expect(linked.status()).toBe(200);
+			await openTicket(agent.page, other.reference);
+			const affected = agent.page.getByRole('region', { name: 'Affected items' });
+			await affected.getByLabel('Link an item').fill(`ledger-db-${id}`);
+			await affected.getByRole('button', { name: `Link ledger-db-${id}` }).click();
+			await expect(affected.getByRole('alert')).toContainText('overlaps a change freeze that applies to it');
+			await expect(affected.getByRole('link', { name: `ledger-db-${id}` })).toHaveCount(0);
+		} finally {
+			if (freezeID) await admin.context.request.delete(`/api/v1/freeze-windows/${freezeID}`);
+		}
 	});
 });

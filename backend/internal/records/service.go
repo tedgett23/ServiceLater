@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -89,6 +90,8 @@ type CreateInput struct {
 	Change *ChangePatch
 	// Fields are extra fields to fill in, by name; a nil value is left out. The form's defaults fill the rest.
 	Fields map[string]any
+	// CIs are configuration items to link it to (needs cmdb:read).
+	CIs []uuid.UUID
 }
 
 // ChangePatch is a change to a change's own fields. A nil field is left alone; SetPlannedStart with a nil
@@ -164,12 +167,16 @@ type Patch struct {
 	Change             *ChangePatch
 	// Fields sets extra fields by name; a nil value clears one.
 	Fields map[string]any
+	// SetCIs replaces the configuration items linked to it with CIs (needs cmdb:read). Linking or unlinking an item
+	// is an update like any other, so rules run on it.
+	SetCIs bool
+	CIs    []uuid.UUID
 }
 
 // Empty reports whether the patch changes nothing.
 func (p Patch) Empty() bool {
 	return p.Title == nil && p.Description == nil && p.Priority == nil && !p.SetAssignee && !p.SetAssignmentGroup &&
-		p.Resolution == nil && p.Change.empty() && len(p.Fields) == 0
+		p.Resolution == nil && p.Change.empty() && len(p.Fields) == 0 && !p.SetCIs
 }
 
 // touched lists the fields a person's patch writes, by form field name, for the read-only check.
@@ -291,6 +298,11 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	} else if !in.Change.empty() {
 		return Ticket{}, Invalid("only a change has change fields")
 	}
+	if len(in.CIs) > 0 {
+		if next.CIs, err = resolveCIs(ctx, q, a, in.CIs); err != nil {
+			return Ticket{}, err
+		}
+	}
 	form := s.Apps.Form(tt.Type)
 	next.Fields = form.Defaults()
 	for k, v := range in.Fields {
@@ -325,7 +337,9 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	if err != nil {
 		return Ticket{}, err
 	}
-	if err := writeChanges(ctx, q, created, withRuleFields(created, next)); err != nil {
+	final := withRuleFields(created, next)
+	final.CIs = next.CIs
+	if err := writeChanges(ctx, q, created, final); err != nil {
 		return Ticket{}, err
 	}
 	out, err := Load(ctx, q, t.ID)
@@ -426,6 +440,11 @@ func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 			} else {
 				next.Fields[k] = v
 			}
+		}
+	}
+	if p.SetCIs {
+		if next.CIs, err = resolveCIs(ctx, q, a, p.CIs); err != nil {
+			return Ticket{}, err
 		}
 	}
 	if err := s.checkReadOnly(ctx, q, a, apps.EventUpdate, &cur, next, p.touched()); err != nil {
@@ -799,6 +818,11 @@ func writeChanges(ctx context.Context, q *dbgen.Queries, cur, final Ticket) erro
 			return err
 		}
 	}
+	if !sameCIs(cur.CIs, final.CIs) {
+		if err := relinkCIs(ctx, q, cur.ID, cur.CIs, final.CIs); err != nil {
+			return err
+		}
+	}
 	if final.Resolution != cur.Resolution {
 		if err := q.UpdateIncident(ctx, dbgen.UpdateIncidentParams{TaskID: cur.ID, Resolution: final.Resolution}); err != nil {
 			return err
@@ -808,6 +832,56 @@ func writeChanges(ctx context.Context, q *dbgen.Queries, cur, final Ticket) erro
 		return q.UpdateChange(ctx, dbgen.UpdateChangeParams{TaskID: cur.ID, ChangeType: c.ChangeType, Risk: c.Risk, Impact: c.Impact,
 			PlannedStart: timestamptz(c.PlannedStart), PlannedEnd: timestamptz(c.PlannedEnd),
 			ImplementationPlan: c.ImplementationPlan, BackoutPlan: c.BackoutPlan, TestPlan: c.TestPlan})
+	}
+	return nil
+}
+
+// resolveCIs reads the items to link a record to, as the person saving may see them. Each must exist; one named
+// twice counts once.
+func resolveCIs(ctx context.Context, q *dbgen.Queries, a Actor, ids []uuid.UUID) ([]CI, error) {
+	if !a.Can(authz.CMDBRead) {
+		return nil, Forbidden(fmt.Sprintf("linking configuration items needs the %s permission", authz.CMDBRead))
+	}
+	unique := slices.Compact(slices.SortedFunc(slices.Values(ids), func(x, y uuid.UUID) int { return strings.Compare(x.String(), y.String()) }))
+	if len(unique) > MaxCIs {
+		return nil, Invalid(fmt.Sprintf("a record can be linked to at most %d items", MaxCIs))
+	}
+	if len(unique) == 0 {
+		return nil, nil
+	}
+	rows, err := q.GetCIsByID(ctx, unique)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) != len(unique) {
+		return nil, Invalid("there is no configuration item with that id")
+	}
+	out := make([]CI, len(rows))
+	for i, r := range rows {
+		out[i] = ciFrom(r)
+	}
+	return out, nil
+}
+
+// relinkCIs links the items in next that cur lacks and unlinks those it no longer has.
+func relinkCIs(ctx context.Context, q *dbgen.Queries, id uuid.UUID, cur, next []CI) error {
+	had := map[uuid.UUID]bool{}
+	for _, c := range cur {
+		had[c.ID] = true
+	}
+	for _, c := range next {
+		if had[c.ID] {
+			delete(had, c.ID)
+			continue
+		}
+		if err := q.LinkTaskCI(ctx, dbgen.LinkTaskCIParams{TaskID: id, CiID: c.ID}); err != nil {
+			return err
+		}
+	}
+	for ci := range had {
+		if _, err := q.UnlinkTaskCI(ctx, dbgen.UnlinkTaskCIParams{TaskID: id, CiID: ci}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

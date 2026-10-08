@@ -12,17 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const countTaskCIs = `-- name: CountTaskCIs :one
-SELECT count(*) FROM task_cis WHERE task_id = $1
-`
-
-func (q *Queries) CountTaskCIs(ctx context.Context, taskID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, countTaskCIs, taskID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const createCI = `-- name: CreateCI :one
 INSERT INTO cis (class, name, status, description, owner_group_id, support_group_id, fields, created_by)
 VALUES ($1, $2, $3, $4, $5, $6, $7, app_current_user_id())
@@ -153,21 +142,27 @@ func (q *Queries) GetCI(ctx context.Context, id uuid.UUID) (GetCIRow, error) {
 }
 
 const getCIsByID = `-- name: GetCIsByID :many
-SELECT c.id, c.class, c.name, c.status, sg.name AS support_group_name
+SELECT c.id, c.class, c.name, c.status, c.support_group_id, sg.name AS support_group_name, c.owner_group_id,
+       og.name AS owner_group_name
 FROM cis c
 LEFT JOIN groups sg ON sg.id = c.support_group_id
+LEFT JOIN groups og ON og.id = c.owner_group_id
 WHERE c.id = ANY ($1::uuid[])
+ORDER BY lower(c.name), c.id
 `
 
 type GetCIsByIDRow struct {
-	ID               uuid.UUID   `json:"id"`
-	Class            string      `json:"class"`
-	Name             string      `json:"name"`
-	Status           string      `json:"status"`
-	SupportGroupName pgtype.Text `json:"support_group_name"`
+	ID               uuid.UUID     `json:"id"`
+	Class            string        `json:"class"`
+	Name             string        `json:"name"`
+	Status           string        `json:"status"`
+	SupportGroupID   uuid.NullUUID `json:"support_group_id"`
+	SupportGroupName pgtype.Text   `json:"support_group_name"`
+	OwnerGroupID     uuid.NullUUID `json:"owner_group_id"`
+	OwnerGroupName   pgtype.Text   `json:"owner_group_name"`
 }
 
-// The items with these ids that the reader may see, for impact results.
+// The items with these ids that the reader may see, for impact results and for linking to a record.
 func (q *Queries) GetCIsByID(ctx context.Context, ids []uuid.UUID) ([]GetCIsByIDRow, error) {
 	rows, err := q.db.Query(ctx, getCIsByID, ids)
 	if err != nil {
@@ -182,7 +177,10 @@ func (q *Queries) GetCIsByID(ctx context.Context, ids []uuid.UUID) ([]GetCIsByID
 			&i.Class,
 			&i.Name,
 			&i.Status,
+			&i.SupportGroupID,
 			&i.SupportGroupName,
+			&i.OwnerGroupID,
+			&i.OwnerGroupName,
 		); err != nil {
 			return nil, err
 		}
@@ -426,23 +424,28 @@ func (q *Queries) ListCIs(ctx context.Context, arg ListCIsParams) ([]ListCIsRow,
 }
 
 const listTaskCIs = `-- name: ListTaskCIs :many
-SELECT c.id, c.class, c.name, c.status, sg.name AS support_group_name
+SELECT c.id, c.class, c.name, c.status, c.support_group_id, sg.name AS support_group_name, c.owner_group_id,
+       og.name AS owner_group_name
 FROM task_cis l
 JOIN cis c ON c.id = l.ci_id
 LEFT JOIN groups sg ON sg.id = c.support_group_id
+LEFT JOIN groups og ON og.id = c.owner_group_id
 WHERE l.task_id = $1
 ORDER BY lower(c.name), c.id
 `
 
 type ListTaskCIsRow struct {
-	ID               uuid.UUID   `json:"id"`
-	Class            string      `json:"class"`
-	Name             string      `json:"name"`
-	Status           string      `json:"status"`
-	SupportGroupName pgtype.Text `json:"support_group_name"`
+	ID               uuid.UUID     `json:"id"`
+	Class            string        `json:"class"`
+	Name             string        `json:"name"`
+	Status           string        `json:"status"`
+	SupportGroupID   uuid.NullUUID `json:"support_group_id"`
+	SupportGroupName pgtype.Text   `json:"support_group_name"`
+	OwnerGroupID     uuid.NullUUID `json:"owner_group_id"`
+	OwnerGroupName   pgtype.Text   `json:"owner_group_name"`
 }
 
-// The items linked to a record.
+// The items linked to a record that the reader may see (none without cmdb:read), by name.
 func (q *Queries) ListTaskCIs(ctx context.Context, taskID uuid.UUID) ([]ListTaskCIsRow, error) {
 	rows, err := q.db.Query(ctx, listTaskCIs, taskID)
 	if err != nil {
@@ -457,8 +460,41 @@ func (q *Queries) ListTaskCIs(ctx context.Context, taskID uuid.UUID) ([]ListTask
 			&i.Class,
 			&i.Name,
 			&i.Status,
+			&i.SupportGroupID,
 			&i.SupportGroupName,
+			&i.OwnerGroupID,
+			&i.OwnerGroupName,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTasksCIIDs = `-- name: ListTasksCIIDs :many
+SELECT task_id, ci_id FROM task_cis WHERE task_id = ANY ($1::uuid[])
+`
+
+type ListTasksCIIDsRow struct {
+	TaskID uuid.UUID `json:"task_id"`
+	CiID   uuid.UUID `json:"ci_id"`
+}
+
+// Which items each of these records is linked to, as the reader may see the links (none without cmdb:read).
+func (q *Queries) ListTasksCIIDs(ctx context.Context, ids []uuid.UUID) ([]ListTasksCIIDsRow, error) {
+	rows, err := q.db.Query(ctx, listTasksCIIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTasksCIIDsRow
+	for rows.Next() {
+		var i ListTasksCIIDsRow
+		if err := rows.Scan(&i.TaskID, &i.CiID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

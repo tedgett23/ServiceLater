@@ -1,0 +1,16 @@
+# A record with no assignment group goes to the support group of the first linked item that has one (items are in
+# name order), when it is filed with items or when an item is linked or unlinked. A group someone already chose is
+# left alone. To route every type but one, set record_type in local/; to stop it, set when: "false".
+kind: rule
+name: route-to-support-group
+record_type: task
+timing: before
+on: [create, update]
+when: >-
+  !has(record.assignment_group) &&
+  (event == "create" || size(record.cis) != size(old.cis)) &&
+  record.cis.exists(c, has(c.support_group))
+run:
+  - action: set
+    field: assignment_group
+    value: "=record.cis.filter(c, has(c.support_group))[0].support_group"

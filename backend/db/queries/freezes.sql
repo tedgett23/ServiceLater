@@ -29,3 +29,21 @@ DELETE FROM freeze_windows WHERE id = $1;
 -- name: LookupCount :one
 -- A rule's or guard's lookup, as the acting person (see app_lookup_count).
 SELECT app_lookup_count(sqlc.arg('target')::text, sqlc.arg('filters')::jsonb)::bigint AS n;
+
+-- name: ListFreezeWindowCIs :many
+-- The items each of these freezes is limited to. Every reader sees the ids; the names only those who read the CMDB.
+SELECT s.freeze_id, s.ci_id, c.name, c.class, c.status
+FROM freeze_window_cis s
+LEFT JOIN cis c ON c.id = s.ci_id
+WHERE s.freeze_id = ANY (sqlc.arg('ids')::uuid[])
+ORDER BY s.freeze_id, lower(c.name) NULLS LAST, s.ci_id;
+
+-- name: ClearFreezeWindowCIs :exec
+DELETE FROM freeze_window_cis WHERE freeze_id = $1;
+
+-- name: AddFreezeWindowCI :exec
+INSERT INTO freeze_window_cis (freeze_id, ci_id) VALUES ($1, $2);
+
+-- name: TouchFreezeWindow :exec
+-- Changing only a freeze's items still changes the freeze: open calendars hear of it through the row's trigger.
+UPDATE freeze_windows SET updated_at = now() WHERE id = $1;

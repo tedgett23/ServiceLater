@@ -1,7 +1,7 @@
 kind: role
 name: change-manager
 label: Change manager
-description: "Runs the change process: sees, files and edits changes, writes internal notes, starts and follows change workflows, and declares change freezes."
+description: "Runs the change process: sees, files and edits changes, writes internal notes, starts and follows change workflows, and declares change freezes. Reads the CMDB, so it can link items and see the freezes that apply to them."
 permissions:
   - records:read:change
   - records:create:change
@@ -10,4 +10,5 @@ permissions:
   - workflows:read_all
   - workflows:run
   - users:read
+  - cmdb:read
   - freezes:manage

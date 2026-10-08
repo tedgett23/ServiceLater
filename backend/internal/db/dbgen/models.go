@@ -105,6 +105,11 @@ type FreezeWindow struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type FreezeWindowCi struct {
+	FreezeID uuid.UUID `json:"freeze_id"`
+	CiID     uuid.UUID `json:"ci_id"`
+}
+
 type Group struct {
 	ID          uuid.UUID          `json:"id"`
 	Name        string             `json:"name"`

@@ -502,3 +502,39 @@ func TestExtraFieldsAreTypedByTheirForm(t *testing.T) {
 		t.Errorf("reads %s", got)
 	}
 }
+
+// Rules read the configuration items linked to a record: route by an item's support group, or act on its class.
+func TestRecordsCarryTheirLinkedItems(t *testing.T) {
+	e, err := Rule()
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := "Database team"
+	in := sample()
+	in.Record.CIs = []CI{{ID: "1", Name: "badge-reader", Class: "other", Status: "active"},
+		{ID: "2", Name: "pg-01", Class: "database", Status: "maintenance", SupportGroup: &db}}
+	for _, c := range []struct {
+		source string
+		want   bool
+	}{
+		{`record.cis.exists(c, c.class == "database" && c.status == "maintenance")`, true},
+		{`has(record.cis[0].support_group)`, false},
+		{`record.cis.filter(c, has(c.support_group))[0].support_group == "Database team"`, true},
+		{`size(record.cis) > size(old.cis)`, true},
+	} {
+		p, err := e.Compile(c.source)
+		if err != nil {
+			t.Fatalf("%s: %v", c.source, err)
+		}
+		if got, err := p.Eval(context.Background(), in); err != nil || got != c.want {
+			t.Errorf("%s = %v, %v", c.source, got, err)
+		}
+	}
+	p, err := e.CompileAs(`record.cis.filter(c, has(c.support_group))[0].support_group`, String)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := p.EvalValue(context.Background(), in); err != nil || got != "Database team" {
+		t.Errorf("a group name: %v, %v", got, err)
+	}
+}

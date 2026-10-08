@@ -970,10 +970,27 @@ it, and so on), breadth first, one query per step, each item once (so loops end)
 (`internal/cmdb.Impact`). Postgres needs no graph extension for this; a recursive CTE was rejected because it
 enumerates paths, which explodes on dense graphs.
 
-**Records link to items** (`task_cis`): an incident's affected server, a change's database. Whoever reads the CMDB
-and may update the record links and unlinks them (RLS checks both); the link tells the record's watchers through the
-ticket channel. Single tickets carry `cis` (only for `cmdb:read`), `GET /tickets/{id}/impact` is what the linked items
-reach, and an item lists the records linked to it. An item linked to a record cannot be deleted (409): retire it.
+**Records link to items** (`task_cis`): an incident's affected server, a change's database. Linking or unlinking is
+an **update of the record** through the one save path (`records.Patch.SetCIs`, or `cis` when filing), so before,
+after and async rules run on it and can refuse it; it needs `cmdb:read` and update on the record (RLS checks both).
+Expressions read the linked items as `record.cis`, a list of `{id, name, class, status, support_group(_id),
+owner_group(_id)}` in name order, as the person saving may see them (none without `cmdb:read`); test a group with
+`has(c.support_group)`, and a change of items with `size(record.cis) != size(old.cis)`. Single tickets carry `cis`
+(only for `cmdb:read`), `GET /tickets/{id}/impact` is what the linked items reach, and an item lists the records
+linked to it. An item linked to a record cannot be deleted (409): retire it.
+
+**Routing** (cmdb 0.3.0, `rules/route-to-support-group.yaml`, a `task` rule): a record with no assignment group goes
+to the support group of the first linked item that has one, when it is filed with items or its items change. A group
+someone chose is left alone; turn it off or narrow it in `local/`.
+
+**Freezes scoped to items** (`freeze_window_cis`, 00028): a freeze that lists items applies only to records linked to
+one of them; one that lists none applies to every change. Lookups filter freezes with
+`applies_to: { in: =record.cis.map(c, c.id) }` (only `in`; a freeze for everything always matches), and
+change-management 0.6.0's freeze rule and Implement guard do so, so a change is checked again when its items change.
+Everyone sees which item ids a freeze lists; names need `cmdb:read`. The calendar marks a change only with the freezes
+that apply to it (for a reader who cannot see links, every overlapping freeze, erring on the side of the freeze).
+change-management's `change-manager` role now holds `cmdb:read`, since the check reads the items as the person saving.
+A freeze on an item does not reach what depends on it yet: freeze the database, not only the service.
 
 **Permissions**: `cmdb:read` (agents and admins) sees items, relationships and links; `cmdb:manage` (admins, and the
 cmdb app's `cmdb-manager` role) changes items and relationships. End users see none of it, including on their own
@@ -985,9 +1002,9 @@ tickets. Realtime `ci_changes` → `ci.changed` (ids only, to `cmdb:read`).
 `/cmdb/new`, `/cmdb/{id}` (details, relationships, "If it fails", linked tickets), and an "Affected items" section on
 the ticket.
 
-Not built yet: rules and workflows reading linked items (routing by an item's support group, approvals by its
-owner), freezes scoped to items, lookups over items, CSV and API import keyed on a class's identifying field, sync
-from other systems, history of an item's changes, and items for requesters (picking the affected service when filing).
+Not built yet: approvals by an item's owner (`group()` takes a literal name), freezes that follow impact, lookups over
+items, CSV and API import keyed on a class's identifying field, sync from other systems, history of an item's changes,
+and items for requesters (picking the affected service when filing).
 
 ## 9. Data model and ownership
 
@@ -1266,7 +1283,7 @@ Each slice is shippable and leaves the product working.
 | **6b. SLAs** (done, §6.6) | First-class SLA definitions with pause and resume, business calendars and breach actions. | Slice 6 |
 | **7. Roles and permissions** (done, §11.1) | Custom RBAC and app service principals (open question 3). | Slice 5 |
 | **8. Content kinds** | Catalog, knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
-| **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items. Next: rules reading linked items, scoped freezes, import. | Slices 4 and 7 |
+| **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items, rules reading them (routing by support group), freezes scoped to items. Next: import, approvals by owner. | Slices 4 and 7 |
 | **9. Visual builder** | The Svelte Flow builder editing the same workflow files, with live execution highlighting. | Slice 6 |
 
 Later: script steps (Starlark, Lua or WASM), app-defined tables and migrations, custom UI components, signing and

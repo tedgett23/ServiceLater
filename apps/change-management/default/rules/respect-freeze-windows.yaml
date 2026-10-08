@@ -1,7 +1,10 @@
 # Nothing is planned into a change freeze. Planning a window that overlaps one (or turning an emergency change into
 # another kind while its window does) is refused. An emergency change may go ahead in a freeze: that is what it is for.
 #
-# Only a change to the window or the kind is checked, so a change planned before a freeze was declared can still be
+# A freeze limited to configuration items applies only to changes linked to one of them; linking an item counts as a
+# change to check.
+#
+# Only a change to the window, the kind or the linked items is checked, so a change planned before a freeze was declared can still be
 # edited; the calendar shows it, and lifecycles/change.yaml holds back its work while the freeze is on. Window edges
 # may touch: a change that ends when a freeze starts is fine.
 kind: rule
@@ -15,12 +18,13 @@ lookups:
     where:
       starts_at: { lt: =record.planned_end }
       ends_at:   { gt: =record.planned_start }
+      applies_to: { in: "=record.cis.map(c, c.id)" }
 when: >-
   record.change_type != "emergency" && has(record.planned_start) && has(record.planned_end) &&
   record.state_category in ["open", "waiting"] &&
   (event == "create" || record.planned_start != old.planned_start || record.planned_end != old.planned_end ||
-   record.change_type != old.change_type) &&
+   record.change_type != old.change_type || size(record.cis) != size(old.cis)) &&
   lookups.freezes > 0
 run:
   - action: abort
-    message: The planned window overlaps a change freeze. Pick another time, or raise an emergency change.
+    message: The planned window overlaps a change freeze that applies to it. Pick another time, or raise an emergency change.

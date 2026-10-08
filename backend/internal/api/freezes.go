@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -11,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 )
 
@@ -18,6 +21,7 @@ const (
 	maxFreezeName   = 200
 	maxFreezeReason = 2000
 	maxFreezeItems  = 200
+	maxFreezeCIs    = 100
 )
 
 // freezeDTO is a change freeze: a period when changes may not be scheduled. What a freeze stops is up to the apps
@@ -33,6 +37,62 @@ type freezeDTO struct {
 	CreatedByName *string   `json:"created_by_name"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+	// ItemIDs are the configuration items it is limited to; empty means it applies to every change. Items are those of
+	// them the reader may see (with cmdb:read), with their names.
+	ItemIDs []uuid.UUID    `json:"item_ids"`
+	Items   []ciSummaryDTO `json:"items"`
+}
+
+// withItems fills in the items each freeze is limited to.
+func (h *handlers) withItems(ctx context.Context, q *dbgen.Queries, freezes []freezeDTO) error {
+	ids := make([]uuid.UUID, len(freezes))
+	at := map[uuid.UUID]int{}
+	for i := range freezes {
+		ids[i], at[freezes[i].ID] = freezes[i].ID, i
+		freezes[i].ItemIDs, freezes[i].Items = []uuid.UUID{}, []ciSummaryDTO{}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows, err := q.ListFreezeWindowCIs(ctx, ids)
+	for _, r := range rows {
+		f := &freezes[at[r.FreezeID]]
+		f.ItemIDs = append(f.ItemIDs, r.CiID)
+		if r.Name.Valid {
+			f.Items = append(f.Items, h.toCISummary(r.CiID, r.Class.String, r.Name.String, r.Status.String, pgtype.Text{}))
+		}
+	}
+	return err
+}
+
+// setItems limits a freeze to these items (none: every change). Naming items needs cmdb:read, since they are found by
+// id among those the person may see.
+func setItems(ctx context.Context, q *dbgen.Queries, p auth.Principal, id uuid.UUID, items []uuid.UUID) error {
+	if len(items) > 0 && !p.Can(authz.CMDBRead) {
+		return forbidden(fmt.Sprintf("limiting a freeze to items needs the %s permission", authz.CMDBRead))
+	}
+	unique := slices.Compact(slices.SortedFunc(slices.Values(items), func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) }))
+	if len(unique) > maxFreezeCIs {
+		return invalid(fmt.Sprintf("a freeze can be limited to at most %d items", maxFreezeCIs))
+	}
+	if len(unique) > 0 {
+		found, err := q.GetCIsByID(ctx, unique)
+		if err != nil {
+			return err
+		}
+		if len(found) != len(unique) {
+			return invalid("there is no configuration item with that id")
+		}
+	}
+	if err := q.ClearFreezeWindowCIs(ctx, id); err != nil {
+		return err
+	}
+	for _, ci := range unique {
+		if err := q.AddFreezeWindowCI(ctx, dbgen.AddFreezeWindowCIParams{FreezeID: id, CiID: ci}); err != nil {
+			return err
+		}
+	}
+	return q.TouchFreezeWindow(ctx, id)
 }
 
 func toFreeze(f dbgen.GetFreezeWindowRow) freezeDTO {
@@ -50,6 +110,9 @@ type freezeRequest struct {
 	Reason   *string    `json:"reason"`
 	StartsAt *time.Time `json:"starts_at"`
 	EndsAt   *time.Time `json:"ends_at"`
+	// Items limits it to changes linked to one of these configuration items, by id; [] (or leaving it out on create)
+	// makes it apply to every change. Needs cmdb:read.
+	Items *[]uuid.UUID `json:"items"`
 }
 
 // apply checks the request against the freeze as it is (zero on create) and returns the result.
@@ -111,6 +174,17 @@ func listFreezes(r *http.Request, q *dbgen.Queries, from, to time.Time) ([]freez
 	return out, truncated, err
 }
 
+func (h *handlers) loadFreeze(r *http.Request, q *dbgen.Queries, id uuid.UUID, out *freezeDTO) error {
+	got, err := q.GetFreezeWindow(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	list := []freezeDTO{toFreeze(got)}
+	err = h.withItems(r.Context(), q, list)
+	*out = list[0]
+	return err
+}
+
 // GET /freeze-windows?from=&to=: the change freezes that overlap from..to (RFC 3339 times, at most 92 days apart),
 // by start. Anyone signed in may read them. truncated says more than 200 matched.
 func (h *handlers) listFreezeWindows(w http.ResponseWriter, r *http.Request) {
@@ -122,22 +196,25 @@ func (h *handlers) listFreezeWindows(w http.ResponseWriter, r *http.Request) {
 	var truncated bool
 	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
 		var err error
-		out, truncated, err = listFreezes(r, q, from, to)
-		return err
+		if out, truncated, err = listFreezes(r, q, from, to); err != nil {
+			return err
+		}
+		return h.withItems(r.Context(), q, out)
 	}) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": out, "truncated": truncated})
 }
 
-// POST /freeze-windows (freezes:manage) with {"name", "reason"?, "starts_at", "ends_at"}: declare a change freeze.
+// POST /freeze-windows (freezes:manage) with {"name", "reason"?, "starts_at", "ends_at", "items"?}: declare a change
+// freeze, for every change or only those linked to the items listed.
 func (h *handlers) createFreezeWindow(w http.ResponseWriter, r *http.Request) {
 	var req freezeRequest
 	if !decode(w, r, &req) {
 		return
 	}
 	var out freezeDTO
-	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		f, err := req.apply(dbgen.UpdateFreezeWindowParams{})
 		if err != nil {
 			return err
@@ -146,9 +223,12 @@ func (h *handlers) createFreezeWindow(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		got, err := q.GetFreezeWindow(r.Context(), id)
-		out = toFreeze(got)
-		return err
+		if req.Items != nil {
+			if err := setItems(r.Context(), q, p, id, *req.Items); err != nil {
+				return err
+			}
+		}
+		return h.loadFreeze(r, q, id, &out)
 	}) {
 		return
 	}
@@ -164,16 +244,14 @@ func (h *handlers) getFreezeWindow(w http.ResponseWriter, r *http.Request) {
 	}
 	var out freezeDTO
 	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
-		got, err := q.GetFreezeWindow(r.Context(), id)
-		out = toFreeze(got)
-		return err
+		return h.loadFreeze(r, q, id, &out)
 	}) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
 }
 
-// PATCH /freeze-windows/{id} (freezes:manage) with any of {"name", "reason", "starts_at", "ends_at"}. Changes already
+// PATCH /freeze-windows/{id} (freezes:manage) with any of {"name", "reason", "starts_at", "ends_at", "items"}. Changes already
 // planned are not checked again: the calendar shows the ones a freeze now covers.
 func (h *handlers) updateFreezeWindow(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlUUID(w, r, "id")
@@ -185,7 +263,7 @@ func (h *handlers) updateFreezeWindow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out freezeDTO
-	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		cur, err := q.GetFreezeWindow(r.Context(), id)
 		if err != nil {
 			return err
@@ -197,9 +275,12 @@ func (h *handlers) updateFreezeWindow(w http.ResponseWriter, r *http.Request) {
 		if _, err := q.UpdateFreezeWindow(r.Context(), f); err != nil {
 			return err // pgx.ErrNoRows: RLS hid the row from the update, so the caller may not change freezes
 		}
-		got, err := q.GetFreezeWindow(r.Context(), id)
-		out = toFreeze(got)
-		return err
+		if req.Items != nil {
+			if err := setItems(r.Context(), q, p, id, *req.Items); err != nil {
+				return err
+			}
+		}
+		return h.loadFreeze(r, q, id, &out)
 	}) {
 		return
 	}

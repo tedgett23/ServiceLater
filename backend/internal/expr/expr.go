@@ -72,6 +72,23 @@ type Record struct {
 	// record.fields.name. Values are as stored: text, a whole number (int64 or json.Number), true or false, and times
 	// as RFC 3339 or YYYY-MM-DD text. What type each has in an expression is the FieldTypes it was compiled with.
 	Fields map[string]any `cel:"fields"`
+	// CIs are the configuration items linked to the record, by name, as the person saving may see them (none without
+	// cmdb:read). Rules read them; linking or unlinking one is an update.
+	CIs []CI `cel:"cis"`
+}
+
+// CI is a configuration item linked to a record. The groups are unset when it has none, so test them with
+// has(c.support_group).
+type CI struct {
+	ID     string `cel:"id"`
+	Name   string `cel:"name"`
+	Class  string `cel:"class"`
+	Status string `cel:"status"`
+	// SupportGroup is the name of the group that fixes it, which a rule can route the record to.
+	SupportGroupID *string `cel:"support_group_id"`
+	SupportGroup   *string `cel:"support_group"`
+	OwnerGroupID   *string `cel:"owner_group_id"`
+	OwnerGroup     *string `cel:"owner_group"`
 }
 
 // SetField sets an extra field on a working copy of a record, as a rule or a workflow step does: empty text clears
@@ -385,7 +402,7 @@ func envFor(kind string, fields FieldTypes) (*Env, error) {
 }
 
 func buildEnv(kind string, fields FieldTypes) (*Env, error) {
-	base, err := cel.NewEnv(ext.NativeTypes(reflect.TypeOf(&Record{}), reflect.TypeOf(&User{}), ext.ParseStructTags(true)))
+	base, err := cel.NewEnv(ext.NativeTypes(reflect.TypeOf(&Record{}), reflect.TypeOf(&CI{}), reflect.TypeOf(&User{}), ext.ParseStructTags(true)))
 	if err != nil {
 		return nil, err
 	}

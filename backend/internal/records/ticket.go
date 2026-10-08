@@ -27,6 +27,8 @@ const (
 	MaxResolution  = 10000
 	MaxComment     = 10000
 	MaxPlan        = 10000
+	// MaxCIs is how many configuration items one record can be linked to.
+	MaxCIs = 100
 )
 
 // Ticket is a ticket as clients see it: the task, display names, the type's prefix and the type's own columns.
@@ -58,6 +60,40 @@ type Ticket struct {
 	// Fields are the record's extra fields, the ones its type's form declares, by name: text, a whole number, true or
 	// false, a date as YYYY-MM-DD or a time as RFC 3339 text. A field that is not set is absent.
 	Fields map[string]any `json:"fields"`
+	// CIs are the configuration items linked to it, by name, as the reader may see them (none without cmdb:read).
+	// The API sends them in its own shape, with class labels, on single tickets only.
+	CIs []CI `json:"-"`
+}
+
+// CI is a configuration item linked to a record.
+type CI struct {
+	ID                           uuid.UUID
+	Class, Name, Status          string
+	SupportGroupID, OwnerGroupID *uuid.UUID
+	SupportGroup, OwnerGroup     *string
+}
+
+func ciFrom(r dbgen.GetCIsByIDRow) CI {
+	c := CI{ID: r.ID, Class: r.Class, Name: r.Name, Status: r.Status}
+	if r.SupportGroupID.Valid {
+		c.SupportGroupID, c.SupportGroup = &r.SupportGroupID.UUID, &r.SupportGroupName.String
+	}
+	if r.OwnerGroupID.Valid {
+		c.OwnerGroupID, c.OwnerGroup = &r.OwnerGroupID.UUID, &r.OwnerGroupName.String
+	}
+	return c
+}
+
+func sameCIs(a, b []CI) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID {
+			return false
+		}
+	}
+	return true
 }
 
 // Change is what a change record has beyond the base: its kind, assessment, planned window and plans.
@@ -223,7 +259,11 @@ func Load(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (Ticket, error) {
 			PlannedStart: timePtr(v.PlannedStart), PlannedEnd: timePtr(v.PlannedEnd),
 			ImplementationPlan: v.ImplementationPlan, BackoutPlan: v.BackoutPlan, TestPlan: v.TestPlan}
 	}
-	return t, nil
+	cis, err := q.ListTaskCIs(ctx, id)
+	for _, c := range cis {
+		t.CIs = append(t.CIs, ciFrom(dbgen.GetCIsByIDRow(c)))
+	}
+	return t, err
 }
 
 // ExprRecord is the ticket as expressions see it. It is the only converter: a field added to expr.Record is filled
@@ -243,6 +283,20 @@ func (d Ticket) ExprRecord() *expr.Record {
 	if d.AssignmentGroupID != nil {
 		id := d.AssignmentGroupID.String()
 		r.AssignmentGroupID = &id
+	}
+	if len(d.CIs) > 0 {
+		r.CIs = make([]expr.CI, len(d.CIs))
+	}
+	for i, c := range d.CIs {
+		r.CIs[i] = expr.CI{ID: c.ID.String(), Name: c.Name, Class: c.Class, Status: c.Status, SupportGroup: c.SupportGroup, OwnerGroup: c.OwnerGroup}
+		if c.SupportGroupID != nil {
+			id := c.SupportGroupID.String()
+			r.CIs[i].SupportGroupID = &id
+		}
+		if c.OwnerGroupID != nil {
+			id := c.OwnerGroupID.String()
+			r.CIs[i].OwnerGroupID = &id
+		}
 	}
 	if c := d.Change; c != nil {
 		r.ChangeType, r.Risk, r.Impact = c.ChangeType, c.Risk, c.Impact

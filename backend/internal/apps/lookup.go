@@ -25,6 +25,7 @@ import (
 //	    where:
 //	      starts_at: { lt: =record.planned_end }
 //	      ends_at:   { gt: =record.planned_start }
+//	      applies_to: { in: =record.cis.map(c, c.id) }   # freezes for these items, or for everything
 type Lookup struct {
 	Count string `json:"count" yaml:"count"`
 	// Where is field to operator to value. A field may take several operators, which is how a range is written.
@@ -55,6 +56,8 @@ const (
 	lookupText = "text"
 	lookupID   = "id"
 	lookupTime = "time"
+	// lookupScope is a freeze's items: applies_to in [item ids] keeps the freezes that list one of them or none.
+	lookupScope = "scope"
 )
 
 // taskLookupFields are the fields every record type can be counted by: each has an index on tasks.
@@ -68,7 +71,7 @@ var taskLookupFields = map[string]string{
 // in step.
 var LookupTargets = func() map[string]map[string]string {
 	out := map[string]map[string]string{
-		"freeze_window": {"starts_at": lookupTime, "ends_at": lookupTime},
+		"freeze_window": {"starts_at": lookupTime, "ends_at": lookupTime, "applies_to": lookupScope},
 	}
 	for _, t := range KnownRecordTypes {
 		if t == "task" {
@@ -162,6 +165,9 @@ func (ls Lookups) validate(env *expr.Env, envErr error) (out []string) {
 
 // compileFilter compiles a filter's value for a field of this kind and returns what is wrong with it, or "".
 func (v *Value) compileFilter(env *expr.Env, envErr error, kind, op string) string {
+	if kind == lookupScope && op != "in" {
+		return "takes in, with an =expression giving item ids, such as =record.cis.map(c, c.id)"
+	}
 	want := expr.String
 	switch {
 	case op == "in":

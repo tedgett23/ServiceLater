@@ -235,7 +235,7 @@ func TestRecordsLinkToTheItemsTheyAffect(t *testing.T) {
 	}
 	expect(t, agent.do(h, "PUT", "/api/v1/tickets/"+ticket.Reference+"/cis/"+mx, ""), 200, "linking it again, by reference")
 	expect(t, lena.do(h, "PUT", "/api/v1/tickets/"+ticket.ID+"/cis/"+email, ""), 403, "the requester linking one")
-	refusal(t, agent.do(h, "PUT", "/api/v1/tickets/"+ticket.ID+"/cis/"+ticket.ID, ""), 422, "no item with that id", "a missing item")
+	refusal(t, agent.do(h, "PUT", "/api/v1/tickets/"+ticket.ID+"/cis/"+ticket.ID, ""), 422, "no configuration item with that id", "a missing item")
 
 	var seen struct {
 		CIs []ciBody `json:"cis"`
@@ -263,4 +263,59 @@ func TestRecordsLinkToTheItemsTheyAffect(t *testing.T) {
 	expect(t, agent.do(h, "DELETE", "/api/v1/tickets/"+ticket.ID+"/cis/"+mx, ""), 200, "unlinking it")
 	expect(t, agent.do(h, "DELETE", "/api/v1/tickets/"+ticket.ID+"/cis/"+mx, ""), 404, "unlinking it again")
 	expect(t, admin.do(h, "DELETE", "/api/v1/cis/"+mx, ""), 204, "removing it once nothing links to it")
+}
+
+// Linking an item is an update of the record, so its rules run: the cmdb app routes a record with no group to the
+// support group of the first linked item that has one, when it is filed with items or an item is linked.
+func TestLinkedItemsRouteTheirRecords(t *testing.T) {
+	h, pool, _ := setupApps(t)
+	admin := newActor(t, h, pool, "boss@x.test", "admin")
+	agent := newActor(t, h, pool, "agent@x.test", "agent")
+	lena := newActor(t, h, pool, "lena@x.test", "end_user")
+	dbTeam := decodeBody[struct{ ID string }](t, admin.do(h, "POST", "/api/v1/groups", `{"name":"Database team"}`))
+	desk := decodeBody[struct{ ID string }](t, admin.do(h, "POST", "/api/v1/groups", `{"name":"Service desk"}`))
+	add := func(name, group string) string {
+		body := `{"class":"database","name":"` + name + `"`
+		if group != "" {
+			body += `,"support_group_id":"` + group + `"`
+		}
+		return decodeBody[ciBody](t, admin.do(h, "POST", "/api/v1/cis", body+`}`)).ID
+	}
+	unowned, pg := add("a-unowned", ""), add("pg-01", dbTeam.ID)
+	type routed struct {
+		ID                  string
+		AssignmentGroupName *string `json:"assignment_group_name"`
+	}
+	group := func(id string) string {
+		g := decodeBody[routed](t, agent.do(h, "GET", "/api/v1/tickets/"+id, "")).AssignmentGroupName
+		if g == nil {
+			return ""
+		}
+		return *g
+	}
+
+	tk := decodeBody[routed](t, lena.do(h, "POST", "/api/v1/tickets", `{"title":"Reports are slow"}`))
+	expect(t, agent.do(h, "PUT", "/api/v1/tickets/"+tk.ID+"/cis/"+unowned, ""), 200, "linking an item with no support group")
+	if g := group(tk.ID); g != "" {
+		t.Errorf("an item with no support group routes nowhere: %q", g)
+	}
+	expect(t, agent.do(h, "PUT", "/api/v1/tickets/"+tk.ID+"/cis/"+pg, ""), 200, "linking pg-01")
+	if g := group(tk.ID); g != "Database team" {
+		t.Errorf("routed to pg-01's support group: %q", g)
+	}
+
+	// A group someone chose is left alone.
+	chosen := decodeBody[routed](t, lena.do(h, "POST", "/api/v1/tickets", `{"title":"Backups failed"}`))
+	expect(t, agent.do(h, "PATCH", "/api/v1/tickets/"+chosen.ID, `{"assignment_group_id":"`+desk.ID+`"}`), 200, "routing it by hand")
+	expect(t, agent.do(h, "PUT", "/api/v1/tickets/"+chosen.ID+"/cis/"+pg, ""), 200, "linking pg-01")
+	if g := group(chosen.ID); g != "Service desk" {
+		t.Errorf("a chosen group stays: %q", g)
+	}
+
+	// Filed with items, it is routed as it is filed; a requester cannot link items.
+	filed := decodeBody[routed](t, agent.do(h, "POST", "/api/v1/tickets", `{"title":"Replica lag","cis":["`+pg+`"]}`))
+	if filed.AssignmentGroupName == nil || *filed.AssignmentGroupName != "Database team" {
+		t.Errorf("filed with pg-01: %+v", filed)
+	}
+	refusal(t, lena.do(h, "POST", "/api/v1/tickets", `{"title":"Mine","cis":["`+pg+`"]}`), 403, "cmdb:read", "a requester linking an item")
 }

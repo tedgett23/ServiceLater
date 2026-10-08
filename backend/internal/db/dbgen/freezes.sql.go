@@ -12,6 +12,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addFreezeWindowCI = `-- name: AddFreezeWindowCI :exec
+INSERT INTO freeze_window_cis (freeze_id, ci_id) VALUES ($1, $2)
+`
+
+type AddFreezeWindowCIParams struct {
+	FreezeID uuid.UUID `json:"freeze_id"`
+	CiID     uuid.UUID `json:"ci_id"`
+}
+
+func (q *Queries) AddFreezeWindowCI(ctx context.Context, arg AddFreezeWindowCIParams) error {
+	_, err := q.db.Exec(ctx, addFreezeWindowCI, arg.FreezeID, arg.CiID)
+	return err
+}
+
+const clearFreezeWindowCIs = `-- name: ClearFreezeWindowCIs :exec
+DELETE FROM freeze_window_cis WHERE freeze_id = $1
+`
+
+func (q *Queries) ClearFreezeWindowCIs(ctx context.Context, freezeID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, clearFreezeWindowCIs, freezeID)
+	return err
+}
+
 const createFreezeWindow = `-- name: CreateFreezeWindow :one
 INSERT INTO freeze_windows (name, reason, starts_at, ends_at, created_by)
 VALUES ($1, $2, $3, $4, app_current_user_id())
@@ -83,6 +106,49 @@ func (q *Queries) GetFreezeWindow(ctx context.Context, id uuid.UUID) (GetFreezeW
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listFreezeWindowCIs = `-- name: ListFreezeWindowCIs :many
+SELECT s.freeze_id, s.ci_id, c.name, c.class, c.status
+FROM freeze_window_cis s
+LEFT JOIN cis c ON c.id = s.ci_id
+WHERE s.freeze_id = ANY ($1::uuid[])
+ORDER BY s.freeze_id, lower(c.name) NULLS LAST, s.ci_id
+`
+
+type ListFreezeWindowCIsRow struct {
+	FreezeID uuid.UUID   `json:"freeze_id"`
+	CiID     uuid.UUID   `json:"ci_id"`
+	Name     pgtype.Text `json:"name"`
+	Class    pgtype.Text `json:"class"`
+	Status   pgtype.Text `json:"status"`
+}
+
+// The items each of these freezes is limited to. Every reader sees the ids; the names only those who read the CMDB.
+func (q *Queries) ListFreezeWindowCIs(ctx context.Context, ids []uuid.UUID) ([]ListFreezeWindowCIsRow, error) {
+	rows, err := q.db.Query(ctx, listFreezeWindowCIs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFreezeWindowCIsRow
+	for rows.Next() {
+		var i ListFreezeWindowCIsRow
+		if err := rows.Scan(
+			&i.FreezeID,
+			&i.CiID,
+			&i.Name,
+			&i.Class,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listFreezeWindows = `-- name: ListFreezeWindows :many
@@ -157,6 +223,16 @@ func (q *Queries) LookupCount(ctx context.Context, arg LookupCountParams) (int64
 	var n int64
 	err := row.Scan(&n)
 	return n, err
+}
+
+const touchFreezeWindow = `-- name: TouchFreezeWindow :exec
+UPDATE freeze_windows SET updated_at = now() WHERE id = $1
+`
+
+// Changing only a freeze's items still changes the freeze: open calendars hear of it through the row's trigger.
+func (q *Queries) TouchFreezeWindow(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, touchFreezeWindow, id)
+	return err
 }
 
 const updateFreezeWindow = `-- name: UpdateFreezeWindow :one

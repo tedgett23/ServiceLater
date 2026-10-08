@@ -1,8 +1,8 @@
 apiVersion: 1
 name: cmdb
-version: 0.2.0
+version: 0.3.0
 author: ServiceLater
-description: "Configuration items: ten classes from business services to network devices, four relationship types with impact, and the cmdb-manager role. Records link to the items they affect."
+description: "Configuration items: ten classes from business services to network devices, four relationship types with impact, and the cmdb-manager role. Records link to the items they affect, and are routed to the support group of the first one that has one."
 ServiceLater_min_version: 0.1.0
 dependencies:
   - core-itsm: ">=0.1.0"

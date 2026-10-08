@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { api } from '$lib/api';
-	import type { Freeze } from '$lib/types';
+	import CIPicker from '$lib/components/CIPicker.svelte';
+	import { session } from '$lib/session.svelte';
+	import { can, P, type CISummary, type Freeze } from '$lib/types';
 
 	/** Declares a change freeze, or changes one when `freeze` is given. */
 	let {
@@ -29,6 +31,13 @@
 		return { name: '', reason: '', from: local(from), until: local(until) };
 	}
 	const draft = $state(initial());
+	// The items it is limited to; none means every change. Only those who read the CMDB can find items to name.
+	const readsCMDB = can(session.user, P.cmdbRead);
+	const initialItems = () => freeze?.items ?? [];
+	let items = $state<CISummary[]>(initialItems());
+	// Items the person cannot see stay as they are: the form only sends the list when they could see all of it.
+	const hiddenItems = () => (freeze?.item_ids.length ?? 0) - (freeze?.items.length ?? 0);
+	const hidden = hiddenItems();
 	let saving = $state(false);
 	let error = $state('');
 
@@ -43,7 +52,8 @@
 		}
 		saving = true;
 		try {
-			const body = { name: draft.name, reason: draft.reason, starts_at: from.toISOString(), ends_at: until.toISOString() };
+			const body: Record<string, unknown> = { name: draft.name, reason: draft.reason, starts_at: from.toISOString(), ends_at: until.toISOString() };
+			if (readsCMDB && hidden === 0) body.items = items.map((c) => c.id);
 			const saved = freeze
 				? await api<Freeze>(`/api/v1/freeze-windows/${freeze.id}`, { method: 'PATCH', body })
 				: await api<Freeze>('/api/v1/freeze-windows', { method: 'POST', body });
@@ -73,6 +83,24 @@
 		<span>Reason <em>(optional)</em></span>
 		<input bind:value={draft.reason} maxlength="2000" placeholder="Finance closes the books." />
 	</label>
+	{#if readsCMDB && hidden === 0}
+		<fieldset class="scope">
+			<legend>Applies to</legend>
+			{#if items.length === 0}
+				<p class="hint">Every change. Name items to freeze only the changes linked to them.</p>
+			{:else}
+				<ul>
+					{#each items as c (c.id)}
+						<li>
+							<span><strong>{c.name}</strong> <span class="hint">{c.class_label}</span></span>
+							<button type="button" class="btn" onclick={() => (items = items.filter((x) => x.id !== c.id))} aria-label="Remove {c.name}">Remove</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+			<CIPicker label="Limit it to an item" action="Add" exclude={items.map((c) => c.id)} onpick={(c) => (items = [...items, c])} />
+		</fieldset>
+	{/if}
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 	<div class="actions">
 		<button class="btn primary" disabled={saving}>{freeze ? 'Save freeze' : 'Declare freeze'}</button>
@@ -90,9 +118,41 @@
 	}
 	.name,
 	.reason,
+	.scope,
 	.error,
 	.actions {
 		grid-column: 1 / -1;
+	}
+	.scope {
+		display: grid;
+		gap: 0.5rem;
+		border: 0;
+		padding: 0;
+		margin: 0;
+		min-width: 0;
+	}
+	legend {
+		padding: 0;
+		margin-bottom: 0.35rem;
+		font-size: 0.85rem;
+		font-weight: 600;
+	}
+	.scope ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.scope li {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.35rem 0;
+		border-bottom: 1px solid var(--rule);
+	}
+	.hint {
+		color: var(--ink-2);
+		font-size: 0.875rem;
 	}
 	em {
 		font-style: normal;

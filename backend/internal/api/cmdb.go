@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/cmdb"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/records"
+	"github.com/servicelater/servicelater/backend/internal/ruleruns"
 )
 
 const (
@@ -616,30 +616,36 @@ func (h *handlers) getCIImpact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// ticketCIs are the items linked to a record, for a reader who may see the CMDB (nil otherwise).
-func (h *handlers) ticketCIs(ctx context.Context, q *dbgen.Queries, p auth.Principal, taskID uuid.UUID) ([]ciSummaryDTO, error) {
+// ticketCIs are the items linked to a record as the API shows them, for a reader who may see the CMDB (nil otherwise).
+func (h *handlers) ticketCIs(p auth.Principal, t records.Ticket) []ciSummaryDTO {
 	if !p.Can(authz.CMDBRead) {
-		return nil, nil
+		return nil
 	}
-	rows, err := q.ListTaskCIs(ctx, taskID)
-	out := make([]ciSummaryDTO, 0, len(rows))
-	for _, c := range rows {
-		out = append(out, h.toCISummary(c.ID, c.Class, c.Name, c.Status, c.SupportGroupName))
+	out := make([]ciSummaryDTO, 0, len(t.CIs))
+	for _, c := range t.CIs {
+		out = append(out, h.toCISummary(c.ID, c.Class, c.Name, c.Status, textOf(c.SupportGroup)))
 	}
-	return out, err
+	return out
+}
+
+func textOf(s *string) pgtype.Text {
+	if s == nil {
+		return pgtype.Text{}
+	}
+	return pgtype.Text{String: *s, Valid: true}
 }
 
 // PUT /tickets/{id}/cis/{ciId} (cmdb:read, and update on the record's type): link an item to a record, such as a
-// server an incident affects or a database a change touches. Linking one already linked does nothing. Answers the
-// record's linked items.
+// server an incident affects or a database a change touches. It is an update of the record, so its rules run (the
+// cmdb app's route-to-support-group, say). Linking one already linked does nothing. Answers the record's linked items.
 func (h *handlers) linkTicketCI(w http.ResponseWriter, r *http.Request) {
 	if out, ok := h.changeTicketCI(w, r, true); ok {
 		writeJSON(w, http.StatusOK, map[string]any{"items": out})
 	}
 }
 
-// DELETE /tickets/{id}/cis/{ciId} (cmdb:read, and update on the record's type): unlink an item from a record. Answers
-// the record's linked items.
+// DELETE /tickets/{id}/cis/{ciId} (cmdb:read, and update on the record's type): unlink an item from a record, as an
+// update of the record. Answers the record's linked items.
 func (h *handlers) unlinkTicketCI(w http.ResponseWriter, r *http.Request) {
 	if out, ok := h.changeTicketCI(w, r, false); ok {
 		writeJSON(w, http.StatusOK, map[string]any{"items": out})
@@ -652,34 +658,38 @@ func (h *handlers) changeTicketCI(w http.ResponseWriter, r *http.Request, link b
 	if !ok {
 		return nil, false
 	}
-	out := []ciSummaryDTO{}
+	var out []ciSummaryDTO
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
-		t, err := loadTicket(r, q)
+		row, err := loadTicket(r, q)
 		if err != nil {
 			return err
 		}
-		if !p.Perms.CanRecord(authz.Update, t.Type) {
-			return forbidden(fmt.Sprintf("linking items to it needs %s", authz.Record(authz.Update, t.Type)))
-		}
-		if link {
-			if _, err := q.GetCI(r.Context(), ciID); err != nil {
-				return invalid("there is no item with that id")
-			}
-			if n, err := q.CountTaskCIs(r.Context(), t.ID); err != nil {
-				return err
-			} else if n >= maxTicketCIs {
-				return invalid(fmt.Sprintf("a record can be linked to at most %d items", maxTicketCIs))
-			}
-			if err := q.LinkTaskCI(r.Context(), dbgen.LinkTaskCIParams{TaskID: t.ID, CiID: ciID}); err != nil {
-				return err
-			}
-		} else if n, err := q.UnlinkTaskCI(r.Context(), dbgen.UnlinkTaskCIParams{TaskID: t.ID, CiID: ciID}); err != nil {
+		cur, err := records.Load(r.Context(), q, row.ID)
+		if err != nil {
 			return err
-		} else if n == 0 {
-			return notFound()
 		}
-		list, err := h.ticketCIs(r.Context(), q, p, t.ID)
-		out = list
+		ids := make([]uuid.UUID, 0, len(cur.CIs)+1)
+		found := false
+		for _, c := range cur.CIs {
+			if c.ID == ciID {
+				found = true
+				if !link {
+					continue
+				}
+			}
+			ids = append(ids, c.ID)
+		}
+		switch {
+		case !link && !found:
+			return notFound()
+		case link && found:
+			out = h.ticketCIs(p, cur)
+			return nil
+		case link:
+			ids = append(ids, ciID)
+		}
+		saved, err := h.svc.Update(r.Context(), q, actorOf(p), ruleruns.Cause{}, row.ID, records.Patch{SetCIs: true, CIs: ids})
+		out = h.ticketCIs(p, saved)
 		return err
 	}) {
 		return nil, false

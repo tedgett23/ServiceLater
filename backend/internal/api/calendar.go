@@ -3,12 +3,14 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 )
 
@@ -36,7 +38,8 @@ type calendarEntryDTO struct {
 	// Overlaps are the references of the other entries whose windows overlap this one, counting only records still
 	// to be done (open or waiting): two changes in the same window are a conflict to look at.
 	Overlaps []string `json:"overlaps"`
-	// Freezes are the ids of the change freezes this window overlaps (see freezes in the response).
+	// Freezes are the ids of the change freezes this window overlaps that apply to it: those for every change, and
+	// those limited to an item it is linked to (see freezes in the response).
 	Freezes []uuid.UUID `json:"freezes"`
 }
 
@@ -51,14 +54,34 @@ func (h *handlers) listCalendar(w http.ResponseWriter, r *http.Request) {
 	}
 	var rows []dbgen.ListPlannedWindowsRow
 	var freezes []freezeDTO
-	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+	// The items each record is linked to, when the reader may see links. Without them every freeze in a record's window
+	// is shown as applying to it, which errs on the side of a freeze.
+	var linked map[uuid.UUID][]uuid.UUID
+	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		var err error
 		rows, err = q.ListPlannedWindows(r.Context(), dbgen.ListPlannedWindowsParams{From: pgtype.Timestamptz{Time: from, Valid: true}, To: pgtype.Timestamptz{Time: to, Valid: true}})
 		if err != nil {
 			return err
 		}
-		freezes, _, err = listFreezes(r, q, from, to)
-		return err
+		if freezes, _, err = listFreezes(r, q, from, to); err != nil {
+			return err
+		}
+		if err := h.withItems(r.Context(), q, freezes); err != nil {
+			return err
+		}
+		if p.Can(authz.CMDBRead) {
+			ids := make([]uuid.UUID, len(rows))
+			for i, x := range rows {
+				ids[i] = x.ID
+			}
+			links, err := q.ListTasksCIIDs(r.Context(), ids)
+			linked = map[uuid.UUID][]uuid.UUID{}
+			for _, l := range links {
+				linked[l.TaskID] = append(linked[l.TaskID], l.CiID)
+			}
+			return err
+		}
+		return nil
 	}) {
 		return
 	}
@@ -75,7 +98,8 @@ func (h *handlers) listCalendar(w http.ResponseWriter, r *http.Request) {
 			items[i].AssigneeName = &x.AssigneeName.String
 		}
 		for _, f := range freezes {
-			if x.PlannedStart.Time.Before(f.EndsAt) && f.StartsAt.Before(x.PlannedEnd.Time) {
+			applies := len(f.ItemIDs) == 0 || linked == nil || slices.ContainsFunc(linked[x.ID], func(ci uuid.UUID) bool { return slices.Contains(f.ItemIDs, ci) })
+			if applies && x.PlannedStart.Time.Before(f.EndsAt) && f.StartsAt.Before(x.PlannedEnd.Time) {
 				items[i].Freezes = append(items[i].Freezes, f.ID)
 			}
 		}

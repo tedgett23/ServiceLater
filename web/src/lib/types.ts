@@ -179,6 +179,10 @@ export interface Freeze {
 	created_by_name: string | null;
 	created_at: string;
 	updated_at: string;
+	/** The configuration items it is limited to; empty means it applies to every change. */
+	item_ids: string[];
+	/** Those of them the reader may see (with cmdb:read), with their names. */
+	items: CISummary[];
 }
 
 /** The type's prefix of a reference: INC for INC42. */

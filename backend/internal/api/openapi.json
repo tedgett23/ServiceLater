@@ -167,7 +167,7 @@
             "type": "string"
           },
           "freezes": {
-            "description": "The ids of the change freezes this window overlaps (see freezes in the response).",
+            "description": "The ids of the change freezes this window overlaps that apply to it: those for every change, and those limited to an item it is linked to (see freezes in the response).",
             "items": {
               "format": "uuid",
               "type": "string"
@@ -990,6 +990,20 @@
             "format": "uuid",
             "type": "string"
           },
+          "item_ids": {
+            "description": "The configuration items it is limited to; empty means it applies to every change. Items are those of them the reader may see (with cmdb:read), with their names.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CiSummary"
+            },
+            "type": "array"
+          },
           "name": {
             "type": "string"
           },
@@ -1010,6 +1024,8 @@
           "created_by_name",
           "ends_at",
           "id",
+          "item_ids",
+          "items",
           "name",
           "reason",
           "starts_at",
@@ -1024,6 +1040,17 @@
             "format": "date-time",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "items": {
+            "description": "Limits it to changes linked to one of these configuration items, by id; [] (or leaving it out on create) makes it apply to every change. Needs cmdb:read.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": [
+              "array",
               "null"
             ]
           },
@@ -4656,7 +4683,7 @@
         ]
       },
       "post": {
-        "description": "(freezes:manage) with {\"name\", \"reason\"?, \"starts_at\", \"ends_at\"}: declare a change freeze.\n\nRequires the `freezes:manage` permission.",
+        "description": "(freezes:manage) with {\"name\", \"reason\"?, \"starts_at\", \"ends_at\", \"items\"?}: declare a change freeze, for every change or only those linked to the items listed.\n\nRequires the `freezes:manage` permission.",
         "operationId": "createFreezeWindow",
         "requestBody": {
           "content": {
@@ -4974,7 +5001,7 @@
         ]
       },
       "patch": {
-        "description": "(freezes:manage) with any of {\"name\", \"reason\", \"starts_at\", \"ends_at\"}. Changes already planned are not checked again: the calendar shows the ones a freeze now covers.\n\nRequires the `freezes:manage` permission.",
+        "description": "(freezes:manage) with any of {\"name\", \"reason\", \"starts_at\", \"ends_at\", \"items\"}. Changes already planned are not checked again: the calendar shows the ones a freeze now covers.\n\nRequires the `freezes:manage` permission.",
         "operationId": "updateFreezeWindow",
         "parameters": [
           {
@@ -7334,6 +7361,14 @@
                     ],
                     "description": "Fills in a change's own fields; only for type change."
                   },
+                  "cis": {
+                    "description": "Links configuration items to it, by id (needs cmdb:read).",
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
                   "description": {
                     "type": "string"
                   },
@@ -7747,7 +7782,7 @@
     },
     "/api/v1/tickets/{id}/cis/{ciId}": {
       "delete": {
-        "description": "(cmdb:read, and update on the record's type): unlink an item from a record. Answers the record's linked items.\n\nRequires the `records:update:\u003ctype\u003e` permission.",
+        "description": "(cmdb:read, and update on the record's type): unlink an item from a record, as an update of the record. Answers the record's linked items.\n\nRequires the `records:update:\u003ctype\u003e` permission.",
         "operationId": "unlinkTicketCI",
         "parameters": [
           {
@@ -7874,7 +7909,7 @@
         ]
       },
       "put": {
-        "description": "(cmdb:read, and update on the record's type): link an item to a record, such as a server an incident affects or a database a change touches. Linking one already linked does nothing. Answers the record's linked items.\n\nRequires the `records:update:\u003ctype\u003e` permission.",
+        "description": "(cmdb:read, and update on the record's type): link an item to a record, such as a server an incident affects or a database a change touches. It is an update of the record, so its rules run (the cmdb app's route-to-support-group, say). Linking one already linked does nothing. Answers the record's linked items.\n\nRequires the `records:update:\u003ctype\u003e` permission.",
         "operationId": "linkTicketCI",
         "parameters": [
           {

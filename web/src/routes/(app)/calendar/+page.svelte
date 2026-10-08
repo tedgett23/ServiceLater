@@ -130,6 +130,13 @@
 		const endText = sameDay ? time(end) : `${end.toLocaleDateString(undefined, on as Intl.DateTimeFormatOptions)} ${time(end)}`;
 		return `${time(s)} – ${endText}`;
 	}
+	/** Which changes a limited freeze holds back, as far as the reader can see the items. */
+	function scopeOf(f: Freeze) {
+		const hidden = f.item_ids.length - f.items.length;
+		const names = f.items.map((c) => c.name);
+		if (hidden) names.push(hidden === 1 ? 'one other item' : `${hidden} other items`);
+		return `Only changes to ${names.join(', ')}`;
+	}
 	const freezeName = (id: string) => freezes.find((f) => f.id === id)?.name ?? 'a freeze';
 	/** Whether a freeze covers any of this day. */
 	const frozen = (day: Date) => {
@@ -211,6 +218,7 @@
 								<div class="about">
 									<strong>{f.name}</strong>
 									{#if f.reason}<span>{f.reason}</span>{/if}
+									{#if f.item_ids.length}<span class="scope">{scopeOf(f)}</span>{/if}
 								</div>
 								{#if manage}
 									<div class="freeze-actions">

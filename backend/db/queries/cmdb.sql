@@ -38,11 +38,14 @@ RETURNING id;
 DELETE FROM cis WHERE id = $1;
 
 -- name: GetCIsByID :many
--- The items with these ids that the reader may see, for impact results.
-SELECT c.id, c.class, c.name, c.status, sg.name AS support_group_name
+-- The items with these ids that the reader may see, for impact results and for linking to a record.
+SELECT c.id, c.class, c.name, c.status, c.support_group_id, sg.name AS support_group_name, c.owner_group_id,
+       og.name AS owner_group_name
 FROM cis c
 LEFT JOIN groups sg ON sg.id = c.support_group_id
-WHERE c.id = ANY (sqlc.arg('ids')::uuid[]);
+LEFT JOIN groups og ON og.id = c.owner_group_id
+WHERE c.id = ANY (sqlc.arg('ids')::uuid[])
+ORDER BY lower(c.name), c.id;
 
 -- name: ListCIRelationships :many
 -- Every relationship an item is in, either way round, with the item at the other end.
@@ -70,11 +73,13 @@ WHERE r.to_ci = ANY (sqlc.arg('ids')::uuid[]) AND r.type = ANY (sqlc.arg('types'
 LIMIT 5001;
 
 -- name: ListTaskCIs :many
--- The items linked to a record.
-SELECT c.id, c.class, c.name, c.status, sg.name AS support_group_name
+-- The items linked to a record that the reader may see (none without cmdb:read), by name.
+SELECT c.id, c.class, c.name, c.status, c.support_group_id, sg.name AS support_group_name, c.owner_group_id,
+       og.name AS owner_group_name
 FROM task_cis l
 JOIN cis c ON c.id = l.ci_id
 LEFT JOIN groups sg ON sg.id = c.support_group_id
+LEFT JOIN groups og ON og.id = c.owner_group_id
 WHERE l.task_id = $1
 ORDER BY lower(c.name), c.id;
 
@@ -85,9 +90,6 @@ ON CONFLICT DO NOTHING;
 -- name: UnlinkTaskCI :execrows
 DELETE FROM task_cis WHERE task_id = $1 AND ci_id = $2;
 
--- name: CountTaskCIs :one
-SELECT count(*) FROM task_cis WHERE task_id = $1;
-
 -- name: ListCITasks :many
 -- The records an item is linked to that the reader may see: open ones first, then the most recently changed.
 SELECT t.id, t.type, tt.prefix, t.number, t.title, t.status, t.state_category, t.priority, t.updated_at
@@ -97,3 +99,7 @@ JOIN task_types tt ON tt.type = t.type
 WHERE l.ci_id = $1
 ORDER BY t.state_category IN ('open', 'waiting') DESC, t.updated_at DESC, t.id
 LIMIT 101;
+
+-- name: ListTasksCIIDs :many
+-- Which items each of these records is linked to, as the reader may see the links (none without cmdb:read).
+SELECT task_id, ci_id FROM task_cis WHERE task_id = ANY (sqlc.arg('ids')::uuid[]);

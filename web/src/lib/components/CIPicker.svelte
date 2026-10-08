@@ -4,7 +4,7 @@
 
 	/**
 	 * Finds configuration items by name and offers each with a button. Items in `exclude` (already linked, or the item
-	 * itself) are left out.
+	 * itself) are left out. Enter in the search box never submits a form around it.
 	 */
 	let {
 		label,
@@ -57,7 +57,15 @@
 <div class="picker">
 	<div class="field">
 		<label for={id}>{label}</label>
-		<input {id} type="search" bind:value={search} oninput={onSearch} placeholder="Search by name" autocomplete="off" />
+		<input
+			{id}
+			type="search"
+			bind:value={search}
+			oninput={onSearch}
+			onkeydown={(e) => e.key === 'Enter' && e.preventDefault()}
+			placeholder="Search by name"
+			autocomplete="off"
+		/>
 	</div>
 	{#if looked && shown.length === 0}
 		<p class="none">{found.length ? 'Everything that matches is already here.' : 'Nothing matches.'}</p>

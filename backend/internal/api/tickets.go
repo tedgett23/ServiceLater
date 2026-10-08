@@ -79,9 +79,7 @@ func (h *handlers) detail(ctx context.Context, q *dbgen.Queries, p auth.Principa
 	out.Moves = h.movesFor(ctx, q, p, *out)
 	out.FieldStates = h.svc.FieldStates(ctx, q, actorOf(p), out.Ticket)
 	var err error
-	if out.CIs, err = h.ticketCIs(ctx, q, p, out.ID); err != nil {
-		return err
-	}
+	out.CIs = h.ticketCIs(p, out.Ticket)
 	out.SLAs, err = records.LoadSLAs(ctx, q, out.ID)
 	return err
 }
@@ -287,6 +285,8 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 		Change *changeFields `json:"change"`
 		// Fields fills in extra fields, by name, as the type's form declares them (GET /forms/{type}).
 		Fields map[string]any `json:"fields"`
+		// CIs links configuration items to it, by id (needs cmdb:read).
+		CIs []uuid.UUID `json:"cis"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -298,7 +298,7 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		saved, err := h.svc.Create(r.Context(), q, actorOf(p), ruleruns.Cause{}, records.CreateInput{Type: req.Type,
 			Title: req.Title, Description: req.Description, Priority: req.Priority, RequesterID: req.RequesterID,
-			Change: req.Change.patch(), Fields: req.Fields})
+			Change: req.Change.patch(), Fields: req.Fields, CIs: req.CIs})
 		if err != nil {
 			return err
 		}

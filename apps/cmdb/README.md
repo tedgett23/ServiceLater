@@ -12,6 +12,8 @@ First-party ServiceLater app. Same structure and install path as any third-party
   first.
 - **Relationship types** (`relationships/`): depends on / used by and runs on / runs, which carry impact (trouble
   with the second item affects the first); part of / contains and connected to, which do not.
+- **Rule** `route-to-support-group`: a ticket with no assignment group goes to the support group of the first linked
+  item that has one, when it is filed with items or its items change. A group someone chose is left alone.
 - **Role** `cmdb-manager`: adds, changes and retires items. Agents can already read the CMDB and link items to
   tickets; admins can do everything.
 

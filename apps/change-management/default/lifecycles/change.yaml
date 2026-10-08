@@ -54,13 +54,15 @@ transitions:
     to: implement
     verb: Start implementing
     primary: true
-    # A freeze declared after the change was scheduled holds its work back, unless it is an emergency.
+    # A freeze declared after the change was scheduled holds its work back, unless it is an emergency: one for every
+    # change, or one limited to an item the change is linked to.
     lookups:
       freezes_now:
         count: freeze_window
         where:
           starts_at: { lte: =now }
           ends_at:   { gt: =now }
+          applies_to: { in: "=record.cis.map(c, c.id)" }
     guards:
       - when: has(record.planned_start) && now >= record.planned_start
         error: The planned window has not opened yet.

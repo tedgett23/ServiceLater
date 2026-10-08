@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,7 +96,7 @@ func TestAChangeCannotBePlannedIntoAFreeze(t *testing.T) {
 		window(start.Add(time.Hour), start.Add(3*time.Hour))+`}}`))
 	expect(t, admin.do(h, "POST", "/api/v1/freeze-windows", freezeJSON("Year end", start, end)), 201, "declaring the freeze")
 
-	const refused = "The planned window overlaps a change freeze."
+	const refused = "The planned window overlaps a change freeze that applies to it."
 	refusal(t, agent.do(h, "POST", "/api/v1/tickets", `{"type":"change","title":"Inside","change":{`+
 		window(start.Add(48*time.Hour), start.Add(50*time.Hour))+`}}`), 422, refused, "filing into the freeze")
 	refusal(t, agent.do(h, "POST", "/api/v1/tickets", `{"type":"change","title":"Across","change":{`+
@@ -200,10 +201,13 @@ func TestLookupTargetsMatchTheDatabase(t *testing.T) {
 		for target, fields := range apps.LookupTargets {
 			for field, kind := range fields {
 				for _, op := range apps.LookupOps {
+					if kind == "scope" && op != "in" {
+						continue // a freeze's items are only asked about with in
+					}
 					v := sample[kind]
 					if op == "in" {
 						s := "x"
-						if kind == "id" {
+						if kind == "id" || kind == "scope" {
 							s = uuid.NewString()
 						}
 						if kind == "time" {
@@ -265,4 +269,63 @@ func TestALookupCountsUnderRLS(t *testing.T) {
 	if counts[agent.id] != 2 || counts[lena.id] != 1 {
 		t.Errorf("the agent counts both, Lena only hers: %v", counts)
 	}
+}
+
+// A freeze limited to configuration items applies only to changes linked to one of them: planning into it, linking
+// such an item, and starting work are held back for those changes, and the calendar marks only them.
+func TestAFreezeCanBeLimitedToItems(t *testing.T) {
+	h, pool, _ := setupApps(t)
+	admin := newActor(t, h, pool, "boss@x.test", "admin")
+	agent := newActor(t, h, pool, "agent@x.test", "agent")
+	lena := newActor(t, h, pool, "lena@x.test", "end_user")
+	item := func(name string) string {
+		return decodeBody[ciBody](t, admin.do(h, "POST", "/api/v1/cis", `{"class":"database","name":"`+name+`"}`)).ID
+	}
+	payroll, crm := item("payroll-db"), item("crm-db")
+	start := time.Date(2026, 12, 20, 0, 0, 0, 0, time.UTC)
+	end := start.Add(7 * 24 * time.Hour)
+	f := decodeBody[freezeBody](t, admin.do(h, "POST", "/api/v1/freeze-windows",
+		strings.Replace(freezeJSON("Payroll run", start, end), `{"name"`, `{"items":["`+payroll+`"],"name"`, 1)))
+	scoped := decodeBody[struct {
+		ItemIDs []string `json:"item_ids"`
+		Items   []ciBody `json:"items"`
+	}](t, admin.do(h, "GET", "/api/v1/freeze-windows/"+f.ID, ""))
+	if len(scoped.ItemIDs) != 1 || len(scoped.Items) != 1 || scoped.Items[0].Name != "payroll-db" {
+		t.Fatalf("the freeze lists its item: %+v", scoped)
+	}
+	// Everyone reads freezes, and sees that one is limited; the item's name is for CMDB readers.
+	seen := decodeBody[struct {
+		ItemIDs []string `json:"item_ids"`
+		Items   []ciBody `json:"items"`
+	}](t, lena.do(h, "GET", "/api/v1/freeze-windows/"+f.ID, ""))
+	if len(seen.ItemIDs) != 1 || len(seen.Items) != 0 {
+		t.Errorf("an end user's view: %+v", seen)
+	}
+
+	inside := window(start.Add(time.Hour), start.Add(2*time.Hour))
+	const refused = "The planned window overlaps a change freeze that applies to it."
+	refusal(t, agent.do(h, "POST", "/api/v1/tickets", `{"type":"change","title":"Payroll patch","cis":["`+payroll+`"],"change":{`+inside+`}}`),
+		422, refused, "filing a change to the frozen item")
+	crmChange := decodeBody[typedTicket](t, agent.do(h, "POST", "/api/v1/tickets", `{"type":"change","title":"CRM patch","cis":["`+crm+`"],"change":{`+inside+`}}`))
+	if crmChange.ID == "" {
+		t.Fatal("a change to another item is not held back")
+	}
+	refusal(t, agent.do(h, "PUT", "/api/v1/tickets/"+crmChange.ID+"/cis/"+payroll, ""), 422, refused, "linking the frozen item to it")
+
+	got := decodeBody[struct {
+		Items []struct {
+			Reference string   `json:"reference"`
+			Freezes   []string `json:"freezes"`
+		} `json:"items"`
+	}](t, agent.do(h, "GET", "/api/v1/calendar?from=2026-12-01T00:00:00Z&to=2027-01-31T00:00:00Z", ""))
+	for _, it := range got.Items {
+		if it.Reference == crmChange.Reference && len(it.Freezes) != 0 {
+			t.Errorf("the calendar marks a change the freeze does not apply to: %v", it.Freezes)
+		}
+	}
+
+	// Lifting the limit makes it apply to every change again.
+	expect(t, admin.do(h, "PATCH", "/api/v1/freeze-windows/"+f.ID, `{"items":[]}`), 200, "applying it to everything")
+	refusal(t, agent.do(h, "PATCH", "/api/v1/tickets/"+crmChange.ID, `{"change":{`+window(start.Add(3*time.Hour), start.Add(4*time.Hour))+`}}`),
+		422, refused, "moving the CRM change within the freeze")
 }
