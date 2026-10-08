@@ -562,7 +562,11 @@ export interface Account {
 	email: string;
 	email_notifications: boolean;
 	email_enabled: boolean;
+	theme: Theme;
 }
+
+/** How the UI is drawn: following the device (auto), or always light or dark. */
+export type Theme = 'auto' | 'light' | 'dark';
 
 /** Where a knowledge article is: drafted, waiting for review, published, or retired. */
 export type ArticleStatus = 'draft' | 'review' | 'published' | 'retired';

@@ -371,6 +371,23 @@ func (q *Queries) SetMyEmailNotifications(ctx context.Context, arg SetMyEmailNot
 	return email_notifications, err
 }
 
+const setMyTheme = `-- name: SetMyTheme :one
+UPDATE users SET theme = $2 WHERE id = $1 AND id = app_current_user_id()
+RETURNING theme
+`
+
+type SetMyThemeParams struct {
+	ID    uuid.UUID `json:"id"`
+	Theme string    `json:"theme"`
+}
+
+func (q *Queries) SetMyTheme(ctx context.Context, arg SetMyThemeParams) (string, error) {
+	row := q.db.QueryRow(ctx, setMyTheme, arg.ID, arg.Theme)
+	var theme string
+	err := row.Scan(&theme)
+	return theme, err
+}
+
 const setSecret = `-- name: SetSecret :exec
 SELECT app_set_secret($1::text, $2::text, $3::bytea, $4::bytea)
 `

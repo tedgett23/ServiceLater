@@ -10,6 +10,9 @@
 	import { queue } from '$lib/queue.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
+	import { theme } from '$lib/theme.svelte';
+	import { api } from '$lib/api';
+	import type { Account } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 	import NewTicket from '$lib/components/NewTicket.svelte';
 	import { can, canAdmin, canRecord, canRecordAny, P } from '$lib/types';
@@ -28,6 +31,11 @@
 		// has the sections bar.
 		void approvals.ensureLoaded();
 		void notifications.ensureLoaded();
+		// The theme is kept on the account; this device's copy may be stale (chosen elsewhere, or storage cleared).
+		api<Account>('/api/v1/account').then(
+			(a) => theme.apply(a.theme),
+			() => {}
+		);
 		realtime.start();
 		const off = realtime.on((e) => {
 			if (e.type === 'ticket.changed' || e.type === 'resync') queue.scheduleRefresh();

@@ -69,3 +69,7 @@ SELECT * FROM notifications WHERE id = $1;
 -- name: SetMyEmailNotifications :one
 UPDATE users SET email_notifications = $2 WHERE id = $1 AND id = app_current_user_id()
 RETURNING email_notifications;
+
+-- name: SetMyTheme :one
+UPDATE users SET theme = $2 WHERE id = $1 AND id = app_current_user_id()
+RETURNING theme;

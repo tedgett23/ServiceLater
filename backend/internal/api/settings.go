@@ -231,6 +231,8 @@ type accountDTO struct {
 	EmailNotifications bool `json:"email_notifications"`
 	// EmailEnabled says the instance sends email at all.
 	EmailEnabled bool `json:"email_enabled"`
+	// Theme is how the web UI is drawn for them: auto (follow the device), light or dark.
+	Theme string `json:"theme"`
 }
 
 func (h *handlers) account(r *http.Request, q *dbgen.Queries, p auth.Principal) (accountDTO, error) {
@@ -238,7 +240,7 @@ func (h *handlers) account(r *http.Request, q *dbgen.Queries, p auth.Principal) 
 	if err != nil {
 		return accountDTO{}, err
 	}
-	out := accountDTO{Email: u.Email, EmailNotifications: u.EmailNotifications}
+	out := accountDTO{Email: u.Email, EmailNotifications: u.EmailNotifications, Theme: u.Theme}
 	// Whether email is on is not a secret, but the settings are for those who manage them: ask as the system.
 	err = db.WithSystem(r.Context(), h.pool, func(tx pgx.Tx) error {
 		rows, err := dbgen.New(tx).GetSystemSettings(r.Context(), settings.EmailPrefix+"enabled")
@@ -266,17 +268,34 @@ func (h *handlers) getAccount(w http.ResponseWriter, r *http.Request) {
 // accountRequest changes the signed-in person's own preferences.
 type accountRequest struct {
 	EmailNotifications *bool `json:"email_notifications"`
+	// Theme is auto, light or dark.
+	Theme *string `json:"theme"`
 }
 
-// PATCH /account with {"email_notifications"}: turn email notifications on or off for yourself. In-app notifications
-// are not affected.
+// themes are the values accountRequest.Theme may take, mirrored by the users_theme CHECK.
+var themes = map[string]bool{"auto": true, "light": true, "dark": true}
+
+// PATCH /account with {"email_notifications"} and/or {"theme"}: turn email notifications on or off for yourself (in-app
+// notifications are not affected), or choose how the web UI is drawn.
 func (h *handlers) patchAccount(w http.ResponseWriter, r *http.Request) {
 	var req accountRequest
 	if !decode(w, r, &req) {
 		return
 	}
+	if req.Theme != nil && !themes[*req.Theme] {
+		writeError(w, http.StatusUnprocessableEntity, "theme must be auto, light or dark")
+		return
+	}
 	var out accountDTO
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
+		if req.Theme != nil {
+			if _, err := q.SetMyTheme(r.Context(), dbgen.SetMyThemeParams{ID: p.UserID, Theme: *req.Theme}); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return fmt.Errorf("updating your own account: %w", err)
+				}
+				return err
+			}
+		}
 		if req.EmailNotifications != nil {
 			if _, err := q.SetMyEmailNotifications(r.Context(), dbgen.SetMyEmailNotificationsParams{ID: p.UserID, EmailNotifications: *req.EmailNotifications}); err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {

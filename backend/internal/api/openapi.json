@@ -14,12 +14,17 @@
           "email_notifications": {
             "description": "Says notifications also reach them by email (when the instance sends email).",
             "type": "boolean"
+          },
+          "theme": {
+            "description": "How the web UI is drawn for them: auto (follow the device), light or dark.",
+            "type": "string"
           }
         },
         "required": [
           "email",
           "email_enabled",
-          "email_notifications"
+          "email_notifications",
+          "theme"
         ],
         "type": "object"
       },
@@ -29,6 +34,13 @@
           "email_notifications": {
             "type": [
               "boolean",
+              "null"
+            ]
+          },
+          "theme": {
+            "description": "Auto, light or dark.",
+            "type": [
+              "string",
               "null"
             ]
           }
@@ -3593,7 +3605,7 @@
         ]
       },
       "patch": {
-        "description": "With {\"email_notifications\"}: turn email notifications on or off for yourself. In-app notifications are not affected.",
+        "description": "With {\"email_notifications\"} and/or {\"theme\"}: turn email notifications on or off for yourself (in-app notifications are not affected), or choose how the web UI is drawn.",
         "operationId": "patchAccount",
         "requestBody": {
           "content": {

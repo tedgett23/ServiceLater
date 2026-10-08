@@ -46,6 +46,23 @@
 		color-scheme: dark;
 	}
 }
+/* Someone who chose Dark on their account gets it whatever their device says (lib/theme.svelte.ts). */
+:root[data-theme='dark'] {
+	--ground: #0a0d29;
+	--surface: #10153a;
+	--raised: #171d49;
+	--ink: #e9ebfa;
+	--ink-2: #a2a8d4;
+	--rule: #2b3266;
+	--blue: #8b94ff;
+	--on-blue: #0a0d29;
+	--blue-soft: #232a70;
+	--marker-soft: #3b3714;
+	--red: #ff7b95;
+	--focus: #8b94ff;
+	--chrome: #060820;
+	color-scheme: dark;
+}
 
 *,
 *::before,

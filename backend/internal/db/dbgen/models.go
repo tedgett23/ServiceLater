@@ -367,6 +367,7 @@ type User struct {
 	DeactivatedAt      pgtype.Timestamptz `json:"deactivated_at"`
 	AppName            pgtype.Text        `json:"app_name"`
 	EmailNotifications bool               `json:"email_notifications"`
+	Theme              string             `json:"theme"`
 }
 
 type UserCredential struct {
