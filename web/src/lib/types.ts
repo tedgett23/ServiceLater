@@ -52,6 +52,8 @@ export interface Ticket {
 	field_states?: Record<string, FieldState>;
 	/** Single-ticket responses, for those who read the CMDB: the configuration items linked to it. */
 	cis?: CISummary[];
+	/** Single-ticket responses: the knowledge articles linked to it that the reader may read. */
+	articles?: ArticleRef[];
 }
 
 /** What a field holds: text (also dates as YYYY-MM-DD and times as ISO), a whole number, or true/false. */
@@ -219,7 +221,9 @@ export const P = {
 	calendarsManage: 'calendars:manage',
 	cmdbRead: 'cmdb:read',
 	cmdbManage: 'cmdb:manage',
-	settingsManage: 'settings:manage'
+	settingsManage: 'settings:manage',
+	knowledgeWrite: 'knowledge:write',
+	knowledgePublish: 'knowledge:publish'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */
@@ -555,4 +559,66 @@ export interface Account {
 	email: string;
 	email_notifications: boolean;
 	email_enabled: boolean;
+}
+
+/** Where a knowledge article is: drafted, waiting for review, published, or retired. */
+export type ArticleStatus = 'draft' | 'review' | 'published' | 'retired';
+
+/** A knowledge article, from GET /kb/articles/{id}. */
+export interface Article {
+	id: string;
+	reference: string;
+	number: number;
+	title: string;
+	/** Markdown, as written. Render it with lib/markdown, which sanitises it. */
+	body: string;
+	category: string;
+	tags: string[];
+	audience: 'everyone' | 'internal';
+	status: ArticleStatus;
+	version: number;
+	author_name: string | null;
+	updated_by_name: string | null;
+	created_at: string;
+	updated_at: string;
+	published_at: string | null;
+	/** The status changes the reader may make now. */
+	moves?: ArticleStatus[];
+	/** For staff: the records it is linked to. */
+	tickets?: { id: string; reference: string; type: string; title: string; status: Status; state_category: Category }[];
+}
+
+/** An article in a list or search result. The snippet marks matches between ⸢ and ⸣ (lib/components/Snippet). */
+export interface ArticleHit {
+	id: string;
+	reference: string;
+	title: string;
+	category: string;
+	tags: string[];
+	audience: 'everyone' | 'internal';
+	status: ArticleStatus;
+	updated_at: string;
+	snippet: string;
+}
+
+/** An article linked to a record. */
+export interface ArticleRef {
+	id: string;
+	reference: string;
+	title: string;
+	status: ArticleStatus;
+	audience: 'everyone' | 'internal';
+}
+
+/** One saved version of an article; the list leaves out the content. */
+export interface ArticleVersion {
+	version: number;
+	title: string;
+	status: ArticleStatus;
+	saved_at: string;
+	saved_by_name: string | null;
+	body?: string;
+	category?: string;
+	tags?: string[];
+	audience?: string;
 }

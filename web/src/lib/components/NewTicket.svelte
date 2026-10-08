@@ -6,7 +6,7 @@
 	import { forms } from '$lib/forms.svelte';
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { queue } from '$lib/queue.svelte';
-	import type { FieldState, FieldValue, FormField, Ticket } from '$lib/types';
+	import type { ArticleHit, FieldState, FieldValue, FormField, Ticket } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let dialog: HTMLDialogElement;
@@ -83,8 +83,30 @@
 		}
 	}
 
+	// Articles that might answer it, from the summary as it is typed: someone may not need to file at all.
+	let suggestions = $state<ArticleHit[]>([]);
+	let suggestTimer: ReturnType<typeof setTimeout> | undefined;
+	let suggestAsked = 0;
+	function suggest(text: string) {
+		clearTimeout(suggestTimer);
+		if (text.trim().length < 3) {
+			suggestions = [];
+			return;
+		}
+		suggestTimer = setTimeout(async () => {
+			const n = ++suggestAsked;
+			try {
+				const r = await api<{ items: ArticleHit[] }>(`/api/v1/kb/suggest?${new URLSearchParams({ q: text })}`);
+				if (n === suggestAsked) suggestions = r.items;
+			} catch {
+				/* suggestions are a help, not a step */
+			}
+		}, 300);
+	}
+
 	function set(f: FormField, v: FieldValue | null) {
 		values[f.name] = v;
+		if (f.name === 'title') suggest(String(v ?? ''));
 		if (form?.reactive.includes(f.name)) {
 			clearTimeout(timer);
 			timer = setTimeout(askStates, 150);
@@ -93,6 +115,7 @@
 
 	function reset() {
 		error = chosen = '';
+		suggestions = [];
 		filledFor = '';
 	}
 
@@ -148,6 +171,17 @@
 							onchange={(v) => set(f, v)}
 						/>
 					</div>
+					{#if f.name === 'title' && suggestions.length}
+						<div class="suggest wide" role="region" aria-label="Articles that might help">
+							<p>These articles might help:</p>
+							<ul>
+								{#each suggestions as a (a.id)}
+									<!-- A new tab, so what has been typed here is not lost. -->
+									<li><a href="/kb/{a.reference}" target="_blank" rel="noopener">{a.title}</a></li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
 				{/if}
 			{/each}
 		</div>
@@ -171,6 +205,20 @@
 		border-radius: var(--radius);
 		background: var(--surface);
 		color: var(--ink);
+	}
+	.suggest {
+		padding: 0.6rem 0.75rem;
+		border-left: 3px solid var(--marker);
+		background: var(--raised);
+		font-size: 0.9rem;
+	}
+	.suggest p {
+		font-weight: 600;
+		margin-bottom: 0.25rem;
+	}
+	.suggest ul {
+		margin: 0;
+		padding-left: 1.1rem;
 	}
 	dialog::backdrop {
 		background: color-mix(in srgb, var(--ink) 55%, transparent);

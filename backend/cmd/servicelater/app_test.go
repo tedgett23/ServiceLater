@@ -187,7 +187,7 @@ func TestSyncInstallsTheBundledApps(t *testing.T) {
 		t.Fatalf("sync: %v\n%s", err, out)
 	}
 	out, _ = cli(t, "sync")
-	if strings.Count(out, "(no changes)") != 4 {
+	if strings.Count(out, "(no changes)") != 5 {
 		t.Errorf("a second sync should change nothing:\n%s", out)
 	}
 
@@ -254,7 +254,7 @@ func TestUninstallExplainsThatBundledAppsComeBack(t *testing.T) {
 		t.Errorf("want a note about SL_BUNDLED_APPS: %v\n%s", err, out)
 	}
 	t.Setenv("SL_BUNDLED_APPS", "none")
-	out, err = cli(t, "uninstall", "cmdb", "change-management", "core-itsm")
+	out, err = cli(t, "uninstall", "knowledge-base", "cmdb", "change-management", "core-itsm")
 	if err != nil || strings.Contains(out, "installed again") {
 		t.Errorf("no note when the app is not bundled by config: %v\n%s", err, out)
 	}

@@ -71,6 +71,8 @@ type ticketDTO struct {
 	FieldStates map[string]apps.FieldState `json:"field_states,omitempty"`
 	// CIs are the configuration items linked to it (single-ticket responses, for those who may read the CMDB).
 	CIs []ciSummaryDTO `json:"cis,omitempty"`
+	// Articles are the knowledge articles linked to it that the reader may read (single-ticket responses).
+	Articles []articleRefDTO `json:"articles,omitempty"`
 }
 
 // detail adds what a single-ticket response carries beyond the ticket: the moves, field states, linked items and the
@@ -80,6 +82,9 @@ func (h *handlers) detail(ctx context.Context, q *dbgen.Queries, p auth.Principa
 	out.FieldStates = h.svc.FieldStates(ctx, q, actorOf(p), out.Ticket)
 	var err error
 	out.CIs = h.ticketCIs(p, out.Ticket)
+	if out.Articles, err = articlesOf(ctx, q, out.ID); err != nil {
+		return err
+	}
 	out.SLAs, err = records.LoadSLAs(ctx, q, out.ID)
 	return err
 }

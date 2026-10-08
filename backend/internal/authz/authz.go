@@ -22,16 +22,20 @@ const (
 	CommentsInternal = "comments:internal" // read and write internal notes
 	CommentsDelete   = "comments:delete"   // delete a comment
 	WorkflowsReadAll = "workflows:read_all"
-	WorkflowsRun     = "workflows:run"    // start, cancel and advance workflow runs on any ticket
-	UsersRead        = "users:read"       // the people directory and pickers
-	UsersManage      = "users:manage"     // add, edit, deactivate and delete people, and set passwords
-	GroupsManage     = "groups:manage"    // create and change groups and who is in them
-	RolesManage      = "roles:manage"     // grant and revoke roles
-	FreezesManage    = "freezes:manage"   // declare, change and lift change freeze windows
-	CalendarsManage  = "calendars:manage" // add, change and remove the business calendars SLAs count by
-	CMDBRead         = "cmdb:read"        // see configuration items, how they relate, and which records they are linked to
-	CMDBManage       = "cmdb:manage"      // add, change and remove configuration items and their relationships
-	SettingsManage   = "settings:manage"  // change instance settings (email) and set the secrets they use
+	WorkflowsRun     = "workflows:run"     // start, cancel and advance workflow runs on any ticket
+	UsersRead        = "users:read"        // the people directory and pickers
+	UsersManage      = "users:manage"      // add, edit, deactivate and delete people, and set passwords
+	GroupsManage     = "groups:manage"     // create and change groups and who is in them
+	RolesManage      = "roles:manage"      // grant and revoke roles
+	FreezesManage    = "freezes:manage"    // declare, change and lift change freeze windows
+	CalendarsManage  = "calendars:manage"  // add, change and remove the business calendars SLAs count by
+	CMDBRead         = "cmdb:read"         // see configuration items, how they relate, and which records they are linked to
+	CMDBManage       = "cmdb:manage"       // add, change and remove configuration items and their relationships
+	SettingsManage   = "settings:manage"   // change instance settings (email) and set the secrets they use
+	KnowledgeWrite   = "knowledge:write"   // draft articles, edit drafts and send them for review
+	KnowledgePublish = "knowledge:publish" // publish, change, retire and delete articles
+	// KnowledgeReadInternal reads published articles meant for staff (audience internal).
+	KnowledgeReadInternal = "knowledge:read_internal"
 )
 
 // Record verbs: what records:<verb>:<type> allows on records of that type. A requester always sees, and comments on,
@@ -117,6 +121,9 @@ var Catalog = []Permission{
 	{CMDBRead, "See configuration items, how they relate and the records linked to them"},
 	{CMDBManage, "Add, change and remove configuration items and their relationships"},
 	{SettingsManage, "Change instance settings such as email, and set the passwords they use"},
+	{KnowledgeWrite, "Draft knowledge articles and send them for review"},
+	{KnowledgePublish, "Publish, change, retire and delete knowledge articles"},
+	{KnowledgeReadInternal, "Read knowledge articles meant for staff"},
 }
 
 // Known reports whether name is a permission the platform checks: one of the Catalog, or a well-formed record

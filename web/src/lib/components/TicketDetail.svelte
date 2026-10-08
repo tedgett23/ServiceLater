@@ -2,6 +2,7 @@
 	import { untrack } from 'svelte';
 	import { api } from '$lib/api';
 	import AffectedItems from '$lib/components/AffectedItems.svelte';
+	import TicketArticles from '$lib/components/TicketArticles.svelte';
 	import Signal from '$lib/components/Signal.svelte';
 	import RecordFields from '$lib/components/RecordFields.svelte';
 	import SlaClocks from '$lib/components/SlaClocks.svelte';
@@ -253,6 +254,9 @@
 			{#if can(session.user, P.cmdbRead)}
 				<AffectedItems {ticket} {canEdit} onchange={(cis) => (ticket = { ...ticket, cis })} />
 			{/if}
+
+			<!-- Knowledge articles that answer it: the requester reads the ones meant for them. -->
+			<TicketArticles {ticket} {canEdit} onchange={(articles) => (ticket = { ...ticket, articles })} />
 		</div>
 
 		<section class="activity" aria-labelledby="activity-h">

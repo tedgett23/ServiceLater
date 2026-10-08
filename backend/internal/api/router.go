@@ -141,6 +141,8 @@ func NewRouter(d Deps) http.Handler {
 					r.With(auth.RequirePermission(authz.CMDBRead)).Get("/impact", h.getTicketImpact)
 					r.With(auth.RequirePermission(authz.CMDBRead), auth.RequireRecordPermission(authz.Update)).Put("/cis/{ciId}", h.linkTicketCI)
 					r.With(auth.RequirePermission(authz.CMDBRead), auth.RequireRecordPermission(authz.Update)).Delete("/cis/{ciId}", h.unlinkTicketCI)
+					r.With(auth.RequireRecordPermission(authz.Update)).Put("/articles/{articleId}", h.linkTicketArticle)
+					r.With(auth.RequireRecordPermission(authz.Update)).Delete("/articles/{articleId}", h.unlinkTicketArticle)
 				})
 			})
 			r.Route("/approvals", func(r chi.Router) {
@@ -160,6 +162,20 @@ func NewRouter(d Deps) http.Handler {
 				r.With(auth.RequirePermission(authz.WorkflowsRun)).Post("/{id}/cancel", h.cancelRun)
 			})
 			r.With(auth.RequirePermission(authz.WorkflowsReadAll)).Get("/workflows", h.listWorkflows)
+			r.Route("/kb", func(r chi.Router) {
+				r.Get("/suggest", h.suggestArticles)
+				r.Get("/categories", h.listArticleCategories)
+				r.Get("/articles", h.listArticles)
+				r.With(auth.RequirePermission(authz.KnowledgeWrite, authz.KnowledgePublish)).Post("/articles", h.createArticle)
+				r.Route("/articles/{id}", func(r chi.Router) {
+					r.Get("/", h.getArticle)
+					r.With(auth.RequirePermission(authz.KnowledgeWrite, authz.KnowledgePublish)).Patch("/", h.updateArticle)
+					r.With(auth.RequirePermission(authz.KnowledgePublish)).Delete("/", h.deleteArticle)
+					r.With(auth.RequirePermission(authz.KnowledgeWrite, authz.KnowledgePublish)).Post("/status", h.setArticleStatus)
+					r.Get("/versions", h.listArticleVersions)
+					r.Get("/versions/{version}", h.getArticleVersion)
+				})
+			})
 			r.Route("/settings/email", func(r chi.Router) {
 				r.Use(auth.RequirePermission(authz.SettingsManage))
 				r.Get("/", h.getEmailSettings)

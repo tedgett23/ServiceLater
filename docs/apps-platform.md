@@ -1018,6 +1018,45 @@ Not built yet: approvals by an item's owner (`group()` takes a literal name), fr
 items, CSV and API import keyed on a class's identifying field, sync from other systems, history of an item's changes,
 and items for requesters (picking the affected service when filing).
 
+### 8.3 Knowledge base (built)
+
+Articles are **core data people write** (`kb_articles`, migration 00030), like configuration items; the
+`knowledge-base` app (0.2.0) ships who looks after them (the `knowledge-manager` role). An article has a reference
+(KB12, its own sequence), a title, a Markdown body (stored as written; the web renders it with `marked` and sanitises it
+with DOMPurify, so the body is never trusted HTML), a category (free text, offered from the ones in use), tags, an
+audience (`everyone`, or `internal` for staff) and a status:
+
+- `draft` → `review`: a writer (`knowledge:write`, agents) sends it for review, or pulls it back;
+- `review` or `draft` → `published`: those who publish (`knowledge:publish`, admins and knowledge managers);
+- `published` → `retired`, and `retired` → `published` or `draft`: those who publish.
+
+The server offers each reader the moves they may make (`moves`). Writers change drafts and articles in review; a
+published or retired article only those who publish (it stays published). Every content save is a new version
+(`kb_article_versions`), readable as a whole. Only an article never published can be deleted; one that was is retired.
+
+**Who reads what** (RLS, `app_can_read_article`): a published `everyone` article, anyone signed in; a published
+`internal` one, `knowledge:read_internal` (agents) or those who publish; anything not published, writers and those who
+publish.
+
+**Search** is Postgres full-text search: a stored `tsvector` (title and tags weigh most, then category, then body;
+`app_kb_search`, English) with a GIN index, `websearch_to_tsquery` (words, "phrases", -word), ranked by `ts_rank`,
+with a `ts_headline` snippet whose matches are marked with U+2E22/U+2E23 rather than HTML (the web highlights them).
+`GET /kb/suggest?q=` treats a sentence as any-of-its-words and returns up to five published articles: the New ticket
+dialog shows them under the summary as it is typed.
+
+**Records link to articles** (`task_articles`): whoever may update the record links one; anyone who sees the record
+sees the linked articles they may read (a requester sees the public article an agent linked to their incident). An
+agent who writes articles can start one from a resolved or closed record: it starts with the record's description
+and resolution, and is linked to it.
+
+API: `GET /kb/articles` (`q`, `category`, `status`), `GET /kb/suggest`, `GET /kb/categories`, `POST|GET|PATCH|DELETE
+/kb/articles/{id}` (id, KB12 or 12), `POST /kb/articles/{id}/status`, `GET /kb/articles/{id}/versions[/{n}]`,
+`PUT|DELETE /tickets/{id}/articles/{articleId}`. Web: `/kb`, `/kb/new` (`?from=INC42`), `/kb/{ref}`, `/kb/{ref}/edit`.
+
+Not built yet: app-shipped articles (the `knowledge/` folder is still rejected), comparing two versions side by side,
+feedback and view counts, attachments and images uploaded with an article, search in other languages (the search
+configuration is English), notifications when an article is sent for review, and per-group audiences.
+
 ## 9. Data model and ownership
 
 Definitions are config, not user data. They live in Postgres so they can change without a restart (§5.5 of the
@@ -1319,6 +1358,7 @@ Each slice is shippable and leaves the product working.
 | **6b. SLAs** (done, §6.6) | First-class SLA definitions with pause and resume, business calendars and breach actions. | Slice 6 |
 | **7. Roles and permissions** (done, §11.1) | Custom RBAC and app service principals (open question 3). | Slice 5 |
 | **8. Content kinds** | Catalog, knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
+| **8c. Knowledge base** (done, §8.3) | Articles with review and publishing, versions, audiences, full-text search, suggestions while filing, links to records. | Slice 7 |
 | **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items, rules reading them (routing by support group), freezes scoped to items. Next: import, approvals by owner. | Slices 4 and 7 |
 | **9. Visual builder** | The Svelte Flow builder editing the same workflow files, with live execution highlighting. | Slice 6 |
 

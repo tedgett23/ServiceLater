@@ -1,0 +1,8 @@
+kind: role
+name: knowledge-manager
+label: Knowledge manager
+description: "Looks after the knowledge base: publishes the articles writers send for review, changes and retires published ones, and reads internal articles."
+permissions:
+  - knowledge:write
+  - knowledge:publish
+  - knowledge:read_internal

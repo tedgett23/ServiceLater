@@ -17,16 +17,15 @@
 	let { children } = $props();
 	let bell = $state<HTMLDetailsElement>();
 
-	// Anyone can be named an approver, not only staff, so this loads regardless of role; the nav link below only
-	// shows up when there is actually something for this person to do.
-	let showSections = $derived(canRecordAny(session.user, 'read') || canAdmin(session.user) || approvals.items.length > 0);
-
 	function openNotification(id: string) {
 		void notifications.markRead(id);
 		if (bell) bell.open = false;
 	}
 
 	onMount(() => {
+		// Anyone can be named an approver, not only staff, so this loads regardless of role; the Approvals link only
+		// shows up when there is actually something for this person to do. Everyone has the knowledge base, so everyone
+		// has the sections bar.
 		void approvals.ensureLoaded();
 		void notifications.ensureLoaded();
 		realtime.start();
@@ -59,6 +58,7 @@
 	{#if canRecord(session.user, 'read', 'change') && lifecycle.types.some((t) => t.type === 'change')}
 		<a href="/calendar" aria-current={page.url.pathname.startsWith('/calendar') ? 'page' : undefined}>Calendar</a>
 	{/if}
+	<a href="/kb" aria-current={page.url.pathname.startsWith('/kb') ? 'page' : undefined}>Knowledge</a>
 	{#if can(session.user, P.cmdbRead)}
 		<a href="/cmdb" aria-current={page.url.pathname.startsWith('/cmdb') ? 'page' : undefined}>CMDB</a>
 	{/if}
@@ -78,11 +78,9 @@
 <div class="shell">
 	<header>
 		<a class="mark" href="/tickets" aria-label="ServiceLater, ticket queue">ServiceLater</a>
-		{#if showSections}
-			<nav class="wide" aria-label="Sections">
-				{@render sections()}
-			</nav>
-		{/if}
+		<nav class="wide" aria-label="Sections">
+			{@render sections()}
+		</nav>
 		<div class="right">
 			{#if realtime.down}
 				<span class="offline" role="status">Reconnecting…</span>
@@ -127,12 +125,10 @@
 		</div>
 	</header>
 
-	{#if showSections}
-		<!-- On a phone there is no room for these in the app bar, so they get a bar of their own. -->
-		<nav class="narrow" aria-label="Sections">
-			{@render sections()}
-		</nav>
-	{/if}
+	<!-- On a phone there is no room for these in the app bar, so they get a bar of their own. -->
+	<nav class="narrow" aria-label="Sections">
+		{@render sections()}
+	</nav>
 
 	<div class="content">
 		{@render children()}

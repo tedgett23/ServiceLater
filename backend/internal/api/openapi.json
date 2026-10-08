@@ -126,6 +126,327 @@
         ],
         "type": "object"
       },
+      "Article": {
+        "description": "A knowledge article.",
+        "properties": {
+          "audience": {
+            "description": "Everyone (anyone signed in) or internal (staff, with knowledge:read_internal).",
+            "type": "string"
+          },
+          "author_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body": {
+            "description": "Markdown, as written. Render it with a sanitiser: it is never HTML to trust.",
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "moves": {
+            "description": "The status changes the reader may make now (single-article responses).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "number": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "published_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reference": {
+            "description": "Names it, such as KB12.",
+            "type": "string"
+          },
+          "status": {
+            "description": "Draft, review, published or retired.",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tickets": {
+            "description": "The records linked to it that the reader may see (single-article responses, for staff).",
+            "items": {
+              "$ref": "#/components/schemas/ArticleTicket"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updated_by_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "Counts the saves of its content, from 1.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "audience",
+          "author_name",
+          "body",
+          "category",
+          "created_at",
+          "id",
+          "number",
+          "published_at",
+          "reference",
+          "status",
+          "tags",
+          "title",
+          "updated_at",
+          "updated_by_name",
+          "version"
+        ],
+        "type": "object"
+      },
+      "ArticleHit": {
+        "description": "An article in a list or search result.",
+        "properties": {
+          "audience": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "snippet": {
+            "description": "A piece of the body: around the matches when searching, the start otherwise. Matches are between U+2E22 and U+2E23; it is plain text, never HTML.",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "audience",
+          "category",
+          "id",
+          "reference",
+          "snippet",
+          "status",
+          "tags",
+          "title",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "ArticleRef": {
+        "description": "An article linked to a record.",
+        "properties": {
+          "audience": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "audience",
+          "id",
+          "reference",
+          "status",
+          "title"
+        ],
+        "type": "object"
+      },
+      "ArticleRequest": {
+        "description": "An article's content as it is written or changed; on PATCH, a field left out keeps its value.",
+        "properties": {
+          "audience": {
+            "description": "Everyone or internal.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ArticleStatusRequest": {
+        "description": "Moves an article to another status.",
+        "properties": {
+          "to": {
+            "description": "Review (a writer sends a draft for review), draft (back to its writer), published or retired (those who publish).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ArticleTicket": {
+        "description": "A record an article is linked to.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "state_category": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "reference",
+          "state_category",
+          "status",
+          "title",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ArticleVersion": {
+        "description": "One saved version of an article; the list leaves out the content.",
+        "properties": {
+          "audience": {
+            "type": "string"
+          },
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "saved_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "saved_by_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "saved_at",
+          "saved_by_name",
+          "status",
+          "title",
+          "version"
+        ],
+        "type": "object"
+      },
       "Calendar": {
         "description": "A business calendar: the working hours an SLA counts, in a time zone, less holidays. An SLA definition names one by name.",
         "properties": {
@@ -313,6 +634,22 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "Category": {
+        "properties": {
+          "articles": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "articles",
+          "name"
+        ],
         "type": "object"
       },
       "Change": {
@@ -2219,6 +2556,13 @@
       "Ticket": {
         "description": "A ticket plus, on single-ticket responses (not lists), what the person may do next and its SLA clocks, and on lists a summary of its clocks.",
         "properties": {
+          "articles": {
+            "description": "The knowledge articles linked to it that the reader may read (single-ticket responses).",
+            "items": {
+              "$ref": "#/components/schemas/ArticleRef"
+            },
+            "type": "array"
+          },
           "assignee_id": {
             "format": "uuid",
             "type": [
@@ -6462,6 +6806,1170 @@
         ]
       }
     },
+    "/api/v1/kb/articles": {
+      "get": {
+        "description": "Knowledge articles the caller may read, best match first when q (words, \"a phrase\", -word) is given, latest changed otherwise. status is published unless the caller writes articles, who may ask for draft, review, retired or all. more says there are more after this page.",
+        "operationId": "listArticles",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/ArticleHit"
+                      },
+                      "type": "array"
+                    },
+                    "more": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "more"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List articles",
+        "tags": [
+          "kb"
+        ]
+      },
+      "post": {
+        "description": "(knowledge:write) with {\"title\", \"body\"?, \"category\"?, \"tags\"?, \"audience\"?}: draft an article. Audience is everyone unless it says internal.\n\nRequires the `knowledge:write` or `knowledge:publish` permission.",
+        "operationId": "createArticle",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Article"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create article",
+        "tags": [
+          "kb"
+        ],
+        "x-permissions": [
+          "knowledge:write",
+          "knowledge:publish"
+        ]
+      }
+    },
+    "/api/v1/kb/articles/{id}": {
+      "delete": {
+        "description": "(knowledge:publish): delete an article that was never published; retire one that was.\n\nRequires the `knowledge:publish` permission.",
+        "operationId": "deleteArticle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete article",
+        "tags": [
+          "kb"
+        ],
+        "x-permissions": [
+          "knowledge:publish"
+        ]
+      },
+      "get": {
+        "description": "One article, by id, reference (KB12) or number, with the status changes the caller may make and, for staff, the records it is linked to.",
+        "operationId": "getArticle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Article"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get article",
+        "tags": [
+          "kb"
+        ]
+      },
+      "patch": {
+        "description": "With any of {\"title\", \"body\", \"category\", \"tags\", \"audience\"}: change an article's content, keeping the previous version. Writers change drafts and articles in review; a published or retired one only those who publish (and it stays published).\n\nRequires the `knowledge:write` or `knowledge:publish` permission.",
+        "operationId": "updateArticle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Article"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Update article",
+        "tags": [
+          "kb"
+        ],
+        "x-permissions": [
+          "knowledge:write",
+          "knowledge:publish"
+        ]
+      }
+    },
+    "/api/v1/kb/articles/{id}/status": {
+      "post": {
+        "description": "With {\"to\"}: move an article. The moves each person may make are in moves.\n\nRequires the `knowledge:write` or `knowledge:publish` permission.",
+        "operationId": "setArticleStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Article"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Set article status",
+        "tags": [
+          "kb"
+        ],
+        "x-permissions": [
+          "knowledge:write",
+          "knowledge:publish"
+        ]
+      }
+    },
+    "/api/v1/kb/articles/{id}/versions": {
+      "get": {
+        "description": "An article's saved versions, newest first (who saved each, and when).",
+        "operationId": "listArticleVersions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/ArticleVersion"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List article versions",
+        "tags": [
+          "kb"
+        ]
+      }
+    },
+    "/api/v1/kb/articles/{id}/versions/{version}": {
+      "get": {
+        "description": "One saved version, with its content.",
+        "operationId": "getArticleVersion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleVersion"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get article version",
+        "tags": [
+          "kb"
+        ]
+      }
+    },
+    "/api/v1/kb/categories": {
+      "get": {
+        "description": "The categories of the published articles the caller may read, with how many each has.",
+        "operationId": "listArticleCategories",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/Category"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List article categories",
+        "tags": [
+          "kb"
+        ]
+      }
+    },
+    "/api/v1/kb/suggest": {
+      "get": {
+        "description": "Up to five published articles that match what someone is writing, such as a ticket's summary while it is filed. Fewer than three letters suggest nothing.",
+        "operationId": "suggestArticles",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/ArticleHit"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Suggest articles",
+        "tags": [
+          "kb"
+        ]
+      }
+    },
     "/api/v1/lifecycles/{recordType}": {
       "get": {
         "description": "The states, so the UI can label statuses and pick their shape. What may be done next is not here: each ticket carries its own moves, because guards depend on the ticket and the person.",
@@ -8633,6 +10141,262 @@
           }
         ],
         "summary": "Update ticket",
+        "tags": [
+          "tickets"
+        ],
+        "x-permissions": [
+          "records:update:\u003ctype\u003e"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/articles/{articleId}": {
+      "delete": {
+        "description": "(update on the record's type): unlink an article. Answers the linked articles.\n\nRequires the `records:update:\u003ctype\u003e` permission.",
+        "operationId": "unlinkTicketArticle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "articleId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/ArticleRef"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Unlink ticket article",
+        "tags": [
+          "tickets"
+        ],
+        "x-permissions": [
+          "records:update:\u003ctype\u003e"
+        ]
+      },
+      "put": {
+        "description": "(update on the record's type): link an article to a record, such as the one that answers an incident. Its requester sees it too, when they may read the article. Answers the linked articles.\n\nRequires the `records:update:\u003ctype\u003e` permission.",
+        "operationId": "linkTicketArticle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "articleId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/ArticleRef"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Link ticket article",
         "tags": [
           "tickets"
         ],
@@ -10836,6 +12600,9 @@
     },
     {
       "name": "groups"
+    },
+    {
+      "name": "kb"
     },
     {
       "name": "lifecycles"

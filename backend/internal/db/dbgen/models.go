@@ -160,6 +160,37 @@ type Job struct {
 	FinishedAt  pgtype.Timestamptz `json:"finished_at"`
 }
 
+type KbArticle struct {
+	ID          uuid.UUID          `json:"id"`
+	Number      int64              `json:"number"`
+	Title       string             `json:"title"`
+	Body        string             `json:"body"`
+	Category    string             `json:"category"`
+	Tags        []string           `json:"tags"`
+	Audience    string             `json:"audience"`
+	Status      string             `json:"status"`
+	Version     int32              `json:"version"`
+	AuthorID    uuid.NullUUID      `json:"author_id"`
+	UpdatedBy   uuid.NullUUID      `json:"updated_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	PublishedAt pgtype.Timestamptz `json:"published_at"`
+	Search      interface{}        `json:"search"`
+}
+
+type KbArticleVersion struct {
+	ArticleID uuid.UUID          `json:"article_id"`
+	Version   int32              `json:"version"`
+	Title     string             `json:"title"`
+	Body      string             `json:"body"`
+	Category  string             `json:"category"`
+	Tags      []string           `json:"tags"`
+	Audience  string             `json:"audience"`
+	Status    string             `json:"status"`
+	SavedBy   uuid.NullUUID      `json:"saved_by"`
+	SavedAt   pgtype.Timestamptz `json:"saved_at"`
+}
+
 type Notification struct {
 	ID         uuid.UUID          `json:"id"`
 	UserID     uuid.UUID          `json:"user_id"`
@@ -239,6 +270,13 @@ type Task struct {
 	Type              string             `json:"type"`
 	AssignmentGroupID uuid.NullUUID      `json:"assignment_group_id"`
 	Fields            []byte             `json:"fields"`
+}
+
+type TaskArticle struct {
+	TaskID    uuid.UUID          `json:"task_id"`
+	ArticleID uuid.UUID          `json:"article_id"`
+	CreatedBy uuid.NullUUID      `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type TaskCi struct {
