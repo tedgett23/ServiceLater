@@ -431,3 +431,19 @@ func TestRealtimeTellsStaffAboutRuns(t *testing.T) {
 	}
 	requester.none(t, "an end user does not see runs")
 }
+
+// An import changes many items in one go and says so once, not once per row, so open CMDB pages refetch once.
+func TestRealtimeTellsCMDBReadersAboutAnImportOnce(t *testing.T) {
+	hub := startHub(t)
+	h, pool, _ := setupWith(t, time.Minute, hub)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	admin := newActor(t, h, pool, "boss@x.test", "admin")
+	agent := newActor(t, h, pool, "agent@x.test", "agent")
+	reader := mustDial(t, srv, agent)
+	expect(t, admin.do(h, "POST", "/api/v1/cmdb/csv/items/other?apply=true", "name\nBadge reader 1\nBadge reader 2\nBadge reader 3\n"), 200, "importing")
+	if e := reader.next(t, "ci.changed"); e["bulk"] != true {
+		t.Errorf("one bulk event: %v", e)
+	}
+	reader.none(t, "no event per item")
+}

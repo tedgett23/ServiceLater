@@ -181,4 +181,58 @@ test.describe('CMDB', () => {
 			if (freezeID) await admin.context.request.delete(`/api/v1/freeze-windows/${freezeID}`);
 		}
 	});
+
+	// Importing from a spreadsheet: download the template, fill it in, upload it, check what each row will do, import.
+	test('an admin imports servers from a CSV file, leaving out a row with a problem', async ({ browser }) => {
+		const id = uid();
+		const { page } = await as(browser, 'admin');
+		await page.goto('/cmdb');
+		await page.getByRole('link', { name: 'Import' }).click();
+		await expect(page.getByRole('heading', { name: 'Import items' })).toBeVisible();
+		await page.getByLabel('Import', { exact: true }).selectOption('server');
+
+		const [template] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download the template' }).click()]);
+		expect(template.suggestedFilename()).toBe('server-template.csv');
+
+		const csv = `name,status,hostname,environment,virtual\nimp-${id}-a,Active,a.example.com,Production,yes\nimp-${id}-b,Broken,,,\n`;
+		await page.getByLabel('CSV file').setInputFiles({ name: 'servers.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+		await expect(page.getByRole('status').filter({ hasText: 'to add' })).toHaveText('1 to add, 1 with a problem.');
+		const rows = page.getByRole('list', { name: 'Rows' });
+		await expect(rows.locator('li.create')).toContainText(`imp-${id}-a`);
+		await expect(rows.locator('li.error')).toContainText('status must be');
+
+		const go = page.getByRole('button', { name: 'Import 1 row' });
+		await expect(go).toBeDisabled();
+		await page.getByLabel('Leave out the rows with problems').check();
+		await go.click();
+		await expect(page.getByRole('status').filter({ hasText: 'Imported' })).toContainText('1 added, 1 skipped');
+
+		await page.goto(`/cmdb`);
+		await page.getByRole('searchbox', { name: 'Name' }).fill(`imp-${id}`);
+		await expect(page.getByRole('link', { name: new RegExp(`imp-${id}-a`) })).toBeVisible();
+		await expect(page.getByRole('link', { name: new RegExp(`imp-${id}-b`) })).toHaveCount(0);
+	});
+
+	// A class that others extend imports its whole family from one file, a class column saying which class each row is.
+	test('one hardware file adds a printer and a server', async ({ browser }) => {
+		const id = uid();
+		const { page } = await as(browser, 'admin');
+		await page.goto('/cmdb/import');
+		await page.getByLabel('Import', { exact: true }).selectOption('hardware');
+		await page.getByText('What each column takes').click();
+		await expect(page.locator('dt', { hasText: 'class' })).toBeVisible();
+		await expect(page.locator('dd', { hasText: 'Server only' }).first()).toBeVisible();
+
+		const csv = `name,class,serial_number,hostname\nprn-${id},,SN-${id},\nsrv-${id},Server,,srv-${id}.example.com\n`;
+		await page.getByLabel('CSV file').setInputFiles({ name: 'hardware.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+		await expect(page.getByRole('status').filter({ hasText: 'to add' })).toHaveText('2 to add.');
+		await expect(page.getByRole('list', { name: 'Rows' }).locator('li', { hasText: `srv-${id}` })).toContainText('Server');
+		await page.getByRole('button', { name: 'Import 2 rows' }).click();
+		await expect(page.getByRole('status').filter({ hasText: 'Imported' })).toContainText('2 added');
+
+		await page.goto('/cmdb');
+		await page.getByRole('searchbox', { name: 'Name' }).fill(id);
+		await expect(page.getByRole('link', { name: new RegExp(`srv-${id}`) })).toContainText('Server');
+		await expect(page.getByRole('link', { name: new RegExp(`prn-${id}`) })).toContainText('Hardware');
+	});
 });

@@ -30,6 +30,8 @@ function refresh(): Promise<boolean> {
 }
 
 function send(path: string, method: string, body?: unknown) {
+	// A file goes as it is (an import's CSV, say); anything else as JSON.
+	if (body instanceof Blob) return fetch(path, { method, headers: { 'Content-Type': body.type || 'text/csv' }, body });
 	return fetch(path, {
 		method,
 		headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
@@ -37,13 +39,41 @@ function send(path: string, method: string, body?: unknown) {
 	});
 }
 
-export async function api<T = void>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
-	const method = opts.method ?? 'GET';
-	let res = await send(path, method, opts.body);
+/** Sends, refreshing the session once if it has expired. */
+async function sendFresh(path: string, method: string, body?: unknown) {
+	let res = await send(path, method, body);
 	if (res.status === 401 && !NO_REFRESH.includes(path)) {
-		if (await refresh()) res = await send(path, method, opts.body);
+		if (await refresh()) res = await send(path, method, body);
 		if (res.status === 401) hooks.onSessionExpired();
 	}
+	return res;
+}
+
+/** Saves what a GET answers as a file (an export, say), under the name the server gives it. */
+export async function download(path: string, fallbackName: string): Promise<void> {
+	const res = await sendFresh(path, 'GET');
+	if (!res.ok) {
+		let message = res.statusText;
+		try {
+			message = ((await res.json()) as { error?: string }).error ?? message;
+		} catch {
+			/* not JSON */
+		}
+		throw new ApiError(res.status, message);
+	}
+	const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallbackName;
+	const url = URL.createObjectURL(await res.blob());
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = name;
+	a.click();
+	setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Calls the API: body is sent as JSON, or as it is when it is a file (Blob). */
+export async function api<T = void>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
+	const method = opts.method ?? 'GET';
+	const res = await sendFresh(path, method, opts.body);
 	if (!res.ok) {
 		let message = res.statusText;
 		let body: unknown;

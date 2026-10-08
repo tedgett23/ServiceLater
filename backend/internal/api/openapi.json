@@ -2112,6 +2112,81 @@
         ],
         "type": "object"
       },
+      "ImportReport": {
+        "description": "The result of reading an import file, and of applying it when asked.",
+        "properties": {
+          "applied": {
+            "description": "Says the changes were made; otherwise this is a preview, or the import was refused for its problems.",
+            "type": "boolean"
+          },
+          "counts": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "description": "The rows by action.",
+            "type": "object"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ImportRow"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "applied",
+          "counts",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "ImportRow": {
+        "description": "What an import does, or would do, with one row of the file.",
+        "properties": {
+          "action": {
+            "description": "Create, update, unchanged or error.",
+            "type": "string"
+          },
+          "changes": {
+            "description": "The columns an update changes.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "class": {
+            "description": "The item's class, for a file that covers a class and those extending it.",
+            "type": "string"
+          },
+          "id": {
+            "description": "The item created or updated (for an item row once applied, or one already there).",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "problem": {
+            "description": "Says why the row cannot be imported.",
+            "type": "string"
+          },
+          "row": {
+            "description": "The line of the file the row is on (the header is line 1).",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action",
+          "name",
+          "row"
+        ],
+        "type": "object"
+      },
       "InFlightRun": {
         "description": "A run still going.",
         "properties": {
@@ -5817,6 +5892,474 @@
         "summary": "Delete CI relationship",
         "tags": [
           "cis"
+        ],
+        "x-permissions": [
+          "cmdb:manage"
+        ]
+      }
+    },
+    "/api/v1/cmdb/csv/items/{class}": {
+      "get": {
+        "description": "(cmdb:read): a class's items, and those of the classes extending it, as a CSV file, one per row, in the format an import reads; with template=true, the header row only. When other classes extend it, a class column says which class each row is, and the columns are every field of the family.\n\nRequires the `cmdb:read` permission.",
+        "operationId": "exportCIs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "class",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "template",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Export c is",
+        "tags": [
+          "cmdb"
+        ],
+        "x-permissions": [
+          "cmdb:read"
+        ]
+      },
+      "post": {
+        "description": "(cmdb:manage) with a CSV file as the body: import items of a class and of the classes extending it. A row's class is its class cell (a name or label in the family; empty is the file's class). Each row is matched to an item of its class by name (case aside): a new name adds an item, a known one updates it, and an empty cell leaves that value as it is (an import never clears a value, removes an item or moves one to another class). A new name that another class of the family already has is a problem, not a second item: set the class to update that one. Groups are named; field cells take what the class's fields take, or a choice's label. Without apply=true nothing is written: the answer says what each row would do. With it, the import happens in one transaction, and only if no row has a problem (422 with the report otherwise), unless skip_errors=true, which imports the other rows.\n\nRequires the `cmdb:manage` permission.",
+        "operationId": "importCIs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "class",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "apply",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "skip_errors",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReport"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Import c is",
+        "tags": [
+          "cmdb"
+        ],
+        "x-permissions": [
+          "cmdb:manage"
+        ]
+      }
+    },
+    "/api/v1/cmdb/csv/relationships": {
+      "get": {
+        "description": "(cmdb:read): every relationship between items as a CSV file, in the format an import reads (from_class, from_name, type, to_class, to_name); with template=true, the header row only.\n\nRequires the `cmdb:read` permission.",
+        "operationId": "exportCIRelationships",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "template",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Export CI relationships",
+        "tags": [
+          "cmdb"
+        ],
+        "x-permissions": [
+          "cmdb:read"
+        ]
+      },
+      "post": {
+        "description": "(cmdb:manage) with a CSV file as the body: relate items, one relationship per row, reading \"from \u003ctype\u003e to\". Items are named by class (name or label) and name, and must exist already (import the items first); the type is its name or how it reads (\"depends on\"). A relationship already there is left alone; an import never removes one. apply and skip_errors work as for items.\n\nRequires the `cmdb:manage` permission.",
+        "operationId": "importCIRelationships",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "apply",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "skip_errors",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportReport"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Import CI relationships",
+        "tags": [
+          "cmdb"
         ],
         "x-permissions": [
           "cmdb:manage"

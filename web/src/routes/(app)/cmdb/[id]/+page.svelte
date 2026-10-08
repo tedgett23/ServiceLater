@@ -71,7 +71,7 @@
 		if (canManage) void groups.ensure();
 		return realtime.on((e) => {
 			// This item, or one at the end of a relationship, changed; or a record was linked to it or changed.
-			if ((e.type === 'ci.changed' && (e.id === ci?.id || ci?.relationships.some((r) => r.item.id === e.id))) || e.type === 'resync')
+			if ((e.type === 'ci.changed' && (e.bulk || e.id === ci?.id || ci?.relationships.some((r) => r.item.id === e.id))) || e.type === 'resync')
 				later();
 			else if (e.type === 'ticket.changed') later();
 		});

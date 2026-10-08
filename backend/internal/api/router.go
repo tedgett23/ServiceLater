@@ -195,6 +195,13 @@ func NewRouter(d Deps) http.Handler {
 			r.Get("/account", h.getAccount)
 			r.Patch("/account", h.patchAccount)
 			r.With(auth.RequirePermission(authz.CMDBRead)).Get("/cmdb/model", h.getCMDBModel)
+			r.Route("/cmdb/csv", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.CMDBRead))
+				r.Get("/items/{class}", h.exportCIs)
+				r.With(auth.RequirePermission(authz.CMDBManage)).Post("/items/{class}", h.importCIs)
+				r.Get("/relationships", h.exportCIRelationships)
+				r.With(auth.RequirePermission(authz.CMDBManage)).Post("/relationships", h.importCIRelationships)
+			})
 			r.Route("/cis", func(r chi.Router) {
 				r.Use(auth.RequirePermission(authz.CMDBRead))
 				r.Get("/", h.listCIs)

@@ -45,7 +45,7 @@
 	$effect(() => {
 		void cmdb.ensure();
 		return realtime.on((e) => {
-			if (e.type === 'ci.changed' && (items.some((c) => c.id === e.id) || impact?.items.some((a) => a.id === e.id))) void loadImpact();
+			if (e.type === 'ci.changed' && (e.bulk || items.some((c) => c.id === e.id) || impact?.items.some((a) => a.id === e.id))) void loadImpact();
 		});
 	});
 

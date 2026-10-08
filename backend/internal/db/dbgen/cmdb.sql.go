@@ -62,6 +62,26 @@ func (q *Queries) CreateCIRelationship(ctx context.Context, arg CreateCIRelation
 	return id, err
 }
 
+const createCIRelationshipIfNew = `-- name: CreateCIRelationshipIfNew :execrows
+INSERT INTO ci_relationships (from_ci, to_ci, type, created_by)
+VALUES ($1, $2, $3, app_current_user_id())
+ON CONFLICT ON CONSTRAINT ci_relationships_key DO NOTHING
+`
+
+type CreateCIRelationshipIfNewParams struct {
+	FromCi uuid.UUID `json:"from_ci"`
+	ToCi   uuid.UUID `json:"to_ci"`
+	Type   string    `json:"type"`
+}
+
+func (q *Queries) CreateCIRelationshipIfNew(ctx context.Context, arg CreateCIRelationshipIfNewParams) (int64, error) {
+	result, err := q.db.Exec(ctx, createCIRelationshipIfNew, arg.FromCi, arg.ToCi, arg.Type)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteCI = `-- name: DeleteCI :execrows
 DELETE FROM cis WHERE id = $1
 `
@@ -89,6 +109,96 @@ func (q *Queries) DeleteCIRelationship(ctx context.Context, arg DeleteCIRelation
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const findCIsByClassAndName = `-- name: FindCIsByClassAndName :many
+SELECT c.id, c.class, lower(c.name)::text AS lname
+FROM cis c
+WHERE (c.class, lower(c.name)) IN (SELECT unnest($1::text[]), unnest($2::text[]))
+`
+
+type FindCIsByClassAndNameParams struct {
+	Classes []string `json:"classes"`
+	Names   []string `json:"names"`
+}
+
+type FindCIsByClassAndNameRow struct {
+	ID    uuid.UUID `json:"id"`
+	Class string    `json:"class"`
+	Lname string    `json:"lname"`
+}
+
+// Items named by class and (lowercased) name, pairwise, for a relationships import.
+func (q *Queries) FindCIsByClassAndName(ctx context.Context, arg FindCIsByClassAndNameParams) ([]FindCIsByClassAndNameRow, error) {
+	rows, err := q.db.Query(ctx, findCIsByClassAndName, arg.Classes, arg.Names)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FindCIsByClassAndNameRow
+	for rows.Next() {
+		var i FindCIsByClassAndNameRow
+		if err := rows.Scan(&i.ID, &i.Class, &i.Lname); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const findCIsByName = `-- name: FindCIsByName :many
+SELECT id, class, name, status, description, owner_group_id, support_group_id, fields FROM cis
+WHERE class = ANY($1::text[]) AND lower(name) = ANY($2::text[])
+`
+
+type FindCIsByNameParams struct {
+	Classes []string `json:"classes"`
+	Names   []string `json:"names"`
+}
+
+type FindCIsByNameRow struct {
+	ID             uuid.UUID     `json:"id"`
+	Class          string        `json:"class"`
+	Name           string        `json:"name"`
+	Status         string        `json:"status"`
+	Description    string        `json:"description"`
+	OwnerGroupID   uuid.NullUUID `json:"owner_group_id"`
+	SupportGroupID uuid.NullUUID `json:"support_group_id"`
+	Fields         []byte        `json:"fields"`
+}
+
+// The items of these classes (a class and those extending it) with these names (lowercased), for an import to match
+// its rows to.
+func (q *Queries) FindCIsByName(ctx context.Context, arg FindCIsByNameParams) ([]FindCIsByNameRow, error) {
+	rows, err := q.db.Query(ctx, findCIsByName, arg.Classes, arg.Names)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FindCIsByNameRow
+	for rows.Next() {
+		var i FindCIsByNameRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Class,
+			&i.Name,
+			&i.Status,
+			&i.Description,
+			&i.OwnerGroupID,
+			&i.SupportGroupID,
+			&i.Fields,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getCI = `-- name: GetCI :one
@@ -294,6 +404,81 @@ func (q *Queries) ListCIRelationships(ctx context.Context, ciID uuid.UUID) ([]Li
 	return items, nil
 }
 
+const listCIRelationshipsForExport = `-- name: ListCIRelationshipsForExport :many
+SELECT f.class AS from_class, f.name AS from_name, r.type, t.class AS to_class, t.name AS to_name
+FROM ci_relationships r
+JOIN cis f ON f.id = r.from_ci
+JOIN cis t ON t.id = r.to_ci
+ORDER BY lower(f.name), r.type, lower(t.name)
+LIMIT 100001
+`
+
+type ListCIRelationshipsForExportRow struct {
+	FromClass string `json:"from_class"`
+	FromName  string `json:"from_name"`
+	Type      string `json:"type"`
+	ToClass   string `json:"to_class"`
+	ToName    string `json:"to_name"`
+}
+
+// Every relationship, as an export writes them.
+func (q *Queries) ListCIRelationshipsForExport(ctx context.Context) ([]ListCIRelationshipsForExportRow, error) {
+	rows, err := q.db.Query(ctx, listCIRelationshipsForExport)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCIRelationshipsForExportRow
+	for rows.Next() {
+		var i ListCIRelationshipsForExportRow
+		if err := rows.Scan(
+			&i.FromClass,
+			&i.FromName,
+			&i.Type,
+			&i.ToClass,
+			&i.ToName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCIRelationshipsFrom = `-- name: ListCIRelationshipsFrom :many
+SELECT from_ci, to_ci, type FROM ci_relationships WHERE from_ci = ANY($1::uuid[])
+`
+
+type ListCIRelationshipsFromRow struct {
+	FromCi uuid.UUID `json:"from_ci"`
+	ToCi   uuid.UUID `json:"to_ci"`
+	Type   string    `json:"type"`
+}
+
+// The relationships leaving these items, for an import to tell new ones from ones already there.
+func (q *Queries) ListCIRelationshipsFrom(ctx context.Context, ids []uuid.UUID) ([]ListCIRelationshipsFromRow, error) {
+	rows, err := q.db.Query(ctx, listCIRelationshipsFrom, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCIRelationshipsFromRow
+	for rows.Next() {
+		var i ListCIRelationshipsFromRow
+		if err := rows.Scan(&i.FromCi, &i.ToCi, &i.Type); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCITasks = `-- name: ListCITasks :many
 SELECT t.id, t.type, tt.prefix, t.number, t.title, t.status, t.state_category, t.priority, t.updated_at
 FROM task_cis l
@@ -423,6 +608,55 @@ func (q *Queries) ListCIs(ctx context.Context, arg ListCIsParams) ([]ListCIsRow,
 	return items, nil
 }
 
+const listCIsForExport = `-- name: ListCIsForExport :many
+SELECT c.name, c.class, c.status, c.description, og.name AS owner_group, sg.name AS support_group, c.fields
+FROM cis c
+LEFT JOIN groups og ON og.id = c.owner_group_id
+LEFT JOIN groups sg ON sg.id = c.support_group_id
+WHERE c.class = ANY($1::text[])
+ORDER BY lower(c.name), c.class
+LIMIT 100001
+`
+
+type ListCIsForExportRow struct {
+	Name         string      `json:"name"`
+	Class        string      `json:"class"`
+	Status       string      `json:"status"`
+	Description  string      `json:"description"`
+	OwnerGroup   pgtype.Text `json:"owner_group"`
+	SupportGroup pgtype.Text `json:"support_group"`
+	Fields       []byte      `json:"fields"`
+}
+
+// The items of these classes (a class and those extending it), as an export writes them, by name.
+func (q *Queries) ListCIsForExport(ctx context.Context, classes []string) ([]ListCIsForExportRow, error) {
+	rows, err := q.db.Query(ctx, listCIsForExport, classes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCIsForExportRow
+	for rows.Next() {
+		var i ListCIsForExportRow
+		if err := rows.Scan(
+			&i.Name,
+			&i.Class,
+			&i.Status,
+			&i.Description,
+			&i.OwnerGroup,
+			&i.SupportGroup,
+			&i.Fields,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTaskCIs = `-- name: ListTaskCIs :many
 SELECT c.id, c.class, c.name, c.status, c.support_group_id, sg.name AS support_group_name, c.owner_group_id,
        og.name AS owner_group_name
@@ -503,6 +737,25 @@ func (q *Queries) ListTasksCIIDs(ctx context.Context, ids []uuid.UUID) ([]ListTa
 		return nil, err
 	}
 	return items, nil
+}
+
+const notifyCIBulk = `-- name: NotifyCIBulk :exec
+SELECT pg_notify('ci_changes', '{"bulk":true}')
+`
+
+func (q *Queries) NotifyCIBulk(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, notifyCIBulk)
+	return err
+}
+
+const quietCIChanges = `-- name: QuietCIChanges :exec
+SELECT set_config('app.ci_bulk', 'on', true)
+`
+
+// For a bulk change: the cis triggers send no event per row (migration 00036); NotifyCIBulk sends one at the end.
+func (q *Queries) QuietCIChanges(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, quietCIChanges)
+	return err
 }
 
 const unlinkTaskCI = `-- name: UnlinkTaskCI :execrows

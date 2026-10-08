@@ -63,7 +63,12 @@
 			<h1>Configuration items</h1>
 			<p class="lede">The services, systems and devices tickets are about, and what depends on what.</p>
 		</div>
-		{#if canManage}<a class="btn primary" href="/cmdb/new">New item</a>{/if}
+		{#if canManage}
+			<div class="actions">
+				<a class="btn" href="/cmdb/import">Import</a>
+				<a class="btn primary" href="/cmdb/new">New item</a>
+			</div>
+		{/if}
 	</div>
 
 	<div class="filters" role="search">
@@ -123,9 +128,13 @@
 	}
 	.top {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: flex-start;
 		justify-content: space-between;
-		gap: 1rem;
+		gap: 0.75rem 1rem;
+	}
+	.top > div:first-child {
+		flex: 1 1 18rem;
 	}
 	h1 {
 		font: 800 1.6rem/1.2 var(--font-display);
@@ -198,5 +207,10 @@
 		padding: 0.5rem 0.75rem;
 		border-left: 3px solid var(--red);
 		background: var(--raised);
+	}
+	.actions {
+		display: flex;
+		gap: 0.5rem;
+		flex-shrink: 0;
 	}
 </style>

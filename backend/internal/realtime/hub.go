@@ -56,10 +56,12 @@ type freezeEvent struct {
 }
 
 // ciEvent says a configuration item, or one of its relationships, changed (migration 00027). It goes to those who
-// may read the CMDB.
+// may read the CMDB. Bulk (an import, migration 00036) means many items changed at once and carries no id: refetch
+// whatever is shown.
 type ciEvent struct {
 	Type string    `json:"type"` // ci.changed
 	ID   uuid.UUID `json:"id"`
+	Bulk bool      `json:"bulk,omitempty"`
 }
 
 // Notification payloads produced by the triggers in migrations 00003, 00005 and 00006.
@@ -153,13 +155,14 @@ func (h *Hub) onFreeze(payload string) {
 
 func (h *Hub) onCI(payload string) {
 	var n struct {
-		ID uuid.UUID `json:"id"`
+		ID   uuid.UUID `json:"id"`
+		Bulk bool      `json:"bulk"`
 	}
 	if err := json.Unmarshal([]byte(payload), &n); err != nil {
 		slog.Error("realtime: bad configuration item notification", "err", err)
 		return
 	}
-	h.broadcast(mustJSON(ciEvent{Type: "ci.changed", ID: n.ID}), func(c *client) bool { return c.perms.Has(authz.CMDBRead) })
+	h.broadcast(mustJSON(ciEvent{Type: "ci.changed", ID: n.ID, Bulk: n.Bulk}), func(c *client) bool { return c.perms.Has(authz.CMDBRead) })
 }
 
 // runEvent says a workflow run started, moved to another step or ended (migration 00034). It goes to those who see

@@ -6,7 +6,7 @@ export type RealtimeEvent =
 	| { type: 'comment.added'; ticket_id: string }
 	| { type: 'notification.changed' }
 	| { type: 'freeze.changed'; id: string }
-	| { type: 'ci.changed'; id: string } // a configuration item or its relationships changed
+	| { type: 'ci.changed'; id: string; bulk?: boolean } // an item or its relationships changed; bulk: many at once (an import), no id
 	| { type: 'email.changed' } // an email was queued, sent or failed (to those who manage settings)
 	| { type: 'run.changed'; id: string; app: string; workflow: string } // a workflow run started, moved or ended
 	| { type: 'resync' }

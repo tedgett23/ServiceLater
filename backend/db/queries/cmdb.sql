@@ -103,3 +103,50 @@ LIMIT 101;
 -- name: ListTasksCIIDs :many
 -- Which items each of these records is linked to, as the reader may see the links (none without cmdb:read).
 SELECT task_id, ci_id FROM task_cis WHERE task_id = ANY (sqlc.arg('ids')::uuid[]);
+
+-- name: FindCIsByName :many
+-- The items of these classes (a class and those extending it) with these names (lowercased), for an import to match
+-- its rows to.
+SELECT id, class, name, status, description, owner_group_id, support_group_id, fields FROM cis
+WHERE class = ANY(sqlc.arg('classes')::text[]) AND lower(name) = ANY(sqlc.arg('names')::text[]);
+
+-- name: ListCIsForExport :many
+-- The items of these classes (a class and those extending it), as an export writes them, by name.
+SELECT c.name, c.class, c.status, c.description, og.name AS owner_group, sg.name AS support_group, c.fields
+FROM cis c
+LEFT JOIN groups og ON og.id = c.owner_group_id
+LEFT JOIN groups sg ON sg.id = c.support_group_id
+WHERE c.class = ANY(sqlc.arg('classes')::text[])
+ORDER BY lower(c.name), c.class
+LIMIT 100001;
+
+-- name: FindCIsByClassAndName :many
+-- Items named by class and (lowercased) name, pairwise, for a relationships import.
+SELECT c.id, c.class, lower(c.name)::text AS lname
+FROM cis c
+WHERE (c.class, lower(c.name)) IN (SELECT unnest(sqlc.arg('classes')::text[]), unnest(sqlc.arg('names')::text[]));
+
+-- name: CreateCIRelationshipIfNew :execrows
+INSERT INTO ci_relationships (from_ci, to_ci, type, created_by)
+VALUES (sqlc.arg('from_ci'), sqlc.arg('to_ci'), sqlc.arg('type'), app_current_user_id())
+ON CONFLICT ON CONSTRAINT ci_relationships_key DO NOTHING;
+
+-- name: ListCIRelationshipsForExport :many
+-- Every relationship, as an export writes them.
+SELECT f.class AS from_class, f.name AS from_name, r.type, t.class AS to_class, t.name AS to_name
+FROM ci_relationships r
+JOIN cis f ON f.id = r.from_ci
+JOIN cis t ON t.id = r.to_ci
+ORDER BY lower(f.name), r.type, lower(t.name)
+LIMIT 100001;
+
+-- name: QuietCIChanges :exec
+-- For a bulk change: the cis triggers send no event per row (migration 00036); NotifyCIBulk sends one at the end.
+SELECT set_config('app.ci_bulk', 'on', true);
+
+-- name: NotifyCIBulk :exec
+SELECT pg_notify('ci_changes', '{"bulk":true}');
+
+-- name: ListCIRelationshipsFrom :many
+-- The relationships leaving these items, for an import to tell new ones from ones already there.
+SELECT from_ci, to_ci, type FROM ci_relationships WHERE from_ci = ANY(sqlc.arg('ids')::uuid[]);

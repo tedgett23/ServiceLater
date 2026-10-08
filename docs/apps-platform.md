@@ -1082,8 +1082,39 @@ the ticket.
 
 Approvals by an item's owner: an approval step's `groups` (§7.4), used by change-management's `cab-approval`.
 
-Not built yet: freezes that follow impact, lookups over items, CSV and API import keyed on a class's identifying
-field, sync from other systems, and items for requesters (picking the affected service when filing).
+**Import and export (CSV).** Items come in from spreadsheets, one class per file, and relationships in a file of
+their own (`from_class, from_name, type, to_class, to_name`). `GET /cmdb/csv/items/{class}` (cmdb:read) exports a
+class's items in exactly the format the import reads (`?template=true`: the header row only: `name, status,
+description, owner_group, support_group`, then the class's fields, inherited first); `GET /cmdb/csv/relationships`
+does the same for relationships. `POST` to the same paths (cmdb:manage) with the file as the body imports it:
+
+- **A class's file covers its family**: the class and every class extending it (hardware: computers, servers...).
+  When it has any, the template and export have a `class` column (a name or label of the family; empty is the file's
+  class) and every field of the family, inherited first; a cell for a field the row's class lacks is a problem.
+  Exporting a class includes its family's items, so a family is managed in one spreadsheet.
+- Rows match items by class and name (case aside, as `cis_class_name_key` does): a new name adds an item, a known one
+  updates it. A new name that another class of the family already has is a problem ("there is already a server
+  called web-01: set class to Server to update it"), not a second item; moving an item to another class is left to
+  the UI. An empty cell leaves the value alone; an import never clears a value, removes an item or a
+  relationship. A name twice in one file is a problem on the second row.
+- Headers may be column names or labels. Cells take what the UI takes, checked by the same code (`applyCI`,
+  `cmdb.ApplyFields`): statuses and choices by value or label, booleans as yes/no, dates as YYYY-MM-DD, groups and
+  relationship types by name (types also by how they read, "depends on"). An unknown column refuses the whole file,
+  so a typo never drops a column quietly.
+- **Preview first:** without `apply=true` nothing is written and the answer lists every row as create, update (with
+  the columns it changes), unchanged or error (with why). `apply=true` imports in one transaction only if no row has
+  a problem (422 with the report otherwise); `skip_errors=true` imports the rest.
+- Files are read as spreadsheets save them (`internal/cmdb/csv.go`): a byte order mark, comma, semicolon or tab, at
+  most 5 MB and 10,000 rows. Exports start with a byte order mark and escape cells a spreadsheet would run as a
+  formula; the import undoes that, so an export uploads again unchanged.
+- An import writes history like any change, as the person importing. It sends one `ci.changed` event with
+  `bulk: true` instead of one per row (migration 00036 quiets the triggers for the transaction via `app.ci_bulk`).
+
+Web: `/cmdb/import` (Import on the CMDB list): pick a class or relationships, download the template or what is there,
+see what each column takes, upload, check the preview, import.
+
+Not built yet: freezes that follow impact, lookups over items, sync from other systems (and matching on a field
+other than the name, such as a serial number), Excel files, clearing values by import, and items for requesters (picking the affected service when filing).
 
 ### 8.3 Knowledge base (built)
 
@@ -1457,7 +1488,7 @@ Each slice is shippable and leaves the product working.
 | **7. Roles and permissions** (done, §11.1) | Custom RBAC and app service principals (open question 3). | Slice 5 |
 | **8. Content kinds** | Catalog, knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
 | **8c. Knowledge base** (done, §8.3) | Articles with review and publishing, versions, audiences, full-text search, suggestions while filing, links to records. | Slice 7 |
-| **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items, rules reading them (routing by support group), freezes scoped to items, approvals by owner. Next: import. | Slices 4 and 7 |
+| **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items, rules reading them (routing by support group), freezes scoped to items, approvals by owner, CSV import and export. Next: sync from other systems. | Slices 4 and 7 |
 | **9. Visual builder** (done, §7.7) | The Svelte Flow builder editing the same workflow definitions, saved in the database-kept studio layer, with live highlighting of where runs are. | Slice 6 |
 
 Later: script steps (Starlark, Lua or WASM), app-defined tables and migrations, custom UI components, signing and
