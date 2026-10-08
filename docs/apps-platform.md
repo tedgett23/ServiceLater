@@ -269,7 +269,7 @@ that ship inside the binary, in a directory on the instance. The rule is the one
 `default/` and never touches `local/`**, so nothing an operator did is overwritten, and everything the upgrade
 brings that the operator did not touch flows through.
 
-**Where the local layer lives.** Three layers are merged, later ones winning:
+**Where the local layer lives.** Four layers are merged, later ones winning:
 
 1. `default/`: the shipped layer. Always present.
 2. `local/` inside the app folder: for an app installed from a folder, so a developer or third party can keep their
@@ -277,6 +277,10 @@ brings that the operator did not touch flows through.
 3. The **instance local directory**, `SL_APPS_LOCAL_DIR/<app-name>/`, laid out like an app's `local/` folder. This
    is where changes to the embedded first-party apps go, because the binary cannot hold them. It belongs on a
    volume, so replacing the image or the binary leaves it alone.
+4. The **studio layer**: override files kept in the database (`app_overrides`, migration 00031), written by
+   ServiceLater's own editors (the workflow builder, §7.7). Every install and sync applies it (startup, `app sync`,
+   `app install`), and upgrades never touch it. Each installed app's own files are kept too (`app_files`), so any
+   installed app, bundled or not, can be compiled again with an edit.
 
 **How they combine.** A local file at the same path as a shipped file is merged into it, not swapped for it:
 
@@ -286,6 +290,22 @@ brings that the operator did not touch flows through.
 - **`null` deletes a key**, which is how a local file removes a state.
 - **New keys are added** after the shipped ones, so ordering stays stable.
 - **A local file with no shipped counterpart adds a new definition**, and must be complete on its own.
+- **`override: replace`** at the top of a local file replaces the definition below it whole instead of merging into
+  it (the key itself is dropped). It is an escape hatch: upstream changes to that definition stop arriving. The
+  builder falls back to it only when the smallest merging override cannot say what was drawn.
+
+This is the Splunk model: `default/` is what the app ships and an upgrade replaces, `local/` is the operator's and
+merges over it, attribute by attribute (here key by key, with `null` to delete). Splunk keeps `local/` as files on
+every node and, in a search head cluster, replicates UI changes between members' `local/` folders. Here the database
+is the cluster's shared state, so changes made in ServiceLater are kept once, in the studio layer, and every server
+reads them; files remain the way to manage changes with git or configuration management.
+
+**Moving changes between environments.** `servicelater app export-local [-app name] <dir>` writes the studio layer as
+files (one folder per app, laid out like `local/`; with `-app`, that app's files straight into `<dir>`), and
+`servicelater app import-local [-app name] [-replace] [-dry-run] <dir>` loads them into another instance, validating
+and reinstalling each app (`-replace` makes the layer match the folder exactly). So an edit made in dev moves to
+test and production as files, in version control, with no records moved. The same folder can instead be mounted as
+`SL_APPS_LOCAL_DIR`, where it is the file layer below the studio one.
 
 ```yaml
 # SL_APPS_LOCAL_DIR/incident-management/lifecycles/incident.yaml
@@ -858,6 +878,33 @@ and the `schedule` trigger. Steps run as the workflow's app (its service princip
 started it: they can do what the app's manifest declares, whoever started it, and `user` is still that person. Live
 highlighting of the running step arrives with the visual builder; the viewer refreshes by polling.
 
+### 7.7 The workflow builder (built, slice 9)
+
+Admins (`workflows:edit`) edit workflows in the browser at `/workflows/{app}/{name}`; staff who follow runs
+(`workflows:read_all`) can open the same page to look. The builder is a Svelte Flow canvas (`lib/builder`): steps
+are boxes with a dot to connect into and one dot per way out (next; then and else; next and on timeout), connections
+are drawn between dots, and a selected step or connection is deleted with Delete. The panel beside it holds the
+selected step's fields by type (expressions as CEL text, values as text, a number, true/false or `=expression`,
+statuses from the record type's lifecycle) and the workflow's start step. Where the steps sit is saved with it
+(`layout:` in the definition, ignored by the engine), so a diagram stays as it was arranged.
+
+Saving sends the whole definition (`PUT /workflows/{app}/{name}`). The server writes it back as YAML
+(`apps.WorkflowYAML`, the same file an author would write) and keeps, in the app's studio layer, **only what changed**
+over the workflow as the layers below make it (`apps.WorkflowOverride`: changed keys, `null` for removed steps and
+fields), so the app's later changes to the parts the edit left alone still arrive; a workflow of a new name is kept
+whole, and positions are kept only for steps someone placed. If merging the smallest override would not give exactly
+what was drawn, the whole workflow is kept with `override: replace`. The server compiles the app with every layer, and installs it in the same transaction as
+the override row: an edit that does not compile, or that the install refuses, changes nothing and answers with every
+problem, as `servicelater app validate` would. A workflow of a new name is created in the chosen app;
+`DELETE /workflows/{app}/{name}/edits` takes the edits away (back to the app's version, or gone if it was created
+here). Running executions keep the snapshot they started with. The page shows the stored change (what
+`export-local` writes) and the whole definition as YAML, and what the app may do: a workflow's steps act as its app, so one created in an app
+whose manifest reads no records cannot touch them (the builder says so, and suggests the app that owns the type).
+
+Not built yet: live highlighting of running executions on the builder's canvas (the run viewer has it per run),
+editing rules and the other definition kinds in the browser, undo, comparing an edit with the app's version, and
+starting a workflow from its own page.
+
 ## 8. Declarative UI
 
 Apps describe what to show; the core Svelte UI renders it (D4).
@@ -1338,10 +1385,9 @@ A key service (KMS, Vault) is not supported; the keyring is the seam where one w
 14. ~~Bundled first-party apps.~~ **Resolved (D16).** They are embedded and installed at startup; local changes live
     outside the binary (§4.5).
 15. **Signing and marketplace.** Out of scope for v1; worth deciding the archive format so signatures can be added.
-16. **Editing definitions in the UI.** The local layer lives on disk (`SL_APPS_LOCAL_DIR`), so changing a form, a
-    lifecycle label or a notification's wording needs file access and a sync. A UI editor should write the same
-    local overrides, kept in the database (an `app_local_files` table merged as the instance layer, hot-reloaded by
-    NOTIFY like installs), so upgrades still never overwrite what an admin changed. Forms are the first candidate.
+16. **Editing definitions in the UI.** Partly resolved: the studio layer (§4.5) is the local layer kept in the
+    database, and the workflow builder writes it. A form editor, and editors for lifecycle labels or a notification's
+    wording, can write the same layer the same way.
 
 ## 14. Roadmap in small slices
 
@@ -1360,7 +1406,7 @@ Each slice is shippable and leaves the product working.
 | **8. Content kinds** | Catalog, knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
 | **8c. Knowledge base** (done, §8.3) | Articles with review and publishing, versions, audiences, full-text search, suggestions while filing, links to records. | Slice 7 |
 | **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items, rules reading them (routing by support group), freezes scoped to items. Next: import, approvals by owner. | Slices 4 and 7 |
-| **9. Visual builder** | The Svelte Flow builder editing the same workflow files, with live execution highlighting. | Slice 6 |
+| **9. Visual builder** (done, §7.7) | The Svelte Flow builder editing the same workflow definitions, saved in the database-kept studio layer. Live highlighting on the builder is still to do (the run viewer has it). | Slice 6 |
 
 Later: script steps (Starlark, Lua or WASM), app-defined tables and migrations, custom UI components, signing and
 a marketplace.

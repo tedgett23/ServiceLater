@@ -3,7 +3,9 @@
 export class ApiError extends Error {
 	constructor(
 		public status: number,
-		message: string
+		message: string,
+		/** The error response as the server sent it, for answers that say more than error (problems, say). */
+		public body?: unknown
 	) {
 		super(message);
 	}
@@ -44,12 +46,14 @@ export async function api<T = void>(path: string, opts: { method?: string; body?
 	}
 	if (!res.ok) {
 		let message = res.statusText;
+		let body: unknown;
 		try {
-			message = (await res.json()).error ?? message;
+			body = await res.json();
+			message = (body as { error?: string }).error ?? message;
 		} catch {
 			/* not JSON */
 		}
-		throw new ApiError(res.status, message);
+		throw new ApiError(res.status, message, body);
 	}
 	return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }

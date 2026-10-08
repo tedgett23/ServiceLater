@@ -112,6 +112,9 @@ type InstallOptions struct {
 	// ApprovePermissions accepts the permissions an app asks for that its installed version does not have. Without
 	// it such an install is refused (a dry run just shows them). First-party bundled apps are approved by shipping.
 	ApprovePermissions bool
+	// Also runs in the install's transaction once every app is applied, so a change made with the install (the
+	// builder's edit) commits or rolls back with it. Not run on a dry run.
+	Also func(ctx context.Context, q *dbgen.Queries) error
 }
 
 // Install validates against the database, then applies a compiled app in one transaction. Any failure rolls back
@@ -151,9 +154,18 @@ func InstallAll(ctx context.Context, pool *pgxpool.Pool, apps []*Compiled, opts 
 					return err
 				}
 			}
+			if !opts.DryRun {
+				// Kept every time, not only on a change, so apps installed before files were kept get theirs.
+				if err := storeFiles(ctx, q, c); err != nil {
+					return err
+				}
+			}
 		}
 		if opts.DryRun {
 			return errDryRun // roll everything back
+		}
+		if opts.Also != nil {
+			return opts.Also(ctx, q)
 		}
 		return nil
 	})

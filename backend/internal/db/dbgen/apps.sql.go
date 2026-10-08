@@ -7,6 +7,9 @@ package dbgen
 
 import (
 	"context"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const clearCurrentDefinition = `-- name: ClearCurrentDefinition :exec
@@ -31,6 +34,33 @@ DELETE FROM apps WHERE name = $1
 func (q *Queries) DeleteApp(ctx context.Context, name string) error {
 	_, err := q.db.Exec(ctx, deleteApp, name)
 	return err
+}
+
+const deleteAppFiles = `-- name: DeleteAppFiles :exec
+DELETE FROM app_files WHERE app_name = $1
+`
+
+// System only: an install replaces the app's stored files.
+func (q *Queries) DeleteAppFiles(ctx context.Context, appName string) error {
+	_, err := q.db.Exec(ctx, deleteAppFiles, appName)
+	return err
+}
+
+const deleteAppOverride = `-- name: DeleteAppOverride :execrows
+DELETE FROM app_overrides WHERE app_name = $1 AND path = $2
+`
+
+type DeleteAppOverrideParams struct {
+	AppName string `json:"app_name"`
+	Path    string `json:"path"`
+}
+
+func (q *Queries) DeleteAppOverride(ctx context.Context, arg DeleteAppOverrideParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAppOverride, arg.AppName, arg.Path)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const deleteDefinitions = `-- name: DeleteDefinitions :exec
@@ -86,6 +116,51 @@ func (q *Queries) GetApp(ctx context.Context, name string) (App, error) {
 	return i, err
 }
 
+const getAppOverride = `-- name: GetAppOverride :one
+SELECT o.path, o.content, o.updated_at, u.name AS updated_by_name
+FROM app_overrides o LEFT JOIN users u ON u.id = o.updated_by
+WHERE o.app_name = $1 AND o.path = $2
+`
+
+type GetAppOverrideParams struct {
+	AppName string `json:"app_name"`
+	Path    string `json:"path"`
+}
+
+type GetAppOverrideRow struct {
+	Path          string             `json:"path"`
+	Content       string             `json:"content"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+	UpdatedByName pgtype.Text        `json:"updated_by_name"`
+}
+
+func (q *Queries) GetAppOverride(ctx context.Context, arg GetAppOverrideParams) (GetAppOverrideRow, error) {
+	row := q.db.QueryRow(ctx, getAppOverride, arg.AppName, arg.Path)
+	var i GetAppOverrideRow
+	err := row.Scan(
+		&i.Path,
+		&i.Content,
+		&i.UpdatedAt,
+		&i.UpdatedByName,
+	)
+	return i, err
+}
+
+const insertAppFile = `-- name: InsertAppFile :exec
+INSERT INTO app_files (app_name, path, content) VALUES ($1, $2, $3)
+`
+
+type InsertAppFileParams struct {
+	AppName string `json:"app_name"`
+	Path    string `json:"path"`
+	Content []byte `json:"content"`
+}
+
+func (q *Queries) InsertAppFile(ctx context.Context, arg InsertAppFileParams) error {
+	_, err := q.db.Exec(ctx, insertAppFile, arg.AppName, arg.Path, arg.Content)
+	return err
+}
+
 const insertDefinition = `-- name: InsertDefinition :exec
 INSERT INTO app_definitions (app_name, kind, name, version, checksum, body, source) VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
@@ -113,6 +188,37 @@ func (q *Queries) InsertDefinition(ctx context.Context, arg InsertDefinitionPara
 	return err
 }
 
+const listAllAppOverrides = `-- name: ListAllAppOverrides :many
+SELECT app_name, path, content FROM app_overrides ORDER BY app_name, path
+`
+
+type ListAllAppOverridesRow struct {
+	AppName string `json:"app_name"`
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+// Every app's studio layer, for export (system only).
+func (q *Queries) ListAllAppOverrides(ctx context.Context) ([]ListAllAppOverridesRow, error) {
+	rows, err := q.db.Query(ctx, listAllAppOverrides)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAllAppOverridesRow
+	for rows.Next() {
+		var i ListAllAppOverridesRow
+		if err := rows.Scan(&i.AppName, &i.Path, &i.Content); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAppCurrentDefinitions = `-- name: ListAppCurrentDefinitions :many
 SELECT id, app_name, kind, name, version, checksum, body, current, created_at, source FROM app_definitions WHERE app_name = $1 AND current ORDER BY kind, name
 `
@@ -138,6 +244,67 @@ func (q *Queries) ListAppCurrentDefinitions(ctx context.Context, appName string)
 			&i.CreatedAt,
 			&i.Source,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAppFiles = `-- name: ListAppFiles :many
+SELECT path, content FROM app_files WHERE app_name = $1
+`
+
+type ListAppFilesRow struct {
+	Path    string `json:"path"`
+	Content []byte `json:"content"`
+}
+
+// System only: an installed app's own files, to compile it again with an edit.
+func (q *Queries) ListAppFiles(ctx context.Context, appName string) ([]ListAppFilesRow, error) {
+	rows, err := q.db.Query(ctx, listAppFiles, appName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAppFilesRow
+	for rows.Next() {
+		var i ListAppFilesRow
+		if err := rows.Scan(&i.Path, &i.Content); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAppOverrides = `-- name: ListAppOverrides :many
+SELECT path, content, updated_at FROM app_overrides WHERE app_name = $1 ORDER BY path
+`
+
+type ListAppOverridesRow struct {
+	Path      string             `json:"path"`
+	Content   string             `json:"content"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+// The app's studio layer (edits made in ServiceLater). The installer reads it as the system.
+func (q *Queries) ListAppOverrides(ctx context.Context, appName string) ([]ListAppOverridesRow, error) {
+	rows, err := q.db.Query(ctx, listAppOverrides, appName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAppOverridesRow
+	for rows.Next() {
+		var i ListAppOverridesRow
+		if err := rows.Scan(&i.Path, &i.Content, &i.UpdatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -324,6 +491,28 @@ func (q *Queries) UpsertApp(ctx context.Context, arg UpsertAppParams) error {
 		arg.Version,
 		arg.Manifest,
 		arg.InstalledBy,
+	)
+	return err
+}
+
+const upsertAppOverride = `-- name: UpsertAppOverride :exec
+INSERT INTO app_overrides (app_name, path, content, updated_by) VALUES ($1, $2, $3, $4)
+ON CONFLICT (app_name, path) DO UPDATE SET content = EXCLUDED.content, updated_by = EXCLUDED.updated_by, updated_at = now()
+`
+
+type UpsertAppOverrideParams struct {
+	AppName   string        `json:"app_name"`
+	Path      string        `json:"path"`
+	Content   string        `json:"content"`
+	UpdatedBy uuid.NullUUID `json:"updated_by"`
+}
+
+func (q *Queries) UpsertAppOverride(ctx context.Context, arg UpsertAppOverrideParams) error {
+	_, err := q.db.Exec(ctx, upsertAppOverride,
+		arg.AppName,
+		arg.Path,
+		arg.Content,
+		arg.UpdatedBy,
 	)
 	return err
 }

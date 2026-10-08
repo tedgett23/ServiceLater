@@ -126,6 +126,79 @@
         ],
         "type": "object"
       },
+      "AppsStep": {
+        "properties": {
+          "approvers": {
+            "type": "string"
+          },
+          "body": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Value"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "else": {
+            "type": "string"
+          },
+          "for": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "if": {
+            "type": "string"
+          },
+          "internal": {
+            "type": "boolean"
+          },
+          "next": {
+            "type": "string"
+          },
+          "on_timeout": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "set": {
+            "items": {
+              "$ref": "#/components/schemas/NamedValue"
+            },
+            "type": "array"
+          },
+          "then": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "until": {
+            "type": "string"
+          },
+          "vars": {
+            "items": {
+              "$ref": "#/components/schemas/NamedValue"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "type"
+        ],
+        "type": "object"
+      },
       "Article": {
         "description": "A knowledge article.",
         "properties": {
@@ -1969,6 +2042,28 @@
         ],
         "type": "object"
       },
+      "NamedValue": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Value"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "type": "object"
+      },
       "Notification": {
         "description": "One hint that something needs this person's attention. The stored row names what happened and which record; the text is filled in now, from the record as this person may see it, so a notification never carries more than its recipient could read for themselves.",
         "properties": {
@@ -2100,6 +2195,23 @@
           "id",
           "name",
           "role"
+        ],
+        "type": "object"
+      },
+      "Point": {
+        "properties": {
+          "x": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "y": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y"
         ],
         "type": "object"
       },
@@ -2799,10 +2911,23 @@
         ],
         "type": "object"
       },
+      "Value": {
+        "properties": {
+          "expr": {
+            "type": "string"
+          },
+          "literal": {}
+        },
+        "type": "object"
+      },
       "Workflow": {
         "properties": {
           "app": {
             "type": "string"
+          },
+          "edited": {
+            "description": "Says it was changed in ServiceLater's workflow builder.",
+            "type": "boolean"
           },
           "name": {
             "type": "string"
@@ -2820,11 +2945,147 @@
         },
         "required": [
           "app",
+          "edited",
           "name",
           "record_type",
           "steps",
           "version"
         ],
+        "type": "object"
+      },
+      "WorkflowApp": {
+        "description": "An installed app a workflow can belong to, and what its steps may then do.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "permissions"
+        ],
+        "type": "object"
+      },
+      "WorkflowDef": {
+        "description": "A workflow as the builder edits it: the same definition its YAML file holds.",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "app_permissions": {
+            "description": "What the app may do (its manifest's permissions): a workflow's steps act as the app, for whoever started it, so a step needs one of these to read or change a record.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "edited": {
+            "description": "Says it was changed in ServiceLater (the app's studio layer); Shipped that the app itself defines it, so resetting an edited one goes back to the app's version rather than removing it.",
+            "type": "boolean"
+          },
+          "edited_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "edited_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "layers": {
+            "description": "Where the definition comes from: default, local, instance (files on the server) and studio.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "layout": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "description": "Where each step sits in the diagram; steps without a place are laid out from the graph.",
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "override": {
+            "description": "The edit as it is kept (only what it changes, over the app's version): what `servicelater app export-local` writes, as the app's local/ file.",
+            "type": "string"
+          },
+          "path": {
+            "description": "The file the definition and its override are kept in, within an app's layers (workflows/cab.yaml).",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "shipped": {
+            "type": "boolean"
+          },
+          "start": {
+            "type": "string"
+          },
+          "steps": {
+            "description": "In the order they are written; which fields a step has depends on its type (see the workflow docs).",
+            "items": {
+              "$ref": "#/components/schemas/AppsStep"
+            },
+            "type": "array"
+          },
+          "yaml": {
+            "description": "The definition as a file, for those who keep apps in version control.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "app_permissions",
+          "edited",
+          "layers",
+          "layout",
+          "name",
+          "path",
+          "record_type",
+          "shipped",
+          "start",
+          "steps",
+          "yaml"
+        ],
+        "type": "object"
+      },
+      "WorkflowSaveRequest": {
+        "description": "A workflow as the builder saves it.",
+        "properties": {
+          "layout": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "type": "object"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/AppsStep"
+            },
+            "type": "array"
+          }
+        },
         "type": "object"
       }
     },
@@ -12510,7 +12771,7 @@
     },
     "/api/v1/workflows": {
       "get": {
-        "description": "What can be started by hand.\n\nRequires the `workflows:read_all` permission.",
+        "description": "The installed workflows, which can be started by hand and edited in the builder, and apps: the installed apps a new workflow can belong to, with what their steps may do.\n\nRequires the `workflows:read_all` or `workflows:edit` permission.",
         "operationId": "listWorkflows",
         "responses": {
           "200": {
@@ -12518,6 +12779,12 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "apps": {
+                      "items": {
+                        "$ref": "#/components/schemas/WorkflowApp"
+                      },
+                      "type": "array"
+                    },
                     "items": {
                       "items": {
                         "$ref": "#/components/schemas/Workflow"
@@ -12526,6 +12793,7 @@
                     }
                   },
                   "required": [
+                    "apps",
                     "items"
                   ],
                   "type": "object"
@@ -12533,6 +12801,16 @@
               }
             },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
           },
           "401": {
             "content": {
@@ -12553,6 +12831,46 @@
               }
             },
             "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
           }
         },
         "security": [
@@ -12565,7 +12883,374 @@
           "workflows"
         ],
         "x-permissions": [
-          "workflows:read_all"
+          "workflows:read_all",
+          "workflows:edit"
+        ]
+      }
+    },
+    "/api/v1/workflows/{app}/{name}": {
+      "get": {
+        "description": "(workflows:read_all or workflows:edit): a workflow's definition for the builder, with where it comes from, whether it was edited here, and its YAML.\n\nRequires the `workflows:read_all` or `workflows:edit` permission.",
+        "operationId": "getWorkflowDef",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get workflow def",
+        "tags": [
+          "workflows"
+        ],
+        "x-permissions": [
+          "workflows:read_all",
+          "workflows:edit"
+        ]
+      },
+      "put": {
+        "description": "(workflows:edit) with {\"record_type\", \"start\", \"steps\", \"layout\"}: save a workflow into the app's studio layer, creating it if the app has none of that name, and reinstall the app with it at once. It is checked as an install checks it; every problem is listed (422 with problems). Upgrades of the app keep the edit.\n\nRequires the `workflows:edit` permission.",
+        "operationId": "putWorkflowDef",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Put workflow def",
+        "tags": [
+          "workflows"
+        ],
+        "x-permissions": [
+          "workflows:edit"
+        ]
+      }
+    },
+    "/api/v1/workflows/{app}/{name}/edits": {
+      "delete": {
+        "description": "(workflows:edit): undo the edits made here: a workflow the app ships goes back to the app's version; one created here is removed. Runs in progress keep the version they started with.\n\nRequires the `workflows:edit` permission.",
+        "operationId": "resetWorkflowDef",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowDef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Reset workflow def",
+        "tags": [
+          "workflows"
+        ],
+        "x-permissions": [
+          "workflows:edit"
         ]
       }
     }

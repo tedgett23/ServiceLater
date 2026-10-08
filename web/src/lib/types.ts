@@ -223,7 +223,8 @@ export const P = {
 	cmdbManage: 'cmdb:manage',
 	settingsManage: 'settings:manage',
 	knowledgeWrite: 'knowledge:write',
-	knowledgePublish: 'knowledge:publish'
+	knowledgePublish: 'knowledge:publish',
+	workflowsEdit: 'workflows:edit'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */

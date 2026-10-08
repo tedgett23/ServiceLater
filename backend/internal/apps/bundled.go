@@ -113,6 +113,9 @@ func SyncBundled(ctx context.Context, pool *pgxpool.Pool, names []string, localR
 		if err == nil {
 			err = b.AttachInstanceLocal(localRoot)
 		}
+		if err == nil {
+			err = b.AttachStudio(ctx, pool)
+		}
 		var c *Compiled
 		if err == nil {
 			c, err = b.Compile()

@@ -26,6 +26,12 @@ const appUsage = `usage: servicelater app <command>
   sync [-dry-run]               install or upgrade the apps bundled in this binary, as at startup
   uninstall <name>...           remove apps and everything they define; records are kept
   list                          show installed apps
+  export-local [-app name] <dir>
+                                write the changes made in ServiceLater (the builder) as local/ files: one folder
+                                per app in <dir>, or with -app that app's files straight into <dir>
+  import-local [-app name] [-replace] [-dry-run] <dir>
+                                load such files back into this instance and reinstall the apps; -replace removes
+                                the changes the files do not have, so the instance matches them exactly
 
 Flags go before paths. The database is taken from SL_DATABASE_URL, bundled apps from SL_BUNDLED_APPS, and this
 instance's local overrides from SL_APPS_LOCAL_DIR (one folder per app, laid out like an app's local/ folder)`
@@ -48,6 +54,10 @@ func runApp(ctx context.Context, args []string, out io.Writer) error {
 		return appUninstall(ctx, rest, out)
 	case "list":
 		return appList(ctx, out)
+	case "export-local":
+		return appExportLocal(ctx, rest, out)
+	case "import-local":
+		return appImportLocal(ctx, rest, out)
 	}
 	return fmt.Errorf("unknown command %q\n\n%s", cmd, appUsage)
 }
@@ -103,10 +113,27 @@ func appInstall(ctx context.Context, args []string, out io.Writer) error {
 		return errors.New("usage: servicelater app install [-dry-run] [-approve-permissions] <path> [<path> ...]")
 	}
 
+	pool, err := openDatabase(ctx)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
 	// Validate everything before writing anything, so a typo in the last app does not leave the first half installed.
+	// Each app is checked with its local layers, edits made in ServiceLater included.
 	var bundles []*apps.Compiled
 	for _, p := range fs.Args() {
-		c, err := apps.ValidateIn(p, apps.LocalRoot())
+		b, err := apps.Load(p)
+		if err == nil {
+			err = b.AttachInstanceLocal(apps.LocalRoot())
+		}
+		if err == nil {
+			err = b.AttachStudio(ctx, pool)
+		}
+		var c *apps.Compiled
+		if err == nil {
+			c, err = b.Validate()
+		}
 		if err != nil {
 			return fmt.Errorf("%s:\n%w", p, err)
 		}
@@ -116,12 +143,6 @@ func appInstall(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-
-	pool, err := openDatabase(ctx)
-	if err != nil {
-		return err
-	}
-	defer pool.Close()
 	plans, err := apps.InstallAll(ctx, pool, ordered, apps.InstallOptions{DryRun: *dry, InstalledBy: "cli", ApprovePermissions: *approve})
 	if err != nil {
 		return err
@@ -160,6 +181,9 @@ func appSync(ctx context.Context, args []string, out io.Writer) error {
 			b, err := apps.LoadBundled(name)
 			if err == nil {
 				err = b.AttachInstanceLocal(apps.LocalRoot())
+			}
+			if err == nil {
+				err = b.AttachStudio(ctx, pool)
 			}
 			var c *apps.Compiled
 			if err == nil {

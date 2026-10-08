@@ -46,6 +46,20 @@ type AppDefinition struct {
 	Source    string             `json:"source"`
 }
 
+type AppFile struct {
+	AppName string `json:"app_name"`
+	Path    string `json:"path"`
+	Content []byte `json:"content"`
+}
+
+type AppOverride struct {
+	AppName   string             `json:"app_name"`
+	Path      string             `json:"path"`
+	Content   string             `json:"content"`
+	UpdatedBy uuid.NullUUID      `json:"updated_by"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type BusinessCalendar struct {
 	ID        uuid.UUID          `json:"id"`
 	Name      string             `json:"name"`

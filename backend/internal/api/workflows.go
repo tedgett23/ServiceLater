@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -8,10 +9,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/ruleruns"
@@ -114,15 +117,53 @@ type workflowDTO struct {
 	Version    string `json:"version"`
 	RecordType string `json:"record_type"`
 	Steps      int    `json:"steps"`
+	// Edited says it was changed in ServiceLater's workflow builder.
+	Edited bool `json:"edited"`
 }
 
-// GET /workflows (staff): what can be started by hand.
-func (h *handlers) listWorkflows(w http.ResponseWriter, _ *http.Request) {
+// workflowAppDTO is an installed app a workflow can belong to, and what its steps may then do.
+type workflowAppDTO struct {
+	Name        string   `json:"name"`
+	Permissions []string `json:"permissions"`
+}
+
+func (h *handlers) appsWithPermissions(ctx context.Context) []workflowAppDTO {
+	out := []workflowAppDTO{}
+	perms := map[string][]string{}
+	_ = db.WithSystem(ctx, h.pool, func(tx pgx.Tx) error {
+		rows, err := dbgen.New(tx).ListApps(ctx)
+		for _, a := range rows {
+			var m apps.Manifest
+			if json.Unmarshal(a.Manifest, &m) == nil {
+				perms[a.Name] = m.Permissions
+			}
+		}
+		return err
+	})
+	for _, a := range h.apps.Apps() {
+		p := perms[a.Name]
+		if p == nil {
+			p = []string{}
+		}
+		out = append(out, workflowAppDTO{Name: a.Name, Permissions: p})
+	}
+	return out
+}
+
+// GET /workflows (staff): the installed workflows, which can be started by hand and edited in the builder, and apps:
+// the installed apps a new workflow can belong to, with what their steps may do.
+func (h *handlers) listWorkflows(w http.ResponseWriter, r *http.Request) {
+	edited, err := h.workflowEditedNames(r.Context())
+	if err != nil {
+		writeDBError(w, err)
+		return
+	}
 	out := []workflowDTO{}
 	for _, wf := range h.apps.Workflows() {
-		out = append(out, workflowDTO{App: wf.App, Name: wf.Name, Version: wf.Version, RecordType: wf.RecordType, Steps: len(wf.Steps)})
+		out = append(out, workflowDTO{App: wf.App, Name: wf.Name, Version: wf.Version, RecordType: wf.RecordType, Steps: len(wf.Steps),
+			Edited: edited[wf.App+"/"+wf.Name]})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": out})
+	writeJSON(w, http.StatusOK, map[string]any{"items": out, "apps": h.appsWithPermissions(r.Context())})
 }
 
 // GET /workflow-runs?status=&ticket=&workflow=&limit=&offset= (staff)

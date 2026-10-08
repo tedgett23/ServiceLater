@@ -38,13 +38,18 @@ type Bundle struct {
 	// (for example "lifecycles/incident.yaml"). It overrides both default/ and local/.
 	Instance     map[string][]byte
 	InstanceRoot string // where Instance was read from, for messages
+	// Studio is the local layer edited in ServiceLater itself (the workflow builder), kept in the database
+	// (app_overrides) and keyed like Instance. It overrides every other layer, and upgrades never touch it.
+	Studio map[string][]byte
 }
 
 // Definition is one validated piece of an app that gets stored: a lifecycle now, rules and workflows later.
 type Definition struct {
-	Kind      string
-	Name      string
-	File      string
+	Kind string
+	Name string
+	File string
+	// Path is the file within a layer that defines it (workflows/cab.yaml): where an override of it goes.
+	Path      string
 	Layers    []string // which layers contributed: default, local, instance
 	Body      json.RawMessage
 	Checksum  string
@@ -72,6 +77,9 @@ func (d Definition) Source() string { return strings.Join(d.Layers, "+") }
 type Compiled struct {
 	Manifest    Manifest
 	Definitions []Definition
+	// Files are the app's own files (app.yaml, README.md, default/ and local/), without the instance's layers, so it
+	// can be compiled again later with a different edit (Install keeps them in app_files).
+	Files map[string][]byte
 }
 
 // definition folders: what each holds, and whether this version can install it.
@@ -211,7 +219,7 @@ func (b *Bundle) Shipped() *Bundle {
 
 // HasLocal reports whether the bundle carries any local overrides.
 func (b *Bundle) HasLocal() bool {
-	if len(b.Instance) > 0 {
+	if len(b.Instance) > 0 || len(b.Studio) > 0 {
 		return true
 	}
 	for name := range b.Files {
@@ -251,6 +259,9 @@ func (b *Bundle) layers(p *Problems) []layer {
 	if len(b.Instance) > 0 {
 		root := b.InstanceRoot
 		out = append(out, layer{name: "instance", display: func(r string) string { return path.Join(root, r) }, files: b.Instance})
+	}
+	if len(b.Studio) > 0 {
+		out = append(out, layer{name: "studio", display: func(r string) string { return "edited in ServiceLater: " + r }, files: b.Studio})
 	}
 	return out
 }
@@ -311,6 +322,9 @@ func (b *Bundle) Compile() (*Compiled, error) {
 			used = append(used, l.name)
 			if content == nil {
 				content, display = over, l.display(rel)
+				if stripped, ok := withoutReplace(over); ok {
+					content = stripped // nothing below it to replace
+				}
 				continue
 			}
 			mergedYAML, err := mergeYAML(content, over)
@@ -334,7 +348,7 @@ func (b *Bundle) Compile() (*Compiled, error) {
 	for _, f := range files {
 		dir, _, _ := strings.Cut(f.rel, "/")
 		if d := compileDefinition(definitionDirs[dir].kind, f.display, f.content, forms, &p); d != nil {
-			d.Layers = f.used
+			d.Layers, d.Path = f.used, f.rel
 			key := d.Kind + "/" + d.Name
 			if other, dup := seen[key]; dup {
 				p.add(f.display, "defines %s %q, which %s already defines", d.Kind, d.Name, other)
@@ -353,7 +367,11 @@ func (b *Bundle) Compile() (*Compiled, error) {
 	if err := p.orNil(); err != nil || m == nil {
 		return nil, p
 	}
-	return &Compiled{Manifest: *m, Definitions: defs}, nil
+	own := make(map[string][]byte, len(b.Files))
+	for k, v := range b.Files {
+		own[k] = v
+	}
+	return &Compiled{Manifest: *m, Definitions: defs, Files: own}, nil
 }
 
 // checkDefinitionFile reports whether a file in a layer is a definition this version can install.

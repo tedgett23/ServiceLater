@@ -96,6 +96,9 @@ type Workflow struct {
 	Steps      []Step `json:"steps"`
 	// Fields are the extra fields of the app's form the workflow reads or sets, with their types when it was installed.
 	Fields expr.FieldTypes `json:"fields,omitempty"`
+	// Layout is where each step sits in the builder's diagram. The engine ignores it; without it the diagram is laid
+	// out from the graph.
+	Layout map[string]Point `json:"layout,omitempty"`
 
 	// App and Version say where the workflow came from. They are set at runtime and are not part of the definition.
 	App     string `json:"-"`
@@ -105,11 +108,18 @@ type Workflow struct {
 // ---- YAML ----
 
 type workflowFile struct {
-	Kind       string       `yaml:"kind"`
-	Name       string       `yaml:"name"`
-	RecordType string       `yaml:"record_type"`
-	Start      string       `yaml:"start"`
-	Steps      orderedSteps `yaml:"steps"`
+	Kind       string           `yaml:"kind"`
+	Name       string           `yaml:"name"`
+	RecordType string           `yaml:"record_type"`
+	Start      string           `yaml:"start"`
+	Steps      orderedSteps     `yaml:"steps"`
+	Layout     map[string]Point `yaml:"layout"`
+}
+
+// Point is a position in the builder's diagram.
+type Point struct {
+	X int `json:"x" yaml:"x"`
+	Y int `json:"y" yaml:"y"`
 }
 
 type stepFile struct {
@@ -188,6 +198,15 @@ func parseWorkflow(file string, data []byte, forms formSet, p *Problems) *Workfl
 		return nil
 	}
 	w := &Workflow{Name: f.Name, RecordType: f.RecordType, Start: f.Start, Steps: f.Steps, Fields: forms.fieldsUsed(f.RecordType, data)}
+	// Positions of steps that no longer exist are dropped rather than refused: they only place boxes on a screen.
+	for id := range f.Layout {
+		if slices.ContainsFunc(f.Steps, func(s Step) bool { return s.ID == id }) {
+			if w.Layout == nil {
+				w.Layout = map[string]Point{}
+			}
+			w.Layout[id] = f.Layout[id]
+		}
+	}
 	before := len(*p)
 	w.validate(file, p)
 	if len(*p) > before {

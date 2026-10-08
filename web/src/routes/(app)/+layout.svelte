@@ -62,6 +62,9 @@
 	{#if can(session.user, P.cmdbRead)}
 		<a href="/cmdb" aria-current={page.url.pathname.startsWith('/cmdb') ? 'page' : undefined}>CMDB</a>
 	{/if}
+	{#if can(session.user, P.workflowsReadAll) || can(session.user, P.workflowsEdit)}
+		<a href="/workflows" aria-current={page.url.pathname.startsWith('/workflows') ? 'page' : undefined}>Workflows</a>
+	{/if}
 	{#if can(session.user, P.workflowsReadAll)}
 		<a href="/runs" aria-current={page.url.pathname.startsWith('/runs') ? 'page' : undefined}>Runs</a>
 	{/if}
