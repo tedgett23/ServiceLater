@@ -1,10 +1,55 @@
-# Asks the change advisory board (everyone holding the cab-member role) to authorize a normal change. A majority
-# decides; with no decision in five days the change goes back to Assess. Started by rules/ask-the-board.yaml.
+# Asks the owners of the items a normal change touches, then the change advisory board (everyone holding the
+# cab-member role), to authorize it. Each item's owner group has one vote, which any member casts, and every owning
+# group must approve; then a majority of the board decides. With no decision in five days, or a no, the change goes
+# back to Assess. Started by rules/ask-the-board.yaml. To skip the owners, set owners.if to "false" in local/.
 kind: workflow
 name: cab-approval
 record_type: change
-start: board
+start: owners
 steps:
+  owners:
+    type: condition
+    if: record.cis.exists(c, has(c.owner_group))
+    then: ask_owners
+    else: board
+  ask_owners:
+    type: approval
+    groups: record.cis.filter(c, has(c.owner_group)).map(c, c.owner_group)
+    rule: all
+    timeout: 5d
+    on_timeout: owners_expired
+    next: owners_still_waiting
+  owners_still_waiting:
+    type: condition
+    if: record.status == "authorize"
+    then: owners_decided
+    else: done
+  owners_decided:
+    type: condition
+    if: vars.ask_owners_decision == "approved"
+    then: board
+    else: owners_rejected
+  owners_rejected:
+    type: record.transition
+    to: assess
+    next: say_owners_rejected
+  say_owners_rejected:
+    type: comment.add
+    body: '="The owners of the affected items did not approve this change" + (vars.ask_owners_decided_by != "" ? " (" + vars.ask_owners_decided_by + ")" : "") + "." + (vars.ask_owners_comment != "" ? " " + vars.ask_owners_comment : "")'
+    next: done
+  owners_expired:
+    type: condition
+    if: record.status == "authorize"
+    then: owners_send_back
+    else: done
+  owners_send_back:
+    type: record.transition
+    to: assess
+    next: say_owners_expired
+  say_owners_expired:
+    type: comment.add
+    body: The owners of the affected items did not all decide within five days, so the change is back in Assess.
+    next: done
   board:
     type: condition
     if: size(role('cab-member')) > 0

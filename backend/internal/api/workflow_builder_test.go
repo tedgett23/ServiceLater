@@ -44,7 +44,7 @@ func TestTheBuilderEditsAShippedWorkflow(t *testing.T) {
 	const path = "/api/v1/workflows/change-management/cab-approval"
 
 	shipped := decodeBody[workflowDefBody](t, agent.do(h, "GET", path, ""))
-	if shipped.Edited || !shipped.Shipped || shipped.Start != "board" || !strings.Contains(shipped.YAML, "kind: workflow") || len(shipped.Steps) < 5 {
+	if shipped.Edited || !shipped.Shipped || shipped.Start != "owners" || !strings.Contains(shipped.YAML, "kind: workflow") || len(shipped.Steps) < 5 {
 		t.Fatalf("shipped: %+v", shipped)
 	}
 	expect(t, agent.do(h, "PUT", path, `{}`), 403, "an agent editing a workflow")
@@ -61,7 +61,7 @@ func TestTheBuilderEditsAShippedWorkflow(t *testing.T) {
 	}
 	steps = append(steps, map[string]any{"id": "heads_up", "type": "comment.add", "body": map[string]any{"literal": "Asking the board."}, "next": "ask"})
 	save := func(steps []map[string]any) workflowDefBody {
-		body, _ := json.Marshal(map[string]any{"record_type": "change", "start": "board", "steps": steps,
+		body, _ := json.Marshal(map[string]any{"record_type": "change", "start": "owners", "steps": steps,
 			"layout": map[string]any{"board": map[string]int{"x": 0, "y": 40}}})
 		w := admin.do(h, "PUT", path, string(body))
 		expect(t, w, 200, "saving")
@@ -207,7 +207,7 @@ func TestTheBuilderShowsWhereRunsAre(t *testing.T) {
 		Runs map[string]int64
 	}
 	got := decodeBody[activityBody](t, agent.do(h, "GET", path, ""))
-	if got.Steps["board"].Now != 1 || len(got.InFlight) != 1 || got.InFlight[0].Reference != ch.Reference || got.InFlight[0].Step != "board" {
+	if got.Steps["owners"].Now != 1 || len(got.InFlight) != 1 || got.InFlight[0].Reference != ch.Reference || got.InFlight[0].Step != "owners" {
 		t.Errorf("the run waits at its first step: %+v", got)
 	}
 	if got.Steps["ask"].Visits != 1 || got.Steps["ask"].Failed != 1 || got.Steps["board"].Visits != 1 {

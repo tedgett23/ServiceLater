@@ -10,6 +10,7 @@ type approval struct {
 	Workflow  string `json:"workflow"`
 	Reference string `json:"reference"`
 	StepID    string `json:"step_id"`
+	Group     string `json:"group"`
 }
 
 type approvalList struct {

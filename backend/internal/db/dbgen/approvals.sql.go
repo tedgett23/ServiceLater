@@ -13,26 +13,33 @@ import (
 )
 
 const createApproval = `-- name: CreateApproval :exec
-INSERT INTO workflow_approvals (execution_id, step_id, approver_id)
-VALUES ($1, $2, $3)
-ON CONFLICT (execution_id, step_id, approver_id) DO NOTHING
+INSERT INTO workflow_approvals (execution_id, step_id, approver_id, group_name)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT DO NOTHING
 `
 
 type CreateApprovalParams struct {
-	ExecutionID uuid.UUID `json:"execution_id"`
-	StepID      string    `json:"step_id"`
-	ApproverID  uuid.UUID `json:"approver_id"`
+	ExecutionID uuid.UUID   `json:"execution_id"`
+	StepID      string      `json:"step_id"`
+	ApproverID  uuid.UUID   `json:"approver_id"`
+	GroupName   pgtype.Text `json:"group_name"`
 }
 
+// group_name is the group the person is asked for, or NULL when they are asked in their own right.
 func (q *Queries) CreateApproval(ctx context.Context, arg CreateApprovalParams) error {
-	_, err := q.db.Exec(ctx, createApproval, arg.ExecutionID, arg.StepID, arg.ApproverID)
+	_, err := q.db.Exec(ctx, createApproval,
+		arg.ExecutionID,
+		arg.StepID,
+		arg.ApproverID,
+		arg.GroupName,
+	)
 	return err
 }
 
 const decideApproval = `-- name: DecideApproval :one
 UPDATE workflow_approvals SET decision = $1, comment = $2, decided_at = now()
-WHERE id = $3 AND decision IS NULL
-RETURNING id, execution_id, step_id, approver_id, decision, comment, decided_at, created_at
+WHERE id = $3 AND decision IS NULL AND closed_at IS NULL
+RETURNING id, execution_id, step_id, approver_id, decision, comment, decided_at, created_at, group_name, closed_at
 `
 
 type DecideApprovalParams struct {
@@ -55,12 +62,14 @@ func (q *Queries) DecideApproval(ctx context.Context, arg DecideApprovalParams) 
 		&i.Comment,
 		&i.DecidedAt,
 		&i.CreatedAt,
+		&i.GroupName,
+		&i.ClosedAt,
 	)
 	return i, err
 }
 
 const listApprovalsForStep = `-- name: ListApprovalsForStep :many
-SELECT id, execution_id, step_id, approver_id, decision, comment, decided_at, created_at FROM workflow_approvals WHERE execution_id = $1 AND step_id = $2 ORDER BY created_at
+SELECT id, execution_id, step_id, approver_id, decision, comment, decided_at, created_at, group_name, closed_at FROM workflow_approvals WHERE execution_id = $1 AND step_id = $2 ORDER BY created_at
 `
 
 type ListApprovalsForStepParams struct {
@@ -86,6 +95,8 @@ func (q *Queries) ListApprovalsForStep(ctx context.Context, arg ListApprovalsFor
 			&i.Comment,
 			&i.DecidedAt,
 			&i.CreatedAt,
+			&i.GroupName,
+			&i.ClosedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -98,14 +109,14 @@ func (q *Queries) ListApprovalsForStep(ctx context.Context, arg ListApprovalsFor
 }
 
 const listMyPendingApprovals = `-- name: ListMyPendingApprovals :many
-SELECT wa.id, wa.execution_id, wa.step_id, wa.created_at,
+SELECT wa.id, wa.execution_id, wa.step_id, wa.created_at, wa.group_name,
        e.app, e.workflow, e.record_id,
        COALESCE(s.reference, '')::text AS reference,
        COALESCE(s.title, '')::text AS title
 FROM workflow_approvals wa
 JOIN workflow_executions e ON e.id = wa.execution_id
 LEFT JOIN LATERAL app_approval_task_summary(e.record_id) s ON true
-WHERE wa.approver_id = $1 AND wa.decision IS NULL
+WHERE wa.approver_id = $1 AND wa.decision IS NULL AND wa.closed_at IS NULL
 ORDER BY wa.created_at
 `
 
@@ -114,6 +125,7 @@ type ListMyPendingApprovalsRow struct {
 	ExecutionID uuid.UUID          `json:"execution_id"`
 	StepID      string             `json:"step_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	GroupName   pgtype.Text        `json:"group_name"`
 	App         string             `json:"app"`
 	Workflow    string             `json:"workflow"`
 	RecordID    uuid.NullUUID      `json:"record_id"`
@@ -139,6 +151,7 @@ func (q *Queries) ListMyPendingApprovals(ctx context.Context, approverID uuid.UU
 			&i.ExecutionID,
 			&i.StepID,
 			&i.CreatedAt,
+			&i.GroupName,
 			&i.App,
 			&i.Workflow,
 			&i.RecordID,

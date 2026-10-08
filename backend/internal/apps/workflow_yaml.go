@@ -27,7 +27,7 @@ func WorkflowYAML(w *Workflow, replace bool) ([]byte, error) {
 		step := &yaml.Node{Kind: yaml.MappingNode}
 		addScalar(step, "type", s.Type)
 		for _, f := range []struct{ key, val string }{{"if", s.If}, {"for", s.For}, {"until", s.Until}, {"to", s.To},
-			{"approvers", s.Approvers}, {"rule", s.Rule}, {"timeout", s.Timeout}} {
+			{"approvers", s.Approvers}, {"groups", s.Groups}, {"rule", s.Rule}, {"timeout", s.Timeout}} {
 			if f.val != "" {
 				addScalar(step, f.key, f.val)
 			}

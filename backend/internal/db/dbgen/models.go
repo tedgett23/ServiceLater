@@ -384,6 +384,8 @@ type WorkflowApproval struct {
 	Comment     string             `json:"comment"`
 	DecidedAt   pgtype.Timestamptz `json:"decided_at"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	GroupName   pgtype.Text        `json:"group_name"`
+	ClosedAt    pgtype.Timestamptz `json:"closed_at"`
 }
 
 type WorkflowExecution struct {

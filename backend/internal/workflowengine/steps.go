@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
@@ -387,8 +388,8 @@ func (e *Engine) doComment(ctx context.Context, q *dbgen.Queries, ex dbgen.Workf
 	return out, nil
 }
 
-// doApproval asks a person (or several), or finishes asking. The first visit resolves the approvers and files one
-// pending request per approver; a later visit is the timer, or someone deciding, waking it. Whether the step is done,
+// doApproval asks a person (or several, or groups), or finishes asking. The first visit resolves the approvers and
+// files one pending request per approver, and one per member of each group; a later visit is the timer, or someone deciding, waking it. Whether the step is done,
 // and which way, is computed fresh from the request rows every time, so it never disagrees with what is stored.
 func (e *Engine) doApproval(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExecution, st *apps.Step, in expr.Input, out outcome) (outcome, error) {
 	rows, err := q.ListApprovalsForStep(ctx, dbgen.ListApprovalsForStepParams{ExecutionID: ex.ID, StepID: st.ID})
@@ -396,12 +397,13 @@ func (e *Engine) doApproval(ctx context.Context, q *dbgen.Queries, ex dbgen.Work
 		return out, err
 	}
 	if len(rows) == 0 {
-		approvers, err := resolveApprovers(ctx, q, st, in)
+		asked, err := resolveApprovers(ctx, q, st, in)
 		if err != nil {
 			return out, err
 		}
-		for _, id := range approvers {
-			if err := q.CreateApproval(ctx, dbgen.CreateApprovalParams{ExecutionID: ex.ID, StepID: st.ID, ApproverID: id}); err != nil {
+		for _, a := range asked {
+			if err := q.CreateApproval(ctx, dbgen.CreateApprovalParams{ExecutionID: ex.ID, StepID: st.ID, ApproverID: a.user,
+				GroupName: pgtype.Text{String: a.group, Valid: a.group != ""}}); err != nil {
 				return out, err
 			}
 		}
@@ -483,38 +485,79 @@ func roleHolders(q *dbgen.Queries) func(ctx context.Context, name string) ([]str
 	}
 }
 
-// resolveApprovers evaluates an approval step's `approvers` into the distinct users it names, checking each exists.
-func resolveApprovers(ctx context.Context, q *dbgen.Queries, st *apps.Step, in expr.Input) ([]uuid.UUID, error) {
-	prog, err := st.ApproversProgram()
-	if err != nil {
-		return nil, failf("this step cannot run: %v", err)
-	}
-	raw, err := prog.EvalStringList(ctx, in)
-	if err != nil {
-		return nil, failf("approvers could not be evaluated: %v", err)
-	}
-	seen := map[uuid.UUID]bool{}
-	var out []uuid.UUID
-	for _, s := range raw {
-		id, err := uuid.Parse(s)
+// request is one person asked to decide: for themselves, or for a group (group is its name).
+type request struct {
+	user  uuid.UUID
+	group string
+}
+
+// resolveApprovers evaluates an approval step's `approvers` into the distinct users it names, checking each exists,
+// and its `groups` into each group's active members. A group that does not exist, or has nobody to ask, fails the
+// step: its vote could never be cast.
+func resolveApprovers(ctx context.Context, q *dbgen.Queries, st *apps.Step, in expr.Input) ([]request, error) {
+	var out []request
+	if st.Approvers != "" {
+		prog, err := st.ApproversProgram()
 		if err != nil {
-			return nil, failf("approvers: %q is not a user id", s)
+			return nil, failf("this step cannot run: %v", err)
 		}
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		u, err := q.GetUser(ctx, id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, failf("approvers: no such user %s", id)
-		}
+		raw, err := prog.EvalStringList(ctx, in)
 		if err != nil {
-			return nil, err
+			return nil, failf("approvers could not be evaluated: %v", err)
 		}
-		if u.DeactivatedAt.Valid {
-			continue // like group(), which leaves them out: they can no longer sign in to decide
+		seen := map[uuid.UUID]bool{}
+		for _, s := range raw {
+			id, err := uuid.Parse(s)
+			if err != nil {
+				return nil, failf("approvers: %q is not a user id", s)
+			}
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			u, err := q.GetUser(ctx, id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, failf("approvers: no such user %s", id)
+			}
+			if err != nil {
+				return nil, err
+			}
+			if u.DeactivatedAt.Valid {
+				continue // like group(), which leaves them out: they can no longer sign in to decide
+			}
+			out = append(out, request{user: id})
 		}
-		out = append(out, id)
+	}
+	if st.Groups != "" {
+		prog, err := st.GroupsProgram()
+		if err != nil {
+			return nil, failf("this step cannot run: %v", err)
+		}
+		names, err := prog.EvalStringList(ctx, in)
+		if err != nil {
+			return nil, failf("groups could not be evaluated: %v", err)
+		}
+		members := groupMembers(q)
+		seen := map[string]bool{}
+		for _, name := range names {
+			if seen[strings.ToLower(name)] {
+				continue
+			}
+			seen[strings.ToLower(name)] = true
+			if _, err := q.GetGroupByName(ctx, name); errors.Is(err, pgx.ErrNoRows) {
+				return nil, failf("groups: there is no group named %q", name)
+			}
+			ids, err := members(ctx, name)
+			if err != nil {
+				return nil, err
+			}
+			if len(ids) == 0 {
+				return nil, failf("groups: nobody is in the group %q to decide for it", name)
+			}
+			for _, id := range ids {
+				out = append(out, request{user: uuid.MustParse(id), group: name})
+			}
+		}
 	}
 	if len(out) == 0 {
 		return nil, failf("approval has no approvers")
@@ -535,25 +578,54 @@ func approvalDone(out outcome, st *apps.Step, vars map[string]any, decision, com
 	return out
 }
 
-// pendingApprovers is how many of an approval step's requests have no decision yet.
+// vote is one say in an approval step: a person asked in their own right, or a group, whose vote is the first
+// answer any of its members gives.
+type vote struct {
+	decision string // approved, rejected, or empty while undecided
+	row      dbgen.WorkflowApproval
+}
+
+// votes collapses an approval step's requests into its votes, in the order they were asked.
+func votes(rows []dbgen.WorkflowApproval) []vote {
+	var out []vote
+	group := map[string]int{} // group name -> index in out
+	for _, r := range rows {
+		if !r.GroupName.Valid {
+			out = append(out, vote{decision: r.Decision.String, row: r})
+			continue
+		}
+		i, ok := group[r.GroupName.String]
+		if !ok {
+			group[r.GroupName.String], i = len(out), len(out)
+			out = append(out, vote{})
+		}
+		if r.Decision.Valid && (out[i].decision == "" || r.DecidedAt.Time.Before(out[i].row.DecidedAt.Time)) {
+			out[i] = vote{decision: r.Decision.String, row: r}
+		}
+	}
+	return out
+}
+
+// pendingApprovers is how many of an approval step's votes are not cast yet.
 func pendingApprovers(rows []dbgen.WorkflowApproval) int {
 	n := 0
-	for _, r := range rows {
-		if !r.Decision.Valid {
+	for _, v := range votes(rows) {
+		if v.decision == "" {
 			n++
 		}
 	}
 	return n
 }
 
-// evaluateApprovals decides an approval step from its requests and its rule (any, all or majority), short-circuiting
+// evaluateApprovals decides an approval step from its votes and its rule (any, all or majority), short-circuiting
 // as soon as the outcome cannot change however the rest decide. comment and decider are the deciding vote's: the most
-// recently decided request, which is exactly the one that just settled it.
+// recently cast, which is exactly the one that just settled it.
 func evaluateApprovals(rule string, rows []dbgen.WorkflowApproval) (decision, comment string, decider dbgen.WorkflowApproval, done bool) {
-	total := len(rows)
+	all := votes(rows)
+	total := len(all)
 	var approved, rejected int
-	for _, r := range rows {
-		switch r.Decision.String {
+	for _, v := range all {
+		switch v.decision {
 		case "approved":
 			approved++
 		case "rejected":
@@ -561,8 +633,8 @@ func evaluateApprovals(rule string, rows []dbgen.WorkflowApproval) (decision, co
 		default:
 			continue
 		}
-		if !decider.DecidedAt.Valid || r.DecidedAt.Time.After(decider.DecidedAt.Time) {
-			decider = r
+		if !decider.DecidedAt.Valid || v.row.DecidedAt.Time.After(decider.DecidedAt.Time) {
+			decider = v.row
 		}
 	}
 	pending := total - approved - rejected

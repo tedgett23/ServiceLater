@@ -31,6 +31,7 @@ export interface Step {
 	body?: Value | null;
 	internal?: boolean;
 	approvers?: string;
+	groups?: string;
 	rule?: string;
 }
 
@@ -133,7 +134,7 @@ export function tidy(s: Step): Step {
 		'record.update': ['next', 'set'],
 		'record.transition': ['next', 'to'],
 		'comment.add': ['next', 'body', 'internal'],
-		approval: ['next', 'approvers', 'rule', 'timeout', 'on_timeout'],
+		approval: ['next', 'approvers', 'groups', 'rule', 'timeout', 'on_timeout'],
 		end: []
 	};
 	const out: Step = { id: s.id, type: s.type };

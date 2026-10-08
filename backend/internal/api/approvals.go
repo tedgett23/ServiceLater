@@ -26,7 +26,10 @@ type approvalDTO struct {
 	Workflow    string    `json:"workflow"`
 	Reference   string    `json:"reference,omitempty"`
 	Title       string    `json:"title,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	// Group is the group the person is asked to decide for, when they are asked as one of its members: the first of
+	// them to answer decides for the group.
+	Group     string    `json:"group,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // GET /approvals: the signed-in person's own pending requests, oldest first.
@@ -39,7 +42,7 @@ func (h *handlers) listMyApprovals(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, row := range rows {
 			out = append(out, approvalDTO{ID: row.ID, ExecutionID: row.ExecutionID, StepID: row.StepID, Workflow: row.App + "/" + row.Workflow,
-				Reference: row.Reference, Title: row.Title, CreatedAt: row.CreatedAt.Time})
+				Reference: row.Reference, Title: row.Title, Group: row.GroupName.String, CreatedAt: row.CreatedAt.Time})
 		}
 		return nil
 	}) {
@@ -49,8 +52,9 @@ func (h *handlers) listMyApprovals(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /approvals/{id}/decide {"decision": "approved"|"rejected", "comment": "..."}. Only the approver this request
-// was sent to may answer it, and only once: RLS and the query's own WHERE both say so, so anyone else, or answering
-// twice, looks like the request does not exist.
+// was sent to may answer it, and only once: RLS and the query's own WHERE both say so, so anyone else, answering
+// twice, or answering a request that closed (another member of its group answered, or the step is over) looks like
+// the request does not exist.
 func (h *handlers) decideApproval(w http.ResponseWriter, r *http.Request) {
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {

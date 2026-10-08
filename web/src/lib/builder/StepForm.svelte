@@ -91,14 +91,19 @@
 		<div class="field">
 			<label for="step-approvers">Approvers</label>
 			<textarea id="step-approvers" rows="2" value={step.approvers ?? ''} disabled={!editable} placeholder={"group('CAB')"} onchange={(e) => set('approvers', e.currentTarget.value)}></textarea>
-			<small class="hint">An expression giving user ids: group('name'), role('name'), [record.assignee_id]…</small>
+			<small class="hint">An expression giving user ids, each with a vote: group('name'), role('name'), [record.assignee_id]…</small>
+		</div>
+		<div class="field">
+			<label for="step-groups">Groups</label>
+			<textarea id="step-groups" rows="2" value={step.groups ?? ''} disabled={!editable} placeholder={'record.cis.filter(c, has(c.owner_group)).map(c, c.owner_group)'} onchange={(e) => set('groups', e.currentTarget.value)}></textarea>
+			<small class="hint">An expression giving group names. Each group has one vote, cast by whichever member answers first.</small>
 		</div>
 		<div class="field">
 			<label for="step-rule">Decided by</label>
 			<select id="step-rule" value={step.rule ?? 'any'} disabled={!editable} onchange={(e) => set('rule', e.currentTarget.value === 'any' ? '' : e.currentTarget.value)}>
-				<option value="any">Any one of them</option>
-				<option value="majority">A majority</option>
-				<option value="all">All of them</option>
+				<option value="any">Any one vote</option>
+				<option value="majority">A majority of the votes</option>
+				<option value="all">Every vote</option>
 			</select>
 		</div>
 	{/if}

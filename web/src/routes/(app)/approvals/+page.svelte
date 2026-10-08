@@ -40,6 +40,7 @@
 					<span class="name">{a.workflow}</span>
 					<time class="age" datetime={a.created_at}>{age(a.created_at)}</time>
 				</div>
+				{#if a.group}<p class="for">For {a.group}: whoever in it answers first decides for the group.</p>{/if}
 				{#if a.reference || a.title}
 					<a class="ticket" href="/tickets/{a.reference}">
 						{#if a.reference}<span class="ref">{a.reference}</span>{/if}
@@ -102,6 +103,10 @@
 	}
 	.name {
 		font-weight: 700;
+	}
+	.for {
+		color: var(--ink-2);
+		font-size: 0.85rem;
 	}
 	.age {
 		color: var(--ink-2);

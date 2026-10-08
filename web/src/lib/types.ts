@@ -338,6 +338,8 @@ export interface Approval {
 	/** The ticket it is about, if any: empty for a workflow with none, or if it has since been removed. */
 	reference: string;
 	title: string;
+	/** The group they are asked to decide for; the first of its members to answer decides for it. */
+	group?: string;
 	created_at: string;
 }
 

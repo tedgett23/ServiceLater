@@ -100,6 +100,10 @@
             "format": "uuid",
             "type": "string"
           },
+          "group": {
+            "description": "The group the person is asked to decide for, when they are asked as one of its members: the first of them to answer decides for the group.",
+            "type": "string"
+          },
           "id": {
             "format": "uuid",
             "type": "string"
@@ -145,6 +149,9 @@
             "type": "string"
           },
           "for": {
+            "type": "string"
+          },
+          "groups": {
             "type": "string"
           },
           "id": {
@@ -3726,7 +3733,7 @@
     },
     "/api/v1/approvals/{id}/decide": {
       "post": {
-        "description": "{\"decision\": \"approved\"|\"rejected\", \"comment\": \"...\"}. Only the approver this request was sent to may answer it, and only once: RLS and the query's own WHERE both say so, so anyone else, or answering twice, looks like the request does not exist.",
+        "description": "{\"decision\": \"approved\"|\"rejected\", \"comment\": \"...\"}. Only the approver this request was sent to may answer it, and only once: RLS and the query's own WHERE both say so, so anyone else, answering twice, or answering a request that closed (another member of its group answered, or the step is over) looks like the request does not exist.",
         "operationId": "decideApproval",
         "parameters": [
           {

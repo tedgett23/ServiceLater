@@ -830,6 +830,19 @@ policies, plus narrow read access to the one execution and ticket a pending requ
 approve without a general RLS exception). A decision wakes the execution at once (a trigger on `workflow_approvals`
 brings its `wake_at` forward, the same way a `wait until` is brought forward by a ticket change), not the poll.
 
+**Groups as approvers.** An approval may also (or instead) list `groups`: an expression producing group *names*, which,
+unlike `group('name')`, can be worked out from the record, such as the owners of the items a change touches:
+`groups: record.cis.filter(c, has(c.owner_group)).map(c, c.owner_group)`. Each group has **one vote**: every active
+member is asked (`workflow_approvals.group_name`, migration 00035; someone in two of the groups is asked once for
+each), and the first member to answer casts it; the rest of the group's requests close (`closed_at`) and leave their
+inboxes. Each person in `approvers` is a vote too, and `rule` counts votes, so `rule: all` with groups means every
+group must approve. A group that does not exist, or has nobody active in it, fails the step, since its vote could
+never be cast. When a step is over (settled, timed out, or the run ends), any request still open closes, so an `any`
+approval no longer leaves the others with something to answer. The inbox says which group a request is for.
+change-management's `cab-approval` (0.7.0) uses this: a normal change linked to items with owner groups asks those
+owners (all of them) before the board, and a no or five days' silence sends it back to Assess. The app's manifest now
+holds `cmdb:read`, so its steps can see the items.
+
 **How it runs.**
 - An **execution** is a row (`workflow_executions`) holding the definition **as it was when it started** (so an upgrade
   never changes a run in flight), its current step, its variables and its status (`queued`, `running`, `waiting`, `done`,
@@ -1067,9 +1080,10 @@ tickets. Realtime `ci_changes` → `ci.changed` (ids only, to `cmdb:read`).
 `/cmdb/new`, `/cmdb/{id}` (details, relationships, "If it fails", linked tickets), and an "Affected items" section on
 the ticket.
 
-Not built yet: approvals by an item's owner (`group()` takes a literal name), freezes that follow impact, lookups over
-items, CSV and API import keyed on a class's identifying field, sync from other systems, history of an item's changes,
-and items for requesters (picking the affected service when filing).
+Approvals by an item's owner: an approval step's `groups` (§7.4), used by change-management's `cab-approval`.
+
+Not built yet: freezes that follow impact, lookups over items, CSV and API import keyed on a class's identifying
+field, sync from other systems, and items for requesters (picking the affected service when filing).
 
 ### 8.3 Knowledge base (built)
 
@@ -1443,7 +1457,7 @@ Each slice is shippable and leaves the product working.
 | **7. Roles and permissions** (done, §11.1) | Custom RBAC and app service principals (open question 3). | Slice 5 |
 | **8. Content kinds** | Catalog, knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
 | **8c. Knowledge base** (done, §8.3) | Articles with review and publishing, versions, audiences, full-text search, suggestions while filing, links to records. | Slice 7 |
-| **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items, rules reading them (routing by support group), freezes scoped to items. Next: import, approvals by owner. | Slices 4 and 7 |
+| **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items, rules reading them (routing by support group), freezes scoped to items, approvals by owner. Next: import. | Slices 4 and 7 |
 | **9. Visual builder** (done, §7.7) | The Svelte Flow builder editing the same workflow definitions, saved in the database-kept studio layer, with live highlighting of where runs are. | Slice 6 |
 
 Later: script steps (Starlark, Lua or WASM), app-defined tables and migrations, custom UI components, signing and

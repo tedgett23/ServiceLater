@@ -32,7 +32,8 @@ const (
 	maxWait          = 30 * 24 * time.Hour
 )
 
-// Approval rules: how many of the asked approvers must agree.
+// Approval rules: how many of the votes must agree. Each person in approvers has a vote, and so does each group in
+// groups (cast by whichever member answers first).
 const (
 	RuleAny      = "any"
 	RuleAll      = "all"
@@ -78,11 +79,15 @@ type Step struct {
 	Internal bool   `json:"internal,omitempty"`
 
 	Approvers string `json:"approvers,omitempty"` // approval: an expression producing a list of user ids
-	Rule      string `json:"rule,omitempty"`      // approval: any, all or majority (default any)
+	// Groups is an approval's other source of approvers: an expression producing a list of group names, each of which
+	// has one vote that any of its members may cast.
+	Groups string `json:"groups,omitempty"`
+	Rule   string `json:"rule,omitempty"` // approval: any, all or majority of the votes (default any)
 
 	cond      *expr.Program
 	until     *expr.Program
 	approvers *expr.Program
+	groups    *expr.Program
 	compileEr error
 	forDur    time.Duration
 	timeout   time.Duration
@@ -138,6 +143,7 @@ type stepFile struct {
 	Body      *Value        `yaml:"body"`
 	Internal  bool          `yaml:"internal"`
 	Approvers string        `yaml:"approvers"`
+	Groups    string        `yaml:"groups"`
 	Rule      string        `yaml:"rule"`
 }
 
@@ -157,7 +163,7 @@ func (o *orderedSteps) UnmarshalYAML(n *yaml.Node) error {
 		}
 		*o = append(*o, Step{ID: key.Value, Type: f.Type, Next: f.Next, Vars: f.Vars, If: f.If, Then: f.Then, Else: f.Else,
 			For: f.For, Until: f.Until, Timeout: f.Timeout, OnTimeout: f.OnTimeout, Set: f.Set, To: f.To, Body: f.Body, Internal: f.Internal,
-			Approvers: f.Approvers, Rule: f.Rule})
+			Approvers: f.Approvers, Groups: f.Groups, Rule: f.Rule})
 	}
 	return nil
 }
@@ -313,11 +319,11 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 	unused := func(used ...string) {
 		all := map[string]bool{"next": s.Next != "", "vars": len(s.Vars) > 0, "if": s.If != "", "then": s.Then != "", "else": s.Else != "",
 			"for": s.For != "", "until": s.Until != "", "timeout": s.Timeout != "", "on_timeout": s.OnTimeout != "",
-			"set": len(s.Set) > 0, "to": s.To != "", "body": s.Body != nil, "internal": s.Internal, "approvers": s.Approvers != "", "rule": s.Rule != ""}
+			"set": len(s.Set) > 0, "to": s.To != "", "body": s.Body != nil, "internal": s.Internal, "approvers": s.Approvers != "", "groups": s.Groups != "", "rule": s.Rule != ""}
 		for _, u := range used {
 			delete(all, u)
 		}
-		for _, name := range []string{"next", "vars", "if", "then", "else", "for", "until", "timeout", "on_timeout", "set", "to", "body", "internal", "approvers", "rule"} {
+		for _, name := range []string{"next", "vars", "if", "then", "else", "for", "until", "timeout", "on_timeout", "set", "to", "body", "internal", "approvers", "groups", "rule"} {
 			forbid(name, all[name])
 		}
 	}
@@ -419,11 +425,11 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 			add("comment.add needs a body")
 		}
 	case StepApproval:
-		unused("next", "approvers", "rule", "timeout", "on_timeout")
+		unused("next", "approvers", "groups", "rule", "timeout", "on_timeout")
 		target("next", s.Next, true)
 		target("on_timeout", s.OnTimeout, false)
-		if s.Approvers == "" {
-			add("approval needs approvers: an expression producing a list of user ids")
+		if s.Approvers == "" && s.Groups == "" {
+			add("approval needs approvers (an expression producing a list of user ids) or groups (one producing a list of group names), or both")
 		}
 		if s.Rule != "" && !slices.Contains(approvalRules, s.Rule) {
 			add("rule must be one of %s, got %q", strings.Join(approvalRules, ", "), s.Rule)
@@ -512,7 +518,7 @@ func (w *Workflow) compile() {
 	env, envErr := expr.WorkflowFor(w.Fields)
 	for i := range w.Steps {
 		s := &w.Steps[i]
-		s.cond, s.until, s.approvers, s.compileEr = nil, nil, nil, envErr
+		s.cond, s.until, s.approvers, s.groups, s.compileEr = nil, nil, nil, nil, envErr
 		if envErr != nil {
 			continue
 		}
@@ -536,6 +542,11 @@ func (w *Workflow) compile() {
 			var err error
 			s.approvers, err = env.CompileAs(s.Approvers, expr.StringList)
 			fail("approvers", err)
+		}
+		if s.Groups != "" {
+			var err error
+			s.groups, err = env.CompileAs(s.Groups, expr.StringList)
+			fail("groups", err)
 		}
 		if s.For != "" {
 			var err error
@@ -606,6 +617,9 @@ func (s *Step) UntilCondition() (*expr.Program, error) { return s.until, s.compi
 
 // ApproversProgram returns an approval step's compiled `approvers`, or why it cannot run.
 func (s *Step) ApproversProgram() (*expr.Program, error) { return s.approvers, s.compileEr }
+
+// GroupsProgram returns an approval step's compiled `groups`: nil when it has none.
+func (s *Step) GroupsProgram() (*expr.Program, error) { return s.groups, s.compileEr }
 
 // ApprovalRule is an approval step's rule (any, all or majority), defaulting to any.
 func (s *Step) ApprovalRule() string {

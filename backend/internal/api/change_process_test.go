@@ -5,12 +5,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // changeProcess is the world the change-management app runs in: its first-party content installed, a worker for
 // rules and workflows, an agent who works changes, a requester, and whoever sits on the boards.
 type changeProcess struct {
 	h       http.Handler
+	pool    *pgxpool.Pool
 	agent   actor
 	lena    actor
 	admin   actor
@@ -22,7 +25,7 @@ type changeProcess struct {
 func newChangeProcess(t *testing.T) *changeProcess {
 	h, pool, reg := setupApps(t)
 	startFlowWorker(t, pool, reg)
-	w := &changeProcess{h: h, agent: newActor(t, h, pool, "agent@x.test", "agent"),
+	w := &changeProcess{h: h, pool: pool, agent: newActor(t, h, pool, "agent@x.test", "agent"),
 		lena: newActor(t, h, pool, "lena@x.test", "end_user"), admin: newActor(t, h, pool, "boss@x.test", "admin")}
 	for _, email := range []string{"cab1@x.test", "cab2@x.test", "cab3@x.test"} {
 		a := newActor(t, h, pool, email, "end_user")
@@ -217,4 +220,49 @@ func TestNobodyOnTheBoardSendsTheChangeBack(t *testing.T) {
 	expect(t, w.agent.do(w.h, "POST", "/api/v1/tickets/"+c.ID+"/transitions", `{"to":"authorize"}`), 200, "requesting authorization")
 	w.waitStatus(t, c, "assess")
 	waitFor(t, "the note", func() bool { return strings.Contains(w.comments(t, c), "Nobody holds the CAB member role") })
+}
+
+// A normal change that touches items asks their owners before the board: each owning group votes once, whoever in it
+// answers first, and a no sends the change back without troubling the board. A yes from every owner goes on to it.
+func TestTheItemOwnersApproveBeforeTheBoard(t *testing.T) {
+	w := newChangeProcess(t)
+	dba := decodeBody[struct{ ID string }](t, w.admin.do(w.h, "POST", "/api/v1/groups", `{"name":"DBA"}`))
+	var owners []actor
+	for _, email := range []string{"dba1@x.test", "dba2@x.test"} {
+		a := newActor(t, w.h, w.pool, email, "end_user")
+		expect(t, w.admin.do(w.h, "PUT", "/api/v1/groups/"+dba.ID+"/members/"+a.id, ""), 204, "an owner")
+		owners = append(owners, a)
+	}
+	item := decodeBody[struct{ ID string }](t, w.admin.do(w.h, "POST", "/api/v1/cis", `{"class":"other","name":"pg-01","owner_group_id":"`+dba.ID+`"}`))
+	c := w.file(t, "normal")
+	expect(t, w.agent.do(w.h, "PUT", "/api/v1/tickets/"+c.ID+"/cis/"+item.ID, ""), 200, "linking the item")
+	w.assess(t, c)
+
+	expect(t, w.agent.do(w.h, "POST", "/api/v1/tickets/"+c.ID+"/transitions", `{"to":"authorize"}`), 200, "requesting authorization")
+	a := w.pending(t, owners[0], c)
+	if a.Group != "DBA" || a.StepID != "ask_owners" {
+		t.Fatalf("asked for the owning group: %+v", a)
+	}
+	w.pending(t, owners[1], c)
+	expect(t, owners[0].do(w.h, "POST", "/api/v1/approvals/"+a.ID+"/decide", `{"decision":"rejected","comment":"Not during month end."}`), 200, "rejecting")
+	w.waitStatus(t, c, "assess")
+	// The comment is the step after the move.
+	waitFor(t, "the owners' comment, saying who and why", func() bool {
+		return strings.Contains(w.comments(t, c), "did not approve this change (dba1@x.test). Not during month end.")
+	})
+	if n := len(decodeBody[approvalList](t, owners[1].do(w.h, "GET", "/api/v1/approvals", "")).Items); n != 0 {
+		t.Errorf("the other owner's request closed: %d left", n)
+	}
+	if n := len(decodeBody[approvalList](t, w.cab[0].do(w.h, "GET", "/api/v1/approvals", "")).Items); n != 0 {
+		t.Errorf("the board was never asked: %d", n)
+	}
+
+	expect(t, w.agent.do(w.h, "POST", "/api/v1/tickets/"+c.ID+"/transitions", `{"to":"authorize"}`), 200, "asking again")
+	a = w.pending(t, owners[1], c)
+	expect(t, owners[1].do(w.h, "POST", "/api/v1/approvals/"+a.ID+"/decide", `{"decision":"approved"}`), 200, "approving")
+	for _, m := range w.cab[:2] {
+		b := w.pending(t, m, c)
+		expect(t, m.do(w.h, "POST", "/api/v1/approvals/"+b.ID+"/decide", `{"decision":"approved"}`), 200, "the board approving")
+	}
+	w.waitStatus(t, c, "scheduled")
 }

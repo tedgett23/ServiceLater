@@ -320,3 +320,113 @@ func TestApprovalRejectsABadApproverList(t *testing.T) {
 		}
 	}
 }
+
+// group makes a group with these members, as an admin would.
+func (w *world) group(t *testing.T, name string, members ...uuid.UUID) {
+	t.Helper()
+	if err := db.WithSystem(context.Background(), w.pool, func(tx pgx.Tx) error {
+		q := dbgen.New(tx)
+		g, err := q.CreateGroup(context.Background(), dbgen.CreateGroupParams{Name: name})
+		if err != nil {
+			return err
+		}
+		for _, m := range members {
+			if err := q.AddGroupMember(context.Background(), dbgen.AddGroupMemberParams{GroupID: g.ID, UserID: m}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func approvalFor(rows []dbgen.WorkflowApproval, approver uuid.UUID, group string) dbgen.WorkflowApproval {
+	for _, r := range rows {
+		if r.ApproverID == approver && r.GroupName.String == group {
+			return r
+		}
+	}
+	return dbgen.WorkflowApproval{}
+}
+
+// A group has one vote, which the first of its members to answer casts: the others' requests close. Someone in two of
+// the groups answers for each separately. With rule all, every group must approve.
+func TestApprovalGroupsVoteOnceEach(t *testing.T) {
+	w := setup(t)
+	bob := w.user(t, "bob@x.test", "Bob")
+	carol := w.user(t, "carol@x.test", "Carol")
+	dave := w.user(t, "dave@x.test", "Dave")
+	w.group(t, "DBA", bob, carol)
+	w.group(t, "Network", carol, dave)
+	flow := strings.Replace(approvalFlow("all", ""), "approvers: ''", `groups: '["DBA", "Network", "dba"]'`, 1)
+	w.install(t, "house", map[string]string{"ask": wf("ask", "ask", flow)}, nil)
+	id := w.start(t, "house", "ask", w.agent)
+	if err := w.run(id); err != nil {
+		t.Fatal(err)
+	}
+	rows := w.approvalsFor(t, id, "ask")
+	if len(rows) != 4 {
+		t.Fatalf("each member of each group (once, whatever the case) is asked: %d", len(rows))
+	}
+	if err := w.decide(carol, approvalFor(rows, carol, "DBA").ID, "approved", "schema is fine"); err != nil {
+		t.Fatal(err)
+	}
+	rows = w.approvalsFor(t, id, "ask")
+	if !approvalFor(rows, bob, "DBA").ClosedAt.Valid || approvalFor(rows, carol, "Network").ClosedAt.Valid {
+		t.Fatalf("carol answered for DBA only: %+v", rows)
+	}
+	if err := w.decide(bob, approvalFor(rows, bob, "DBA").ID, "rejected", "too late"); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("bob's request is closed: %v", err)
+	}
+	if _, err := w.engine.WakeDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.run(id); err != nil {
+		t.Fatal(err)
+	}
+	if ex := w.execution(t, id); ex.Status != workflow.Waiting {
+		t.Fatalf("Network has not voted: %s", ex.Status)
+	}
+	if err := w.decide(dave, approvalFor(rows, dave, "Network").ID, "approved", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.engine.WakeDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.run(id); err != nil {
+		t.Fatal(err)
+	}
+	if ex := w.execution(t, id); ex.Status != workflow.Done || vars(t, ex)["ask_decision"] != "approved" {
+		t.Fatalf("both groups approved: %s %v", ex.Status, vars(t, ex))
+	}
+	// Nobody is left with a request for a step that is over.
+	for _, r := range w.approvalsFor(t, id, "ask") {
+		if !r.Decision.Valid && !r.ClosedAt.Valid {
+			t.Errorf("left open: %+v", r)
+		}
+	}
+}
+
+// A group that does not exist, or has nobody in it, could never vote: the step fails rather than waiting forever.
+func TestApprovalRejectsAGroupThatCannotVote(t *testing.T) {
+	w := setup(t)
+	w.group(t, "Empty")
+	step := func(groups string) string {
+		return "  ask:\n    type: approval\n    groups: '" + groups + "'\n    next: done\n  done:\n    type: end\n"
+	}
+	w.install(t, "house", map[string]string{
+		"missing": wf("missing", "ask", step(`["Nobody here"]`)),
+		"empty":   wf("empty", "ask", step(`["Empty"]`)),
+		"none":    wf("none", "ask", step(`[record.title].filter(x, x == "nope")`)),
+	}, nil)
+	for name, want := range map[string]string{"missing": "no group named", "empty": "nobody is in the group", "none": "no approvers"} {
+		id := w.start(t, "house", name, w.agent)
+		if err := w.run(id); err != nil {
+			t.Fatal(err)
+		}
+		if ex := w.execution(t, id); ex.Status != workflow.Failed || !strings.Contains(ex.Error, want) {
+			t.Errorf("%s: %s %q", name, ex.Status, ex.Error)
+		}
+	}
+}
