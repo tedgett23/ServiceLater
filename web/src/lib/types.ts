@@ -54,6 +54,50 @@ export interface Ticket {
 	cis?: CISummary[];
 	/** Single-ticket responses: the knowledge articles linked to it that the reader may read. */
 	articles?: ArticleRef[];
+	/** Single-ticket responses: the files attached to it. */
+	attachments?: Attachment[];
+	/** Single-ticket responses: whether the reader may attach files (its requester, or who may update it). */
+	can_attach?: boolean;
+}
+
+/** A file attached to a record. */
+export interface Attachment {
+	id: string;
+	task_id: string;
+	filename: string;
+	content_type: string;
+	/** In bytes. */
+	size: number;
+	/** pending while it uploads (only its uploader sees it), then ready. */
+	status: 'pending' | 'ready';
+	created_by: string;
+	created_by_name: string;
+	created_at: string;
+	/** When the upload finished and the file joined the record: where it sits among the comments. */
+	attached_at: string | null;
+	/** A picture the browser may show; anything else is always saved. */
+	inline: boolean;
+	can_delete: boolean;
+}
+
+/** Where attachments are kept, from GET /settings/storage. The S3 secret access key is never sent back. */
+export interface StorageSettings {
+	backend: 'local' | 's3';
+	max_size: number;
+	s3_endpoint: string;
+	s3_region: string;
+	s3_bucket: string;
+	s3_prefix: string;
+	s3_path_style: boolean;
+	s3_access_key_id: string;
+	s3_direct: boolean;
+	s3_secret_key_set: boolean;
+	s3_secret_key_readable: boolean;
+	s3_secret_key_updated_at: string | null;
+	key_configured: boolean;
+	/** This server's attachments folder (SL_ATTACHMENTS_DIR), set where it is deployed. */
+	local_dir: string;
+	usage: { backend: 'local' | 's3'; files: number; bytes: number }[];
 }
 
 /** What a field holds: text (also dates as YYYY-MM-DD and times as ISO), a whole number, or true/false. */

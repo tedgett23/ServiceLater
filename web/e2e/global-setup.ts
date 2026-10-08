@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { request, type FullConfig } from '@playwright/test';
 import pg from 'pg';
-import { DATABASE_URL } from '../playwright.config';
+import { ATTACHMENTS_DIR, DATABASE_URL } from '../playwright.config';
 import { PASSWORD, stateFile, USERS, type Who } from './users';
 
 /**
@@ -21,6 +21,9 @@ export default async function globalSetup(config: FullConfig) {
 		await client.query('TRUNCATE tasks, jobs, action_runs, sessions, rate_limits, user_credentials, users, groups CASCADE');
 		// users cascades to business calendars: put back the one incident-management's SLAs name.
 		await client.query('SELECT app_seed_business_calendars()');
+		// Files go to an empty folder, which the server claims afresh (its id is a setting).
+		await client.query(`DELETE FROM settings WHERE name LIKE 'storage.%'`);
+		fs.rmSync(ATTACHMENTS_DIR, { recursive: true, force: true });
 		// Restart each type's numbering, so ticket numbers start at 1 on every run.
 		await client.query(`DO $$ DECLARE t text; BEGIN FOR t IN SELECT type FROM task_types LOOP EXECUTE format('ALTER SEQUENCE %I RESTART', 'task_number_' || t); END LOOP; END $$`);
 	} finally {

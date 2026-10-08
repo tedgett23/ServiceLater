@@ -2,6 +2,7 @@
 package api
 
 import (
+	"crypto/rand"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -15,6 +16,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/realtime"
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/secrets"
+	"github.com/servicelater/servicelater/backend/internal/storage"
 )
 
 type Deps struct {
@@ -27,6 +29,12 @@ type Deps struct {
 	Keys *secrets.Keyring
 	// Sender sends test emails; the zero value is the real one.
 	Sender notify.Sender
+	// Files are where attachments are kept (optional: without them files cannot be attached).
+	Files *storage.Manager
+	// Signer signs the links parts are uploaded to and files downloaded from when they go through the server. Every
+	// api server must have the same key (storage.NewSigner with the token secret); left out, links work only on this
+	// server.
+	Signer *storage.Signer
 }
 
 type handlers struct {
@@ -37,6 +45,8 @@ type handlers struct {
 	svc    *records.Service
 	keys   *secrets.Keyring
 	sender notify.Sender
+	files  *storage.Manager
+	signer *storage.Signer
 }
 
 // lifecycleFor is the status flow for a ticket type: the type's own, else the `task` default, else the built-in one.
@@ -59,14 +69,23 @@ func NewRouter(d Deps) http.Handler {
 	if d.Apps == nil {
 		d.Apps = apps.NewRegistry(nil)
 	}
+	if d.Files == nil {
+		d.Files = &storage.Manager{Pool: d.Pool, Keys: d.Keys}
+	}
+	if d.Signer == nil {
+		d.Signer = storage.NewSigner(rand.Text())
+	}
 	h := &handlers{pool: d.Pool, perms: auth.NewPermissionCache(d.Pool), auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool},
-		keys: d.Keys, sender: d.Sender}
+		keys: d.Keys, sender: d.Sender, files: d.Files, signer: d.Signer}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(sameOrigin)
 		r.Get("/openapi.json", h.getOpenAPI)
+		// Links handed out by /attachments/{id}/parts and /download: they carry a signed token, not a session.
+		r.Put("/attachments/{id}/parts/{n}", h.putAttachmentPart)
+		r.Get("/attachments/{id}/file", h.serveAttachment)
 
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/login", h.login)
@@ -144,7 +163,14 @@ func NewRouter(d Deps) http.Handler {
 					r.With(auth.RequirePermission(authz.CMDBRead), auth.RequireRecordPermission(authz.Update)).Delete("/cis/{ciId}", h.unlinkTicketCI)
 					r.With(auth.RequireRecordPermission(authz.Update)).Put("/articles/{articleId}", h.linkTicketArticle)
 					r.With(auth.RequireRecordPermission(authz.Update)).Delete("/articles/{articleId}", h.unlinkTicketArticle)
+					r.Post("/attachments", h.createAttachment)
 				})
+			})
+			r.Route("/attachments/{id}", func(r chi.Router) {
+				r.Get("/download", h.downloadAttachment)
+				r.Post("/parts", h.attachmentPartURLs)
+				r.Post("/complete", h.completeAttachment)
+				r.Delete("/", h.deleteAttachment)
 			})
 			r.Route("/approvals", func(r chi.Router) {
 				r.Get("/", h.listMyApprovals)
@@ -185,6 +211,12 @@ func NewRouter(d Deps) http.Handler {
 			})
 			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/history", h.getHistorySettings)
 			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/history", h.putHistorySettings)
+			r.Route("/settings/storage", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.SettingsManage))
+				r.Get("/", h.getStorageSettings)
+				r.Put("/", h.putStorageSettings)
+				r.Post("/test", h.testStorage)
+			})
 			r.Route("/settings/email", func(r chi.Router) {
 				r.Use(auth.RequirePermission(authz.SettingsManage))
 				r.Get("/", h.getEmailSettings)

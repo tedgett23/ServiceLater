@@ -287,6 +287,15 @@ func (h *handlers) getTicketHistory(w http.ResponseWriter, r *http.Request) {
 				return "Affected item", idText(names.cis, "an item"), "text"
 			case "article":
 				return "Article", idText(names.articles, "an article"), "text"
+			case "attachment":
+				return "Attachment", func(v any) string {
+					if m, ok := v.(map[string]any); ok {
+						if s, ok := m["filename"].(string); ok {
+							return s
+						}
+					}
+					return ""
+				}, "text"
 			}
 			name := strings.TrimPrefix(row.Field, "fields.")
 			if fd, ok := form.Field(name); ok {

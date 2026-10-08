@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/mail"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 )
@@ -188,5 +189,129 @@ func (h *History) Check(known []string) error {
 		out = []string{}
 	}
 	h.RecordTypes = out
+	return nil
+}
+
+// Storage backends for attachments.
+const (
+	BackendLocal = "local" // a folder: SL_ATTACHMENTS_DIR, shared by every api and worker server on a cluster
+	BackendS3    = "s3"    // an S3-compatible bucket (AWS, MinIO, Garage, Ceph...)
+)
+
+// StoragePrefix is what every storage setting's name starts with.
+const StoragePrefix = "storage."
+
+// StorageS3SecretKey is the secret that holds the bucket's secret access key.
+const StorageS3SecretKey = "storage.s3_secret_key" //nolint:gosec // the name a secret is kept under, not a secret
+
+// StorageLocalID names the folder this instance keeps its files in. It is not an admin's setting: the first server to
+// use the folder writes it there and here, and every server checks that its folder says the same, so a server that
+// does not have the shared folder mounted refuses instead of keeping files nobody else can read.
+const StorageLocalID = "storage.local_id"
+
+// Limits on the largest file an admin may allow: S3 takes up to 5 TiB in one object.
+const (
+	MinMaxSize = 1 << 20
+	MaxMaxSize = 5 << 40
+)
+
+// Storage is where attachments are kept. Files already stored stay where they are when it changes: each remembers
+// its backend.
+type Storage struct {
+	// Backend is local (a folder on the server) or s3 (a bucket). New files go there.
+	Backend string `json:"backend"`
+	// MaxSize is the largest file people may attach, in bytes.
+	MaxSize int64 `json:"max_size"`
+	// S3Endpoint is the bucket service's address: https://s3.amazonaws.com, or http://minio:9000 for one of your own.
+	S3Endpoint string `json:"s3_endpoint"`
+	S3Region   string `json:"s3_region"`
+	S3Bucket   string `json:"s3_bucket"`
+	// S3Prefix goes before every key, to share a bucket (attachments/ say).
+	S3Prefix string `json:"s3_prefix"`
+	// S3PathStyle addresses the bucket as endpoint/bucket rather than bucket.endpoint, which most self-hosted
+	// services need.
+	S3PathStyle bool `json:"s3_path_style"`
+	// S3AccessKeyID signs in with a key (its secret is stored encrypted); empty uses the server's own credentials
+	// (AWS_* variables, ~/.aws, or the instance or pod role).
+	S3AccessKeyID string `json:"s3_access_key_id"`
+	// S3Direct has browsers upload to and download from the bucket themselves, so files never pass through the
+	// server. It needs the bucket reachable from people's browsers, with CORS allowing this site. Off, the server
+	// carries them.
+	S3Direct bool `json:"s3_direct"`
+}
+
+// DefaultStorage keeps files in the local folder, up to 10 GiB each.
+var DefaultStorage = Storage{Backend: BackendLocal, MaxSize: 10 << 30, S3Endpoint: "https://s3.amazonaws.com", S3Region: "us-east-1", S3Direct: true}
+
+var storageNames = []string{"backend", "max_size", "s3_endpoint", "s3_region", "s3_bucket", "s3_prefix", "s3_path_style", "s3_access_key_id", "s3_direct"}
+
+func (s *Storage) fields() map[string]any {
+	return map[string]any{"backend": &s.Backend, "max_size": &s.MaxSize, "s3_endpoint": &s.S3Endpoint, "s3_region": &s.S3Region,
+		"s3_bucket": &s.S3Bucket, "s3_prefix": &s.S3Prefix, "s3_path_style": &s.S3PathStyle, "s3_access_key_id": &s.S3AccessKeyID,
+		"s3_direct": &s.S3Direct}
+}
+
+// StorageFrom reads the storage settings from stored rows; what is not stored has its default.
+func StorageFrom(stored map[string][]byte) Storage {
+	s := DefaultStorage
+	for name, dst := range s.fields() {
+		if raw, ok := stored[StoragePrefix+name]; ok {
+			_ = json.Unmarshal(raw, dst) // a value of the wrong type keeps the default
+		}
+	}
+	return s
+}
+
+// Rows are the storage settings as they are stored, one per name.
+func (s Storage) Rows() map[string][]byte {
+	f := s.fields()
+	out := make(map[string][]byte, len(storageNames))
+	for _, n := range storageNames {
+		raw, _ := json.Marshal(f[n])
+		out[StoragePrefix+n] = raw
+	}
+	return out
+}
+
+var (
+	bucketRE = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+	regionRE = regexp.MustCompile(`^[a-z0-9-]{1,40}$`)
+	prefixRE = regexp.MustCompile(`^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*/$`)
+)
+
+// Check normalises the settings and says what is wrong with them. Choosing S3 needs a bucket.
+func (s *Storage) Check() error {
+	s.S3Endpoint = strings.TrimRight(strings.TrimSpace(s.S3Endpoint), "/")
+	s.S3Region = strings.TrimSpace(s.S3Region)
+	s.S3Bucket = strings.TrimSpace(s.S3Bucket)
+	s.S3AccessKeyID = strings.TrimSpace(s.S3AccessKeyID)
+	s.S3Prefix = strings.Trim(strings.TrimSpace(s.S3Prefix), "/")
+	if s.S3Prefix != "" {
+		s.S3Prefix += "/"
+	}
+	switch {
+	case s.Backend != BackendLocal && s.Backend != BackendS3:
+		return fmt.Errorf("backend must be local or s3")
+	case s.MaxSize < MinMaxSize || s.MaxSize > MaxMaxSize:
+		return fmt.Errorf("max_size must be from 1 MiB to 5 TiB")
+	case s.S3Region != "" && !regionRE.MatchString(s.S3Region):
+		return fmt.Errorf("s3_region must be a region name, such as us-east-1")
+	case s.S3Bucket != "" && !bucketRE.MatchString(s.S3Bucket):
+		return fmt.Errorf("s3_bucket must be a bucket name: 3 to 63 lowercase letters, digits, dots and hyphens")
+	case s.S3Prefix != "" && (len(s.S3Prefix) > 200 || !prefixRE.MatchString(s.S3Prefix)):
+		return fmt.Errorf("s3_prefix may hold letters, digits, dots, hyphens, underscores and slashes")
+	case len(s.S3AccessKeyID) > 128 || strings.ContainsAny(s.S3AccessKeyID, " \t\r\n"):
+		return fmt.Errorf("s3_access_key_id is not an access key")
+	}
+	if s.S3Endpoint != "" {
+		u, err := url.Parse(s.S3Endpoint)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || (u.Path != "" && u.Path != "/") ||
+			u.RawQuery != "" || u.Fragment != "" || u.User != nil {
+			return fmt.Errorf("s3_endpoint must be the service's address, such as https://s3.amazonaws.com or http://minio:9000")
+		}
+	}
+	if s.Backend == BackendS3 && (s.S3Bucket == "" || s.S3Endpoint == "") {
+		return fmt.Errorf("storing files in S3 needs an endpoint and a bucket")
+	}
 	return nil
 }

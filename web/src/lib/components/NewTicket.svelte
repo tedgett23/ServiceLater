@@ -7,7 +7,9 @@
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { queue } from '$lib/queue.svelte';
 	import type { ArticleHit, FieldState, FieldValue, FormField, Ticket } from '$lib/types';
+	import { bytes } from '$lib/format';
 	import { ui } from '$lib/ui.svelte';
+	import { uploads } from '$lib/uploads.svelte';
 
 	let dialog: HTMLDialogElement;
 	// Which kind of record to file. The choice is offered only when the person may file more than one type.
@@ -15,6 +17,8 @@
 	const kind = $derived(lifecycle.fileable.some((t) => t.type === chosen) ? chosen : (lifecycle.fileable[0]?.type ?? 'incident'));
 	let busy = $state(false);
 	let error = $state('');
+	/** Files to attach: they upload once the ticket exists, and carry on after the dialog closes. */
+	let files = $state<File[]>([]);
 
 	// The type's form for filing: its fields in order, what has been filled in, and what the server says of each field
 	// now (shown, required, writable, which options).
@@ -115,6 +119,7 @@
 
 	function reset() {
 		error = chosen = '';
+		files = [];
 		suggestions = [];
 		filledFor = '';
 	}
@@ -126,6 +131,7 @@
 		try {
 			const t = await api<Ticket>('/api/v1/tickets', { method: 'POST', body: { type: kind, ...body(true) } });
 			queue.prepend(t);
+			if (files.length) uploads.start(t.id, files);
 			ui.newTicketOpen = false;
 			ui.announce = `Created ${t.reference}`;
 			reset();
@@ -184,6 +190,32 @@
 					{/if}
 				{/if}
 			{/each}
+		</div>
+
+		<div class="files">
+			<label class="btn" for="nt-files">Attach files</label>
+			<input
+				id="nt-files"
+				class="sr-only"
+				type="file"
+				multiple
+				onchange={(e) => {
+					files = [...files, ...(e.currentTarget.files ?? [])];
+					e.currentTarget.value = '';
+				}}
+			/>
+			{#if files.length}
+				<ul aria-label="Files to attach">
+					{#each files as f, i (i)}
+						<li>
+							<span>{f.name} <span class="size">{bytes(f.size)}</span></span>
+							<button type="button" class="btn quiet" onclick={() => (files = files.filter((_, j) => j !== i))} aria-label="Don’t attach {f.name}">
+								Remove
+							</button>
+						</li>
+					{/each}
+				</ul>
+			{/if}
 		</div>
 
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -278,6 +310,37 @@
 	}
 	.req {
 		color: var(--red);
+	}
+	.files {
+		display: grid;
+		justify-items: start;
+		gap: 0.5rem;
+	}
+	.files ul {
+		justify-self: stretch;
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.files li {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.25rem 0;
+		overflow-wrap: anywhere;
+	}
+	.files .size {
+		color: var(--ink-2);
+		font-size: 0.85rem;
+	}
+	.files .quiet {
+		min-height: 2rem;
+		font-weight: 500;
+	}
+	.files label:has(+ input:focus-visible) {
+		outline: 2px solid var(--blue);
+		outline-offset: 2px;
 	}
 	.actions {
 		display: flex;

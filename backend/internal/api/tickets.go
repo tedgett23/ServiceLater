@@ -16,6 +16,7 @@ import (
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/ruleruns"
@@ -73,6 +74,10 @@ type ticketDTO struct {
 	CIs []ciSummaryDTO `json:"cis,omitempty"`
 	// Articles are the knowledge articles linked to it that the reader may read (single-ticket responses).
 	Articles []articleRefDTO `json:"articles,omitempty"`
+	// Attachments are the files attached to it (single-ticket responses).
+	Attachments []attachmentDTO `json:"attachments,omitempty"`
+	// CanAttach says the reader may attach files to it (single-ticket responses).
+	CanAttach bool `json:"can_attach,omitempty"`
 }
 
 // detail adds what a single-ticket response carries beyond the ticket: the moves, field states, linked items and the
@@ -85,6 +90,10 @@ func (h *handlers) detail(ctx context.Context, q *dbgen.Queries, p auth.Principa
 	if out.Articles, err = articlesOf(ctx, q, out.ID); err != nil {
 		return err
 	}
+	if out.Attachments, err = attachmentsOf(ctx, q, p, out.ID, out.Type); err != nil {
+		return err
+	}
+	out.CanAttach = out.RequesterID == p.UserID || p.Perms.CanRecord(authz.Update, out.Type)
 	out.SLAs, err = records.LoadSLAs(ctx, q, out.ID)
 	return err
 }

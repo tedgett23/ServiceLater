@@ -14,6 +14,7 @@
 		<a href="/admin/roles" aria-current={here('/admin/roles')}>Roles</a>
 		{#if can(data.user, P.calendarsManage)}<a href="/admin/calendars" aria-current={here('/admin/calendars')}>Calendars</a>{/if}
 		{#if can(data.user, P.settingsManage)}<a href="/admin/email" aria-current={here('/admin/email')}>Email</a>{/if}
+		{#if can(data.user, P.settingsManage)}<a href="/admin/storage" aria-current={here('/admin/storage')}>Storage</a>{/if}
 		{#if can(data.user, P.settingsManage)}<a href="/admin/history" aria-current={here('/admin/history')}>History</a>{/if}
 		<!-- The API reference lives outside the app shell (it needs no sign-in), so this leaves the app. -->
 		<a href="/docs/api">API reference</a>

@@ -539,6 +539,76 @@
         ],
         "type": "object"
       },
+      "Attachment": {
+        "description": "A file attached to a record.",
+        "properties": {
+          "attached_at": {
+            "description": "When the upload finished and the file joined the record (null while it uploads): where it sits among the record's comments.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "can_delete": {
+            "description": "Says the reader may remove it: they added it, or may update the record.",
+            "type": "boolean"
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "created_by_name": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "inline": {
+            "description": "Says the file is a picture the browser may show (download with inline=true); anything else is saved.",
+            "type": "boolean"
+          },
+          "size": {
+            "description": "In bytes.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Pending while the upload is in flight (only its uploader sees it), then ready.",
+            "type": "string"
+          },
+          "task_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attached_at",
+          "can_delete",
+          "content_type",
+          "created_at",
+          "created_by",
+          "created_by_name",
+          "filename",
+          "id",
+          "inline",
+          "size",
+          "status",
+          "task_id"
+        ],
+        "type": "object"
+      },
       "Calendar": {
         "description": "A business calendar: the working hours an SLA counts, in a time zone, less holidays. An SLA definition names one by name.",
         "properties": {
@@ -1236,6 +1306,38 @@
         ],
         "type": "object"
       },
+      "CompleteAttachmentRequest": {
+        "description": "Finishes an upload.",
+        "properties": {
+          "parts": {
+            "description": "Every part, in order, with the ETag storage answered for it.",
+            "items": {
+              "$ref": "#/components/schemas/Part"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "CreateAttachmentRequest": {
+        "description": "Starts uploading a file.",
+        "properties": {
+          "content_type": {
+            "description": "The file's media type, as the browser reports it.",
+            "type": "string"
+          },
+          "filename": {
+            "description": "The file's name, as it will be shown and saved; any folder part is dropped.",
+            "type": "string"
+          },
+          "size": {
+            "description": "The file's size in bytes, at most the instance's max_size.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "Delivery": {
         "description": "One email in the log.",
         "properties": {
@@ -1290,6 +1392,24 @@
           "to_address",
           "updated_at",
           "user_name"
+        ],
+        "type": "object"
+      },
+      "Download": {
+        "description": "Where to fetch a file: a short-lived URL that needs no sign-in, to open or link to.",
+        "properties": {
+          "expires_at": {
+            "description": "When the URL stops working (a download already started carries on).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expires_at",
+          "url"
         ],
         "type": "object"
       },
@@ -2432,6 +2552,66 @@
         ],
         "type": "object"
       },
+      "Part": {
+        "properties": {
+          "etag": {
+            "type": "string"
+          },
+          "number": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "PartReceipt": {
+        "description": "What storage answered for a part.",
+        "properties": {
+          "etag": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "etag"
+        ],
+        "type": "object"
+      },
+      "PartURL": {
+        "description": "Where to PUT one part: the URL (absolute when it goes straight to the bucket), and how many bytes.",
+        "properties": {
+          "number": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "size": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "size",
+          "url"
+        ],
+        "type": "object"
+      },
+      "PartURLsRequest": {
+        "description": "Asks where to send some of an upload's parts.",
+        "properties": {
+          "numbers": {
+            "description": "The parts (from 1), at most 100 at a time.",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "Permission": {
         "properties": {
           "description": {
@@ -3003,6 +3183,173 @@
         ],
         "type": "object"
       },
+      "StorageSettings": {
+        "description": "Where attachments are kept. The S3 secret access key is never sent back: only whether it is set.",
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "key_configured": {
+            "description": "Says the server has a secrets key; without one the secret access key cannot be set.",
+            "type": "boolean"
+          },
+          "local_dir": {
+            "description": "The folder this server keeps files in when they are stored locally (SL_ATTACHMENTS_DIR). It is set where the server is deployed, not here; on a cluster every api and worker server must share it.",
+            "type": "string"
+          },
+          "max_size": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "s3_access_key_id": {
+            "type": "string"
+          },
+          "s3_bucket": {
+            "type": "string"
+          },
+          "s3_direct": {
+            "type": "boolean"
+          },
+          "s3_endpoint": {
+            "type": "string"
+          },
+          "s3_path_style": {
+            "type": "boolean"
+          },
+          "s3_prefix": {
+            "type": "string"
+          },
+          "s3_region": {
+            "type": "string"
+          },
+          "s3_secret_key_readable": {
+            "type": "boolean"
+          },
+          "s3_secret_key_set": {
+            "description": "Says the secret access key is stored (encrypted); S3SecretKeyReadable is false when it was stored with a key this server does not have, so it must be entered again.",
+            "type": "boolean"
+          },
+          "s3_secret_key_updated_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usage": {
+            "description": "How many finished files each backend holds, and their total size in bytes. Files stay in the backend they were stored in when the setting changes.",
+            "items": {
+              "$ref": "#/components/schemas/StorageUsage"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "backend",
+          "key_configured",
+          "local_dir",
+          "max_size",
+          "s3_access_key_id",
+          "s3_bucket",
+          "s3_direct",
+          "s3_endpoint",
+          "s3_path_style",
+          "s3_prefix",
+          "s3_region",
+          "s3_secret_key_readable",
+          "s3_secret_key_set",
+          "s3_secret_key_updated_at",
+          "usage"
+        ],
+        "type": "object"
+      },
+      "StorageSettingsRequest": {
+        "description": "Replaces the storage settings. s3_secret_key sets the bucket's secret access key, null clears it, and leaving it out keeps it.",
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "max_size": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "s3_access_key_id": {
+            "type": "string"
+          },
+          "s3_bucket": {
+            "type": "string"
+          },
+          "s3_direct": {
+            "type": "boolean"
+          },
+          "s3_endpoint": {
+            "type": "string"
+          },
+          "s3_path_style": {
+            "type": "boolean"
+          },
+          "s3_prefix": {
+            "type": "string"
+          },
+          "s3_region": {
+            "type": "string"
+          },
+          "s3_secret_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "StorageTest": {
+        "description": "How a storage test went: ok, or what failed. Warnings are problems that do not stop the server storing files but would stop browsers (an S3 bucket's CORS rules).",
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "backend",
+          "ok",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "StorageUsage": {
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "files": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "backend",
+          "bytes",
+          "files"
+        ],
+        "type": "object"
+      },
       "TestEmail": {
         "description": "How a test email went: sent, or failed with what the mail server said.",
         "properties": {
@@ -3062,6 +3409,17 @@
               "string",
               "null"
             ]
+          },
+          "attachments": {
+            "description": "The files attached to it (single-ticket responses).",
+            "items": {
+              "$ref": "#/components/schemas/Attachment"
+            },
+            "type": "array"
+          },
+          "can_attach": {
+            "description": "Says the reader may attach files to it (single-ticket responses).",
+            "type": "boolean"
           },
           "change": {
             "anyOf": [
@@ -3185,6 +3543,28 @@
           "title",
           "type",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "Upload": {
+        "description": "An upload in flight: the pending attachment, and how to send it. Ask for the parts' URLs with POST /attachments/{id}/parts, PUT each part (every part but the last is part_size bytes), then POST /attachments/{id}/complete with each part's ETag.",
+        "properties": {
+          "attachment": {
+            "$ref": "#/components/schemas/Attachment"
+          },
+          "part_size": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "parts": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "attachment",
+          "part_size",
+          "parts"
         ],
         "type": "object"
       },
@@ -3963,6 +4343,723 @@
         "summary": "Decide approval",
         "tags": [
           "approvals"
+        ]
+      }
+    },
+    "/api/v1/attachments/{id}": {
+      "delete": {
+        "description": "(whoever added it, or update on the record's type): remove a file, or cancel an upload in flight. The file is removed from storage soon after.",
+        "operationId": "deleteAttachment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete attachment",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/attachments/{id}/complete": {
+      "post": {
+        "description": "With {parts} (the uploader): finish an upload. The file is then attached: everyone who sees the record sees it. A file that did not arrive whole is dropped (422): upload it again.",
+        "operationId": "completeAttachment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteAttachmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Attachment"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Complete attachment",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/attachments/{id}/download": {
+      "get": {
+        "description": "(whoever sees the record): a link to the file, good for ten minutes. With inline=true a picture is shown rather than saved; any other file is always saved.",
+        "operationId": "downloadAttachment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "inline",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Download"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Download attachment",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/attachments/{id}/file": {
+      "get": {
+        "description": "(a URL from GET /attachments/{id}/download, no sign-in): the file's bytes. Ranges are supported, so a large download can resume.",
+        "operationId": "serveAttachment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "206": {
+            "description": "Partial Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "Serve attachment",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/attachments/{id}/parts": {
+      "post": {
+        "description": "With {numbers} (the uploader): where to PUT those parts of an upload in flight. Each URL works for an hour and needs no sign-in; send the part's bytes as the body, and keep the ETag response header.",
+        "operationId": "attachmentPartURLs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartURLsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "parts": {
+                      "items": {
+                        "$ref": "#/components/schemas/PartURL"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "parts"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Attachment part UR ls",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/attachments/{id}/parts/{n}": {
+      "put": {
+        "description": "With the part's bytes as the body (a URL from POST /attachments/{id}/parts, no sign-in): store one part of an upload in flight. Answers its ETag, also as the ETag header.",
+        "operationId": "putAttachmentPart",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "n",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "token",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartReceipt"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "Put attachment part",
+        "tags": [
+          "attachments"
         ]
       }
     },
@@ -10967,6 +12064,314 @@
         ]
       }
     },
+    "/api/v1/settings/storage": {
+      "get": {
+        "description": "(settings:manage): where attachments are kept, without the S3 secret access key.\n\nRequires the `settings:manage` permission.",
+        "operationId": "getStorageSettings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get storage settings",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      },
+      "put": {
+        "description": "(settings:manage) with every setting, and s3_secret_key to set the bucket's secret access key (null clears it; leave it out to keep it). New files go to the chosen backend; files already stored stay where they are and can still be downloaded. Choosing S3 needs an endpoint and a bucket.\n\nRequires the `settings:manage` permission.",
+        "operationId": "putStorageSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StorageSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Put storage settings",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      }
+    },
+    "/api/v1/settings/storage/test": {
+      "post": {
+        "description": "(settings:manage): write, read back and remove a small file with the saved settings, as this server, and say how it went. With direct S3 uploads, it also checks that the bucket's CORS rules let browsers on this site upload.\n\nRequires the `settings:manage` permission.",
+        "operationId": "testStorage",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageTest"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Test storage",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      }
+    },
     "/api/v1/tickets": {
       "get": {
         "description": "Assignee and requester accept a user id or \"me\"; assignee also accepts \"none\". assignment_group accepts a group id, \"mine\" (any group the caller is in) or \"none\". open=true hides resolved and closed. breached=true keeps tickets with a breached SLA; sort=due lists those first, then the soonest SLA due time (newest first otherwise).",
@@ -11865,6 +13270,143 @@
         ],
         "x-permissions": [
           "records:update:\u003ctype\u003e"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/attachments": {
+      "post": {
+        "description": "With {filename, size, content_type} (the record's requester, or update on its type): start uploading a file to the record. The attachment is pending, seen only by its uploader, until the upload is completed; one not completed within a day is removed.",
+        "operationId": "createAttachment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAttachmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Upload"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create attachment",
+        "tags": [
+          "tickets"
         ]
       }
     },
@@ -14700,6 +16242,9 @@
     },
     {
       "name": "approvals"
+    },
+    {
+      "name": "attachments"
     },
     {
       "name": "auth"
