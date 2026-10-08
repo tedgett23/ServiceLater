@@ -901,8 +901,14 @@ here). Running executions keep the snapshot they started with. The page shows th
 `export-local` writes) and the whole definition as YAML, and what the app may do: a workflow's steps act as its app, so one created in an app
 whose manifest reads no records cannot touch them (the builder says so, and suggests the app that owns the type).
 
-Not built yet: live highlighting of running executions on the builder's canvas (the run viewer has it per run),
-editing rules and the other definition kinds in the browser, undo, comparing an edit with the app's version, and
+**Where its runs are, live.** The builder shows, on each step, how many runs are there now (highlighted with the
+marker, as the run viewer marks a run's current step) and how many visits the runs started in the last 7 days made,
+and how many failed there; the panel lists the runs in flight with their records. `GET /workflows/{app}/{name}/activity`
+gives it, and a trigger on `workflow_executions` (00034) sends `run.changed` (run id, app and workflow name only, to
+those with `workflows:read_all`) when a run starts, moves or ends, so the page asks again; a 30 second refresh covers
+waits that end on their own time. A run started on an older version can be at a step the current one no longer has.
+
+Not built yet: editing rules and the other definition kinds in the browser, undo, comparing an edit with the app's version, and
 starting a workflow from its own page.
 
 ## 8. Declarative UI
@@ -1438,7 +1444,7 @@ Each slice is shippable and leaves the product working.
 | **8. Content kinds** | Catalog, knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
 | **8c. Knowledge base** (done, §8.3) | Articles with review and publishing, versions, audiences, full-text search, suggestions while filing, links to records. | Slice 7 |
 | **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items, rules reading them (routing by support group), freezes scoped to items. Next: import, approvals by owner. | Slices 4 and 7 |
-| **9. Visual builder** (done, §7.7) | The Svelte Flow builder editing the same workflow definitions, saved in the database-kept studio layer. Live highlighting on the builder is still to do (the run viewer has it). | Slice 6 |
+| **9. Visual builder** (done, §7.7) | The Svelte Flow builder editing the same workflow definitions, saved in the database-kept studio layer, with live highlighting of where runs are. | Slice 6 |
 
 Later: script steps (Starlark, Lua or WASM), app-defined tables and migrations, custom UI components, signing and
 a marketplace.

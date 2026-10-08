@@ -500,3 +500,142 @@ func (q *Queries) WakeDueExecutions(ctx context.Context) ([]uuid.UUID, error) {
 	}
 	return items, nil
 }
+
+const workflowInFlight = `-- name: WorkflowInFlight :many
+SELECT e.id, e.status, e.current_step, e.created_at, e.updated_at, e.wake_at, tt.prefix AS record_prefix, t.number AS record_number,
+       t.title AS record_title
+FROM workflow_executions e
+LEFT JOIN tasks t ON t.id = e.record_id
+LEFT JOIN task_types tt ON tt.type = t.type
+WHERE e.app = $1 AND e.workflow = $2 AND e.status IN ('queued', 'running', 'waiting')
+ORDER BY e.created_at
+LIMIT 101
+`
+
+type WorkflowInFlightParams struct {
+	App      string `json:"app"`
+	Workflow string `json:"workflow"`
+}
+
+type WorkflowInFlightRow struct {
+	ID           uuid.UUID          `json:"id"`
+	Status       string             `json:"status"`
+	CurrentStep  string             `json:"current_step"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	WakeAt       pgtype.Timestamptz `json:"wake_at"`
+	RecordPrefix pgtype.Text        `json:"record_prefix"`
+	RecordNumber pgtype.Int8        `json:"record_number"`
+	RecordTitle  pgtype.Text        `json:"record_title"`
+}
+
+// The runs of a workflow still going, with the record each is on (when the reader may see it), oldest first.
+func (q *Queries) WorkflowInFlight(ctx context.Context, arg WorkflowInFlightParams) ([]WorkflowInFlightRow, error) {
+	rows, err := q.db.Query(ctx, workflowInFlight, arg.App, arg.Workflow)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkflowInFlightRow
+	for rows.Next() {
+		var i WorkflowInFlightRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.CurrentStep,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.WakeAt,
+			&i.RecordPrefix,
+			&i.RecordNumber,
+			&i.RecordTitle,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const workflowRunCounts = `-- name: WorkflowRunCounts :many
+SELECT status, count(*)::bigint AS n FROM workflow_executions
+WHERE app = $1 AND workflow = $2 AND created_at >= $3
+GROUP BY status
+`
+
+type WorkflowRunCountsParams struct {
+	App      string             `json:"app"`
+	Workflow string             `json:"workflow"`
+	Since    pgtype.Timestamptz `json:"since"`
+}
+
+type WorkflowRunCountsRow struct {
+	Status string `json:"status"`
+	N      int64  `json:"n"`
+}
+
+// How a workflow's runs since a time ended up, by status.
+func (q *Queries) WorkflowRunCounts(ctx context.Context, arg WorkflowRunCountsParams) ([]WorkflowRunCountsRow, error) {
+	rows, err := q.db.Query(ctx, workflowRunCounts, arg.App, arg.Workflow, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkflowRunCountsRow
+	for rows.Next() {
+		var i WorkflowRunCountsRow
+		if err := rows.Scan(&i.Status, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const workflowStepOutcomes = `-- name: WorkflowStepOutcomes :many
+SELECT s.step_id, s.outcome, count(*)::bigint AS n
+FROM workflow_steps s
+JOIN workflow_executions e ON e.id = s.execution_id
+WHERE e.app = $1 AND e.workflow = $2 AND e.created_at >= $3
+  AND s.created_at >= $3
+GROUP BY s.step_id, s.outcome
+`
+
+type WorkflowStepOutcomesParams struct {
+	App      string             `json:"app"`
+	Workflow string             `json:"workflow"`
+	Since    pgtype.Timestamptz `json:"since"`
+}
+
+type WorkflowStepOutcomesRow struct {
+	StepID  string `json:"step_id"`
+	Outcome string `json:"outcome"`
+	N       int64  `json:"n"`
+}
+
+// How each step of a workflow went since a time: visits by outcome (ok, waiting, timeout, failed).
+func (q *Queries) WorkflowStepOutcomes(ctx context.Context, arg WorkflowStepOutcomesParams) ([]WorkflowStepOutcomesRow, error) {
+	rows, err := q.db.Query(ctx, workflowStepOutcomes, arg.App, arg.Workflow, arg.Since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []WorkflowStepOutcomesRow
+	for rows.Next() {
+		var i WorkflowStepOutcomesRow
+		if err := rows.Scan(&i.StepID, &i.Outcome, &i.N); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

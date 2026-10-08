@@ -413,3 +413,21 @@ func TestRealtimeTellsCMDBReadersAboutItems(t *testing.T) {
 		t.Errorf("linking an item: %v", e)
 	}
 }
+
+// Those who see every run hear when one starts or moves, so the builder can show it; others do not.
+func TestRealtimeTellsStaffAboutRuns(t *testing.T) {
+	hub := startHub(t)
+	h, pool, _ := setupWith(t, time.Minute, hub)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	agent := newActor(t, h, pool, "agent@x.test", "agent")
+	lena := newActor(t, h, pool, "lena@x.test", "end_user")
+	staff, requester := mustDial(t, srv, agent), mustDial(t, srv, lena)
+	ch := decodeBody[struct{ ID string }](t, agent.do(h, "POST", "/api/v1/tickets", `{"type":"change","title":"Patch"}`))
+	staff.next(t, "ticket.changed")
+	expect(t, agent.do(h, "POST", "/api/v1/workflow-runs", `{"workflow":"change-management/cab-approval","ticket":"`+ch.ID+`"}`), 201, "starting a run")
+	if e := staff.next(t, "run.changed"); e["app"] != "change-management" || e["workflow"] != "cab-approval" {
+		t.Errorf("the event names the workflow: %v", e)
+	}
+	requester.none(t, "an end user does not see runs")
+}

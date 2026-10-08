@@ -75,3 +75,29 @@ FROM workflow_executions e
 LEFT JOIN tasks t ON t.id = e.record_id
 LEFT JOIN task_types tt ON tt.type = t.type
 WHERE e.id = $1;
+
+-- name: WorkflowInFlight :many
+-- The runs of a workflow still going, with the record each is on (when the reader may see it), oldest first.
+SELECT e.id, e.status, e.current_step, e.created_at, e.updated_at, e.wake_at, tt.prefix AS record_prefix, t.number AS record_number,
+       t.title AS record_title
+FROM workflow_executions e
+LEFT JOIN tasks t ON t.id = e.record_id
+LEFT JOIN task_types tt ON tt.type = t.type
+WHERE e.app = sqlc.arg('app') AND e.workflow = sqlc.arg('workflow') AND e.status IN ('queued', 'running', 'waiting')
+ORDER BY e.created_at
+LIMIT 101;
+
+-- name: WorkflowStepOutcomes :many
+-- How each step of a workflow went since a time: visits by outcome (ok, waiting, timeout, failed).
+SELECT s.step_id, s.outcome, count(*)::bigint AS n
+FROM workflow_steps s
+JOIN workflow_executions e ON e.id = s.execution_id
+WHERE e.app = sqlc.arg('app') AND e.workflow = sqlc.arg('workflow') AND e.created_at >= sqlc.arg('since')
+  AND s.created_at >= sqlc.arg('since')
+GROUP BY s.step_id, s.outcome;
+
+-- name: WorkflowRunCounts :many
+-- How a workflow's runs since a time ended up, by status.
+SELECT status, count(*)::bigint AS n FROM workflow_executions
+WHERE app = sqlc.arg('app') AND workflow = sqlc.arg('workflow') AND created_at >= sqlc.arg('since')
+GROUP BY status;

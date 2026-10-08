@@ -3,7 +3,8 @@
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import WorkflowBuilder from '$lib/builder/WorkflowBuilder.svelte';
-	import type { Step, WorkflowDef } from '$lib/builder/workflow';
+	import type { Step, WorkflowActivity, WorkflowDef } from '$lib/builder/workflow';
+	import { realtime } from '$lib/realtime.svelte';
 	import { when } from '$lib/format';
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { can, P } from '$lib/types';
@@ -21,6 +22,39 @@
 	let generation = $state(0);
 	let builder = $state<ReturnType<typeof WorkflowBuilder>>();
 	let confirmingReset = $state(false);
+
+	// Where the workflow's runs are, live: asked for again when one of its runs starts, moves or ends.
+	let activity = $state<WorkflowActivity | null>(null);
+	let showActivity = $state(true);
+	async function loadActivity() {
+		if (!def || (!def.shipped && !def.edited)) return; // not installed yet: no runs
+		try {
+			activity = await api<WorkflowActivity>(`${path}/activity`);
+		} catch {
+			/* keep what is shown */
+		}
+	}
+	let soon: ReturnType<typeof setTimeout> | undefined;
+	function refresh() {
+		clearTimeout(soon);
+		soon = setTimeout(loadActivity, 300);
+	}
+	$effect(() => {
+		void def?.name;
+		void loadActivity();
+	});
+	$effect(() => {
+		const off = realtime.on((e) => {
+			if ((e.type === 'run.changed' && e.app === app && e.workflow === name) || e.type === 'resync') refresh();
+		});
+		// A safety net: a wait that ends on its own time sends nothing until the run moves.
+		const tick = setInterval(loadActivity, 30_000);
+		return () => {
+			off();
+			clearInterval(tick);
+			clearTimeout(soon);
+		};
+	});
 	let error = $state('');
 
 	async function load() {
@@ -116,10 +150,13 @@
 			{/if}
 		</div>
 		{#if !editable}<p class="hint">You can look at this workflow; changing it needs the workflows:edit permission.</p>{/if}
+		{#if activity}
+			<label class="live-toggle"><input type="checkbox" bind:checked={showActivity} /> Show where its runs are</label>
+		{/if}
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
 
 		{#key generation}
-			<WorkflowBuilder bind:this={builder} {def} {editable} onsave={save} />
+			<WorkflowBuilder bind:this={builder} {def} {editable} activity={showActivity ? activity : null} onsave={save} />
 		{/key}
 
 		{#if def.yaml}
@@ -185,6 +222,13 @@
 		color: var(--on-marker);
 		font-size: 0.75rem;
 		font-weight: 700;
+	}
+	.live-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		margin-bottom: 0.6rem;
+		font-size: 0.9rem;
 	}
 	.reset {
 		display: flex;

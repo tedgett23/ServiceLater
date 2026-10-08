@@ -6,7 +6,8 @@
 	import StepNode from './StepNode.svelte';
 	import StepForm from './StepForm.svelte';
 	import { autoLayout, NODE_H, NODE_W } from './layout';
-	import { freshId, linkFields, stepTypes, tidy, typeInfo, type Step, type StepType, type WorkflowDef } from './workflow';
+	import { when } from '$lib/format';
+	import { exitsOf, freshId, linkFields, stepTypes, tidy, typeInfo, type Step, type StepType, type WorkflowActivity, type WorkflowDef } from './workflow';
 
 	/**
 	 * The workflow builder: the steps as a diagram to drag, connect and delete, and the selected step's fields beside it.
@@ -16,10 +17,13 @@
 	let {
 		def,
 		editable,
+		activity = null,
 		onsave
 	}: {
 		def: WorkflowDef;
 		editable: boolean;
+		/** Where the workflow's runs are, live; null hides it. */
+		activity?: WorkflowActivity | null;
 		onsave: (body: { record_type: string; start: string; steps: Step[]; layout: Record<string, { x: number; y: number }> }) => Promise<boolean>;
 	} = $props();
 
@@ -55,12 +59,20 @@
 			deletable: editable,
 			sourcePosition: Position.Right,
 			targetPosition: Position.Left,
-			data: { id: s.id, type: s.type, label: typeInfo(s.type)?.label ?? s.type, start: s.id === start, exits: typeInfo(s.type)?.exits ?? [], editable }
+			data: {
+				id: s.id,
+				type: s.type,
+				label: typeInfo(s.type)?.label ?? s.type,
+				start: s.id === start,
+				exits: exitsOf(s),
+				editable,
+				activity: activity?.steps[s.id]
+			}
 		}));
 		const ids = new Set(steps.map((s) => s.id));
 		const out: Edge[] = [];
 		for (const s of steps) {
-			for (const e of typeInfo(s.type)?.exits ?? []) {
+			for (const e of exitsOf(s)) {
 				const to = s[e.field];
 				if (!to || !ids.has(to)) continue;
 				out.push({
@@ -78,6 +90,11 @@
 		edges = out;
 	}
 	rebuild();
+	// Runs move on their own: show them where they are now, keeping the boxes where they are.
+	$effect(() => {
+		void activity;
+		untrack(() => rebuild());
+	});
 	// Where each step started out, so saving keeps only the positions someone set (moved here, or saved before), and an
 	// edit of a shipped workflow does not carry a position for every step.
 	const startedAt = new Map(untrack(() => nodes.map((n) => [n.id, { ...n.position }])));
@@ -123,7 +140,7 @@
 		steps = [...steps, step];
 		// A new step after the selected one, joined to it when its way out is free.
 		if (selected) {
-			const exit = typeInfo(selected.type)?.exits.find((e) => !selected[e.field]);
+			const exit = exitsOf(selected).find((e) => !selected[e.field]);
 			if (exit) (selected as unknown as Record<string, string>)[exit.field] = id;
 		}
 		if (!start) start = id;
@@ -248,6 +265,15 @@
 		<aside class="panel" aria-label={selected ? `Step ${selected.id}` : 'Workflow settings'}>
 			{#if selected}
 				{#key selected.id}
+					{#if activity}
+						{@const here = activity.in_flight.filter((r) => r.step === selected!.id)}
+						{#if here.length}
+							<p class="here">
+								{here.length} {here.length === 1 ? 'run is' : 'runs are'} here now:
+								{#each here.slice(0, 5) as r, i (r.id)}{i ? ', ' : ''}<a href="/runs/{r.id}">{r.reference ?? 'a run'}</a>{/each}{here.length > 5 ? '…' : ''}
+							</p>
+						{/if}
+					{/if}
 					<StepForm
 						step={selected}
 						{steps}
@@ -277,6 +303,29 @@
 					{def.app_permissions?.length ? def.app_permissions.join(', ') : 'nothing on records'}.
 				</p>
 				<p class="hint">Select a step to change it.</p>
+				{#if activity}
+					<section class="live" aria-labelledby="live-h">
+						<h3 id="live-h">Running now</h3>
+						{#if activity.in_flight.length === 0}
+							<p class="hint">No runs are going.</p>
+						{:else}
+							<ul>
+								{#each activity.in_flight as r (r.id)}
+									<li>
+										<a href="/runs/{r.id}">{r.reference ? `${r.reference} ${r.title}` : 'A run'}</a>
+										<span class="hint">at {r.step}, {r.status === 'waiting' && r.wake_at ? `waiting until ${when(r.wake_at)}` : r.status}</span>
+									</li>
+								{/each}
+							</ul>
+							{#if activity.more}<p class="hint">And more: see <a href="/runs">Runs</a>.</p>{/if}
+						{/if}
+						<p class="hint">
+							In the last 7 days: {Object.values(activity.runs).reduce((a, b) => a + b, 0)} started{activity.runs.failed
+								? `, ${activity.runs.failed} failed`
+								: ''}.
+						</p>
+					</section>
+				{/if}
 			{/if}
 		</aside>
 	</div>
@@ -347,6 +396,33 @@
 	.panel h2 {
 		font: 700 1.2rem/1.2 var(--font-display);
 		overflow-wrap: anywhere;
+	}
+	.live {
+		display: grid;
+		gap: 0.4rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid var(--rule);
+	}
+	.live h3 {
+		font-size: 0.9rem;
+		font-weight: 700;
+	}
+	.live ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: 0.35rem;
+	}
+	.live li {
+		display: grid;
+		overflow-wrap: anywhere;
+	}
+	.here {
+		padding: 0.45rem 0.6rem;
+		border-left: 3px solid var(--marker);
+		background: var(--marker-soft);
+		font-size: 0.85rem;
 	}
 	dl {
 		display: grid;

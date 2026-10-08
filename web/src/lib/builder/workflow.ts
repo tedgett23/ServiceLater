@@ -144,3 +144,37 @@ export function tidy(s: Step): Step {
 	}
 	return out;
 }
+
+/** What is happening at one step: runs there now, and the visits of runs started in the last week. */
+export interface StepActivity {
+	now: number;
+	visits: number;
+	failed: number;
+	timeouts: number;
+}
+
+/** A run still going. */
+export interface InFlightRun {
+	id: string;
+	status: 'queued' | 'running' | 'waiting';
+	step: string;
+	reference?: string;
+	title?: string;
+	started_at: string;
+	wake_at?: string;
+}
+
+/** Where a workflow's runs are, from GET /workflows/{app}/{name}/activity. */
+export interface WorkflowActivity {
+	steps: Record<string, StepActivity>;
+	in_flight: InFlightRun[];
+	more: boolean;
+	runs: Record<string, number>;
+	since: string;
+}
+
+/** The ways out a step has as it is now: a wait for a fixed time cannot time out, so it has only next. */
+export function exitsOf(s: Step): Exit[] {
+	const all = typeInfo(s.type)?.exits ?? [];
+	return s.type === 'wait' && !s.until ? all.filter((e) => e.field !== 'on_timeout') : all;
+}

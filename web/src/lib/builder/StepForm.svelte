@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { lifecycle } from '$lib/lifecycle.svelte';
-	import { parseValue, stepTypes, typeInfo, valueText, type NamedValue, type Step, type StepType } from './workflow';
+	import { exitsOf, parseValue, stepTypes, typeInfo, valueText, type NamedValue, type Step, type StepType } from './workflow';
 
 	/**
 	 * The selected step's fields, by its type. Each change is reported when the person is done with a field (on
@@ -160,10 +160,10 @@
 		</fieldset>
 	{/if}
 
-	{#if info?.exits.length}
+	{#if exitsOf(step).length}
 		<fieldset>
 			<legend>Then</legend>
-			{#each info.exits as ex (ex.field)}
+			{#each exitsOf(step) as ex (ex.field)}
 				<div class="field">
 					<label for="step-{ex.field}">{ex.label === 'next' ? 'Next step' : ex.label}</label>
 					<select id="step-{ex.field}" value={step[ex.field] ?? ''} disabled={!editable} onchange={(e) => set(ex.field, e.currentTarget.value)}>

@@ -98,4 +98,49 @@ test.describe('Workflow builder', () => {
 			await admin.context.request.delete('/api/v1/workflows/change-management/cab-approval/edits');
 		}
 	});
+
+	// The builder shows where a workflow's runs are, and follows them live: here, runs waiting an hour at one step.
+	test('the builder shows where runs are, live', async ({ browser }) => {
+		const id = uid();
+		const name = `hold-${id}`;
+		const admin = await as(browser, 'admin');
+		const path = `/api/v1/workflows/incident-management/${name}`;
+		try {
+			const saved = await admin.context.request.put(path, {
+				data: {
+					record_type: 'incident',
+					start: 'pause',
+					steps: [
+						{ id: 'pause', type: 'wait', for: '1h', next: 'done' },
+						{ id: 'done', type: 'end' }
+					]
+				}
+			});
+			expect(saved.ok()).toBeTruthy();
+			const start = async (title: string) => {
+				const t = await createTicket(admin.context, { title });
+				const r = await admin.context.request.post('/api/v1/workflow-runs', { data: { workflow: `incident-management/${name}`, ticket: t.reference } });
+				expect(r.status()).toBe(201);
+				return t;
+			};
+			const first = await start(`Held ${id} one`);
+
+			const { page } = admin;
+			await page.goto(`/workflows/incident-management/${name}`);
+			const pause = page.locator('.svelte-flow__node', { hasText: 'pause' });
+			await expect(pause).toContainText('1 here now');
+			await expect(pause.locator('.step')).toHaveClass(/live/);
+			await expect(page.getByRole('complementary', { name: 'Workflow settings' })).toContainText(first.reference);
+
+			// Another run starts while the page is open: the count follows without a reload.
+			await start(`Held ${id} two`);
+			await expect(pause).toContainText('2 here now');
+
+			// Hidden on request.
+			await page.getByLabel('Show where its runs are').uncheck();
+			await expect(pause).not.toContainText('here now');
+		} finally {
+			await admin.context.request.delete(`${path}/edits`);
+		}
+	});
 });

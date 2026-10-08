@@ -174,3 +174,47 @@ func TestTheBuilderCreatesAWorkflow(t *testing.T) {
 	expect(t, admin.do(h, "GET", path, ""), 404, "after it is removed")
 	expect(t, admin.do(h, "GET", "/api/v1/workflows/no-such-app/x", ""), 404, "an app that is not installed")
 }
+
+// The builder shows where a workflow's runs are and how its steps went: runs in flight by step, and the visits of
+// the last week by outcome.
+func TestTheBuilderShowsWhereRunsAre(t *testing.T) {
+	h, pool, _ := setupApps(t)
+	agent := newActor(t, h, pool, "agent@x.test", "agent")
+	lena := newActor(t, h, pool, "lena@x.test", "end_user")
+	const path = "/api/v1/workflows/change-management/cab-approval/activity"
+	ch := decodeBody[typedTicket](t, agent.do(h, "POST", "/api/v1/tickets", `{"type":"change","title":"Patch the edge"}`))
+	run := decodeBody[struct{ ID string }](t, agent.do(h, "POST", "/api/v1/workflow-runs", `{"workflow":"change-management/cab-approval","ticket":"`+ch.ID+`"}`))
+	if run.ID == "" {
+		t.Fatal("no run started")
+	}
+	// What the engine would have recorded for an earlier run: through board, failed at ask.
+	ctx := context.Background()
+	if err := db.WithSystem(ctx, pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO workflow_steps (execution_id, seq, step_id, type, outcome) VALUES
+			($1, 1, 'board', 'condition', 'ok'), ($1, 2, 'ask', 'approval', 'failed')`, run.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	type activityBody struct {
+		Steps map[string]struct {
+			Now, Visits, Failed int64
+		}
+		InFlight []struct {
+			ID, Step, Reference string
+		} `json:"in_flight"`
+		Runs map[string]int64
+	}
+	got := decodeBody[activityBody](t, agent.do(h, "GET", path, ""))
+	if got.Steps["board"].Now != 1 || len(got.InFlight) != 1 || got.InFlight[0].Reference != ch.Reference || got.InFlight[0].Step != "board" {
+		t.Errorf("the run waits at its first step: %+v", got)
+	}
+	if got.Steps["ask"].Visits != 1 || got.Steps["ask"].Failed != 1 || got.Steps["board"].Visits != 1 {
+		t.Errorf("visits by outcome: %+v", got.Steps)
+	}
+	if got.Runs["queued"] != 1 {
+		t.Errorf("runs by status: %+v", got.Runs)
+	}
+	expect(t, lena.do(h, "GET", path, ""), 403, "an end user")
+}

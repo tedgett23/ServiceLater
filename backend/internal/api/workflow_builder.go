@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
@@ -300,4 +301,97 @@ func (h *handlers) workflowEditedNames(ctx context.Context) (map[string]bool, er
 		return err
 	})
 	return out, err
+}
+
+// activityWindow is how far back the builder's step counts look.
+const activityWindow = 7 * 24 * time.Hour
+
+// stepActivityDTO is what is happening at one step.
+type stepActivityDTO struct {
+	// Now is how many runs are at this step at the moment (queued, running or waiting there).
+	Now int64 `json:"now"`
+	// Visits, Failed and Timeouts count the visits of runs started in the window: all of them, the ones that failed
+	// the run there, and the waits that ran out.
+	Visits   int64 `json:"visits"`
+	Failed   int64 `json:"failed"`
+	Timeouts int64 `json:"timeouts"`
+}
+
+// inFlightRunDTO is a run still going.
+type inFlightRunDTO struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Step   string `json:"step"`
+	// Reference and Title are the record it is on, when the reader may see it.
+	Reference string     `json:"reference,omitempty"`
+	Title     string     `json:"title,omitempty"`
+	StartedAt time.Time  `json:"started_at"`
+	WakeAt    *time.Time `json:"wake_at,omitempty"`
+}
+
+// workflowActivityDTO is where a workflow's runs are now, and how its steps went lately.
+type workflowActivityDTO struct {
+	// Steps are by step id. A run started on an older version may be at a step this one no longer has.
+	Steps map[string]stepActivityDTO `json:"steps"`
+	// InFlight are the runs still going, oldest first (at most 100); More says there are more.
+	InFlight []inFlightRunDTO `json:"in_flight"`
+	More     bool             `json:"more"`
+	// Runs counts the runs started in the window by how they stand: done, failed, cancelled, or still going.
+	Runs  map[string]int64 `json:"runs"`
+	Since time.Time        `json:"since"`
+}
+
+// GET /workflows/{app}/{name}/activity (workflows:read_all or workflows:edit): where the workflow's runs are right
+// now, and how each step went for the runs started in the last 7 days, for the builder to show on its diagram. It
+// changes as runs move: the run.changed event says when to ask again.
+func (h *handlers) getWorkflowActivity(w http.ResponseWriter, r *http.Request) {
+	app, name := chi.URLParam(r, "app"), chi.URLParam(r, "name")
+	since := time.Now().Add(-activityWindow)
+	out := workflowActivityDTO{Steps: map[string]stepActivityDTO{}, InFlight: []inFlightRunDTO{}, Runs: map[string]int64{}, Since: since}
+	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+		flying, err := q.WorkflowInFlight(r.Context(), dbgen.WorkflowInFlightParams{App: app, Workflow: name})
+		if err != nil {
+			return err
+		}
+		if len(flying) > 100 {
+			flying, out.More = flying[:100], true
+		}
+		for _, e := range flying {
+			run := inFlightRunDTO{ID: e.ID.String(), Status: e.Status, Step: e.CurrentStep, StartedAt: e.CreatedAt.Time}
+			if e.RecordNumber.Valid {
+				run.Reference, run.Title = fmt.Sprintf("%s%d", e.RecordPrefix.String, e.RecordNumber.Int64), e.RecordTitle.String
+			}
+			if e.WakeAt.Valid {
+				run.WakeAt = &e.WakeAt.Time
+			}
+			out.InFlight = append(out.InFlight, run)
+			s := out.Steps[e.CurrentStep]
+			s.Now++
+			out.Steps[e.CurrentStep] = s
+		}
+		window := pgtype.Timestamptz{Time: since, Valid: true}
+		outcomes, err := q.WorkflowStepOutcomes(r.Context(), dbgen.WorkflowStepOutcomesParams{App: app, Workflow: name, Since: window})
+		if err != nil {
+			return err
+		}
+		for _, o := range outcomes {
+			s := out.Steps[o.StepID]
+			s.Visits += o.N
+			switch o.Outcome {
+			case "failed":
+				s.Failed += o.N
+			case "timeout":
+				s.Timeouts += o.N
+			}
+			out.Steps[o.StepID] = s
+		}
+		counts, err := q.WorkflowRunCounts(r.Context(), dbgen.WorkflowRunCountsParams{App: app, Workflow: name, Since: window})
+		for _, c := range counts {
+			out.Runs[c.Status] = c.N
+		}
+		return err
+	}) {
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }

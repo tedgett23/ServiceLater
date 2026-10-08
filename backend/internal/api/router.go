@@ -165,6 +165,7 @@ func NewRouter(d Deps) http.Handler {
 			r.Route("/workflows", func(r chi.Router) {
 				r.With(auth.RequirePermission(authz.WorkflowsReadAll, authz.WorkflowsEdit)).Get("/", h.listWorkflows)
 				r.With(auth.RequirePermission(authz.WorkflowsReadAll, authz.WorkflowsEdit)).Get("/{app}/{name}", h.getWorkflowDef)
+				r.With(auth.RequirePermission(authz.WorkflowsReadAll, authz.WorkflowsEdit)).Get("/{app}/{name}/activity", h.getWorkflowActivity)
 				r.With(auth.RequirePermission(authz.WorkflowsEdit)).Put("/{app}/{name}", h.putWorkflowDef)
 				r.With(auth.RequirePermission(authz.WorkflowsEdit)).Delete("/{app}/{name}/edits", h.resetWorkflowDef)
 			})
