@@ -395,7 +395,7 @@ func TestEveryBundledAppIsValid(t *testing.T) {
 
 func TestBundledSelection(t *testing.T) {
 	def, _ := apps.BundledSelection("")
-	if len(def) != 3 || def[0] != "core-itsm" || def[1] != "incident-management" || def[2] != "change-management" {
+	if len(def) != 4 || def[0] != "core-itsm" || def[1] != "incident-management" || def[2] != "change-management" || def[3] != "cmdb" {
 		t.Errorf("default: %v", def)
 	}
 	if none, _ := apps.BundledSelection("none"); len(none) != 0 {

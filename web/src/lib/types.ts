@@ -50,6 +50,8 @@ export interface Ticket {
 	fields?: Record<string, FieldValue>;
 	/** Single-ticket responses: each form field's state now. A field with no entry is shown, optional and writable. */
 	field_states?: Record<string, FieldState>;
+	/** Single-ticket responses, for those who read the CMDB: the configuration items linked to it. */
+	cis?: CISummary[];
 }
 
 /** What a field holds: text (also dates as YYYY-MM-DD and times as ISO), a whole number, or true/false. */
@@ -210,7 +212,9 @@ export const P = {
 	groupsManage: 'groups:manage',
 	rolesManage: 'roles:manage',
 	freezesManage: 'freezes:manage',
-	calendarsManage: 'calendars:manage'
+	calendarsManage: 'calendars:manage',
+	cmdbRead: 'cmdb:read',
+	cmdbManage: 'cmdb:manage'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */
@@ -418,4 +422,93 @@ export interface HeldRole {
 export interface PermissionInfo {
 	name: string;
 	description: string;
+}
+
+/** What a configuration item is in use for: planned, active, maintenance or retired. */
+export type CIStatus = 'planned' | 'active' | 'maintenance' | 'retired';
+
+/** A configuration item as lists show it. */
+export interface CISummary {
+	id: string;
+	class: string;
+	/** The class's label; the class name itself when no installed app defines it any more. */
+	class_label: string;
+	name: string;
+	status: CIStatus;
+	support_group_name: string | null;
+}
+
+/** One configuration item, from GET /cis/{id}. */
+export interface CIDetail extends CISummary {
+	description: string;
+	owner_group_id: string | null;
+	owner_group_name: string | null;
+	support_group_id: string | null;
+	fields: Record<string, FieldValue>;
+	created_by_name: string | null;
+	created_at: string;
+	updated_at: string;
+	relationships: CIRelation[];
+	tickets: CITicket[];
+}
+
+/** A relationship as seen from one item: label reads from it ("Depends on", or "Used by" when it comes second). */
+export interface CIRelation {
+	id: string;
+	type: string;
+	label: string;
+	outgoing: boolean;
+	impact: boolean;
+	item: CISummary;
+}
+
+/** A record linked to an item. */
+export interface CITicket {
+	id: string;
+	reference: string;
+	type: string;
+	title: string;
+	status: Status;
+	state_category: Category;
+	priority: 1 | 2 | 3 | 4;
+	updated_at: string;
+}
+
+/** A kind of configuration item: its fields are those of the classes it extends first, then its own. */
+export interface CIClass {
+	name: string;
+	label: string;
+	description?: string;
+	extends?: string;
+	ancestors: string[];
+	fields: FormField[];
+	app: string;
+}
+
+/** A way items relate: label reads from the first item, reverse from the second; impact spreads along it. */
+export interface CIRelationshipType {
+	name: string;
+	label: string;
+	reverse: string;
+	impact: boolean;
+}
+
+/** What configuration items can be, from GET /cmdb/model. */
+export interface CMDBModel {
+	classes: CIClass[];
+	relationships: CIRelationshipType[];
+	statuses: { value: CIStatus; label: string }[];
+}
+
+/** An item trouble reaches, how far away, and through which item. */
+export interface CIAffected extends CISummary {
+	depth: number;
+	via_id: string;
+	via_name: string;
+}
+
+/** What trouble with some items reaches, nearest first. */
+export interface CIImpact {
+	items: CIAffected[];
+	truncated: boolean;
 }

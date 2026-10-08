@@ -1,0 +1,4 @@
+kind: relationship
+name: part_of
+label: Part of
+reverse: Contains

@@ -1,0 +1,4 @@
+kind: relationship
+name: connected_to
+label: Connected to
+reverse: Connected from

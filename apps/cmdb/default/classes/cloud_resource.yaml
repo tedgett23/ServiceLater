@@ -1,0 +1,26 @@
+kind: class
+name: cloud_resource
+label: Cloud resource
+description: Anything run for you by a cloud provider, from a virtual machine to a storage bucket.
+fields:
+  provider:
+    type: choice
+    label: Provider
+    options: [{value: aws, label: AWS}, {value: azure, label: Azure}, {value: gcp, label: Google Cloud}, {value: other, label: Other}]
+  account:
+    type: text
+    label: Account
+    help: The account, subscription or project it is in.
+    max_length: 200
+  region:
+    type: text
+    label: Region
+    max_length: 100
+  resource_id:
+    type: text
+    label: Resource ID
+    max_length: 500
+  environment:
+    type: choice
+    label: Environment
+    options: [{value: production, label: Production}, {value: staging, label: Staging}, {value: test, label: Test}, {value: development, label: Development}]

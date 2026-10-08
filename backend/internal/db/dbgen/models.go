@@ -71,6 +71,29 @@ type Change struct {
 	TestPlan           string             `json:"test_plan"`
 }
 
+type Ci struct {
+	ID             uuid.UUID          `json:"id"`
+	Class          string             `json:"class"`
+	Name           string             `json:"name"`
+	Status         string             `json:"status"`
+	Description    string             `json:"description"`
+	OwnerGroupID   uuid.NullUUID      `json:"owner_group_id"`
+	SupportGroupID uuid.NullUUID      `json:"support_group_id"`
+	Fields         []byte             `json:"fields"`
+	CreatedBy      uuid.NullUUID      `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CiRelationship struct {
+	ID        uuid.UUID          `json:"id"`
+	FromCi    uuid.UUID          `json:"from_ci"`
+	ToCi      uuid.UUID          `json:"to_ci"`
+	Type      string             `json:"type"`
+	CreatedBy uuid.NullUUID      `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
 type FreezeWindow struct {
 	ID        uuid.UUID          `json:"id"`
 	Name      string             `json:"name"`
@@ -181,6 +204,13 @@ type Task struct {
 	Type              string             `json:"type"`
 	AssignmentGroupID uuid.NullUUID      `json:"assignment_group_id"`
 	Fields            []byte             `json:"fields"`
+}
+
+type TaskCi struct {
+	TaskID    uuid.UUID          `json:"task_id"`
+	CiID      uuid.UUID          `json:"ci_id"`
+	CreatedBy uuid.NullUUID      `json:"created_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type TaskComment struct {

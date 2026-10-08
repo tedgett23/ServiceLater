@@ -1,0 +1,19 @@
+kind: class
+name: computer
+label: Computer
+extends: hardware
+description: A laptop or desktop someone works on.
+fields:
+  hostname:
+    type: text
+    label: Hostname
+    max_length: 253
+  operating_system:
+    type: text
+    label: Operating system
+    max_length: 200
+  used_by:
+    type: text
+    label: Used by
+    help: Who works on it.
+    max_length: 200

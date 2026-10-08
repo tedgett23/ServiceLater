@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { api } from '$lib/api';
+	import AffectedItems from '$lib/components/AffectedItems.svelte';
 	import Signal from '$lib/components/Signal.svelte';
 	import RecordFields from '$lib/components/RecordFields.svelte';
 	import SlaClocks from '$lib/components/SlaClocks.svelte';
@@ -246,6 +247,11 @@
 			<!-- The rest of the record's fields, as its form lays them out: staff edit them, everyone who can see it reads them. -->
 			{#if form}
 				<RecordFields {ticket} {form} {canEdit} save={saveField} />
+			{/if}
+
+			<!-- The configuration items it is about, for those who read the CMDB (the server sends cis only to them). -->
+			{#if can(session.user, P.cmdbRead)}
+				<AffectedItems {ticket} {canEdit} onchange={(cis) => (ticket = { ...ticket, cis })} />
 			{/if}
 		</div>
 

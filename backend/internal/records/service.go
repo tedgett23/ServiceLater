@@ -313,7 +313,7 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	t, err := q.CreateTask(ctx, dbgen.CreateTaskParams{
 		Type: next.Type, Title: strings.TrimSpace(next.Title), Description: next.Description, Priority: next.Priority, RequesterID: requester,
 		Status: lc.Initial, StateCategory: string(category), AssignmentGroupID: nullUUID(next.AssignmentGroupID),
-		Fields: encodeFields(next.Fields)})
+		Fields: EncodeFields(next.Fields)})
 	if err != nil {
 		return Ticket{}, err
 	}
@@ -739,7 +739,7 @@ func changes(cur, final Ticket) (args dbgen.UpdateTaskParams, any bool) {
 		}
 	}
 	if !sameFields(cur.Fields, final.Fields) {
-		args.Fields, any = encodeFields(final.Fields), true
+		args.Fields, any = EncodeFields(final.Fields), true
 	}
 	args.ID = cur.ID
 	return args, any

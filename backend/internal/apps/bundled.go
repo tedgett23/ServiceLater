@@ -15,7 +15,7 @@ import (
 
 // DefaultBundled are the first-party apps installed at startup unless SL_BUNDLED_APPS says otherwise. The others
 // ship in the binary too, but stay off until they have something to offer.
-var DefaultBundled = []string{"core-itsm", "incident-management", "change-management"}
+var DefaultBundled = []string{"core-itsm", "incident-management", "change-management", "cmdb"}
 
 // BundledNames lists every app embedded in the binary.
 func BundledNames() ([]string, error) {

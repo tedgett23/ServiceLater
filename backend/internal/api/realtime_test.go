@@ -387,3 +387,29 @@ func TestRealtimeTellsWatchersOfABreach(t *testing.T) {
 	}
 	theirs.none(t, "another end user's ticket breached")
 }
+
+// Only those who read the CMDB are told an item changed, with its id only; linking an item to a record tells the
+// record's watchers, the requester included, that it changed (they refetch, and see no items).
+func TestRealtimeTellsCMDBReadersAboutItems(t *testing.T) {
+	hub := startHub(t)
+	h, pool, _ := setupWith(t, time.Minute, hub)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	admin := newActor(t, h, pool, "boss@x.test", "admin")
+	agent := newActor(t, h, pool, "agent@x.test", "agent")
+	lena := newActor(t, h, pool, "lena@x.test", "end_user")
+	reader, requester := mustDial(t, srv, agent), mustDial(t, srv, lena)
+	ci := decodeBody[struct{ ID string }](t, admin.do(h, "POST", "/api/v1/cis", `{"class":"other","name":"Badge reader"}`))
+	if e := reader.next(t, "ci.changed"); e["id"] != ci.ID || len(e) != 2 {
+		t.Errorf("the event carries the id and nothing else: %v", e)
+	}
+	requester.none(t, "an end user cannot read the CMDB")
+
+	tk := decodeBody[struct{ ID string }](t, lena.do(h, "POST", "/api/v1/tickets", `{"title":"Door will not open"}`))
+	requester.next(t, "ticket.changed")
+	reader.next(t, "ticket.changed")
+	expect(t, agent.do(h, "PUT", "/api/v1/tickets/"+tk.ID+"/cis/"+ci.ID, ""), 200, "linking it")
+	if e := requester.next(t, "ticket.changed"); e["id"] != tk.ID {
+		t.Errorf("linking an item: %v", e)
+	}
+}

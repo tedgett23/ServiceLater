@@ -1,0 +1,5 @@
+kind: relationship
+name: runs_on
+label: Runs on
+reverse: Runs
+impact: true

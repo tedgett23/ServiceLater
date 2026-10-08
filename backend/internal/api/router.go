@@ -129,6 +129,9 @@ func NewRouter(d Deps) http.Handler {
 					r.Post("/comments", h.createComment)
 					r.With(auth.RequireRecordPermission(authz.Update)).Patch("/", h.updateTicket)
 					r.With(auth.RequireRecordPermission(authz.Update)).Post("/transitions", h.transitionTicket)
+					r.With(auth.RequirePermission(authz.CMDBRead)).Get("/impact", h.getTicketImpact)
+					r.With(auth.RequirePermission(authz.CMDBRead), auth.RequireRecordPermission(authz.Update)).Put("/cis/{ciId}", h.linkTicketCI)
+					r.With(auth.RequirePermission(authz.CMDBRead), auth.RequireRecordPermission(authz.Update)).Delete("/cis/{ciId}", h.unlinkTicketCI)
 				})
 			})
 			r.Route("/approvals", func(r chi.Router) {
@@ -148,7 +151,21 @@ func NewRouter(d Deps) http.Handler {
 				r.With(auth.RequirePermission(authz.WorkflowsRun)).Post("/{id}/cancel", h.cancelRun)
 			})
 			r.With(auth.RequirePermission(authz.WorkflowsReadAll)).Get("/workflows", h.listWorkflows)
-			// TODO: cmdb, catalog routes (§7.3)
+			r.With(auth.RequirePermission(authz.CMDBRead)).Get("/cmdb/model", h.getCMDBModel)
+			r.Route("/cis", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.CMDBRead))
+				r.Get("/", h.listCIs)
+				r.With(auth.RequirePermission(authz.CMDBManage)).Post("/", h.createCI)
+				r.Route("/{id}", func(r chi.Router) {
+					r.Get("/", h.getCI)
+					r.With(auth.RequirePermission(authz.CMDBManage)).Patch("/", h.updateCI)
+					r.With(auth.RequirePermission(authz.CMDBManage)).Delete("/", h.deleteCI)
+					r.Get("/impact", h.getCIImpact)
+					r.With(auth.RequirePermission(authz.CMDBManage)).Post("/relationships", h.createCIRelationship)
+					r.With(auth.RequirePermission(authz.CMDBManage)).Delete("/relationships/{relId}", h.deleteCIRelationship)
+				})
+			})
+			// TODO: catalog routes (§7.3)
 		})
 	})
 

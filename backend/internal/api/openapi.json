@@ -1,6 +1,60 @@
 {
   "components": {
     "schemas": {
+      "Affected": {
+        "description": "An item trouble reaches.",
+        "properties": {
+          "class": {
+            "type": "string"
+          },
+          "class_label": {
+            "description": "The class's label; the class name itself when no installed app defines the class any more.",
+            "type": "string"
+          },
+          "depth": {
+            "description": "How many relationships away it is.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "description": "Planned, active, maintenance or retired.",
+            "type": "string"
+          },
+          "support_group_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "via_id": {
+            "description": "And ViaName are the item it is reached through: one of those asked about when depth is 1.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "via_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "class",
+          "class_label",
+          "depth",
+          "id",
+          "name",
+          "status",
+          "support_group_name",
+          "via_id",
+          "via_name"
+        ],
+        "type": "object"
+      },
       "Approval": {
         "description": "One pending approval request, with enough of the ticket to show in a list. Anyone can be asked to approve something, staff or not, so this is not a staff-only endpoint.",
         "properties": {
@@ -333,6 +387,347 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "Ci": {
+        "description": "One configuration item.",
+        "properties": {
+          "class": {
+            "type": "string"
+          },
+          "class_label": {
+            "description": "The class's label; the class name itself when no installed app defines the class any more.",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {},
+            "description": "Its class's fields that have a value, by name.",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_group_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "owner_group_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "relationships": {
+            "description": "Every relationship it is in, either way round (GET /cis/{id}, at most 500; null in the answer to a change).",
+            "items": {
+              "$ref": "#/components/schemas/CiRelation"
+            },
+            "type": "array"
+          },
+          "status": {
+            "description": "Planned, active, maintenance or retired.",
+            "type": "string"
+          },
+          "support_group_id": {
+            "description": "The group that fixes it when it breaks.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "support_group_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tickets": {
+            "description": "The records linked to it that the reader may see, open ones first (GET /cis/{id}, at most 100; null in the answer to a change).",
+            "items": {
+              "$ref": "#/components/schemas/CiTicket"
+            },
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "class",
+          "class_label",
+          "created_at",
+          "created_by_name",
+          "description",
+          "fields",
+          "id",
+          "name",
+          "owner_group_id",
+          "owner_group_name",
+          "relationships",
+          "status",
+          "support_group_id",
+          "support_group_name",
+          "tickets",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "CiRelation": {
+        "description": "One relationship as seen from an item.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "impact": {
+            "description": "Says trouble spreads along it (towards this item when outgoing, away from it otherwise).",
+            "type": "boolean"
+          },
+          "item": {
+            "$ref": "#/components/schemas/CiSummary"
+          },
+          "label": {
+            "description": "How it reads from this item: the type's label when this item comes first, its reverse otherwise.",
+            "type": "string"
+          },
+          "outgoing": {
+            "description": "Says this item comes first (\"this depends on item\").",
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "impact",
+          "item",
+          "label",
+          "outgoing",
+          "type"
+        ],
+        "type": "object"
+      },
+      "CiRequest": {
+        "description": "An item as it is added or changed. On PATCH, a field left out keeps its value; owner_group_id and support_group_id take null to clear them, and fields sets the class's fields by name (null clears one).",
+        "properties": {
+          "class": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fields": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "owner_group_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "support_group_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "CiSummary": {
+        "description": "An item as lists show it.",
+        "properties": {
+          "class": {
+            "type": "string"
+          },
+          "class_label": {
+            "description": "The class's label; the class name itself when no installed app defines the class any more.",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "description": "Planned, active, maintenance or retired.",
+            "type": "string"
+          },
+          "support_group_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "class",
+          "class_label",
+          "id",
+          "name",
+          "status",
+          "support_group_name"
+        ],
+        "type": "object"
+      },
+      "CiTicket": {
+        "description": "A record linked to an item.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "priority": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "state_category": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "priority",
+          "reference",
+          "state_category",
+          "status",
+          "title",
+          "type",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "Class": {
+        "description": "A kind of configuration item.",
+        "properties": {
+          "ancestors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "app": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "extends": {
+            "description": "The class it builds on; ancestors are every class it builds on, nearest first. Filtering items by a class finds those of the classes that extend it too.",
+            "type": "string"
+          },
+          "fields": {
+            "description": "Its fields, those of the classes it extends first.",
+            "items": {
+              "$ref": "#/components/schemas/FormField"
+            },
+            "type": "array"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ancestors",
+          "app",
+          "fields",
+          "label",
+          "name"
+        ],
+        "type": "object"
+      },
+      "CmdbModel": {
+        "description": "What configuration items can be: the installed classes, how items can relate, and the statuses every item has. All of it comes from apps except the statuses.",
+        "properties": {
+          "classes": {
+            "items": {
+              "$ref": "#/components/schemas/Class"
+            },
+            "type": "array"
+          },
+          "relationships": {
+            "items": {
+              "$ref": "#/components/schemas/Relationship"
+            },
+            "type": "array"
+          },
+          "statuses": {
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "classes",
+          "relationships",
+          "statuses"
+        ],
         "type": "object"
       },
       "Comment": {
@@ -891,6 +1286,26 @@
         ],
         "type": "object"
       },
+      "Impact": {
+        "description": "What trouble with some items reaches.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Affected"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "description": "Says the walk stopped early (more than 10 relationships away, or more than 1000 items).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "type": "object"
+      },
       "Lifecycle": {
         "properties": {
           "app": {
@@ -1145,6 +1560,53 @@
           "label",
           "prefix",
           "type"
+        ],
+        "type": "object"
+      },
+      "RelationRequest": {
+        "description": "Relates an item to another: {\"type\", \"to\"} reads \"this \u003ctype\u003e to\", {\"type\", \"from\"} reads \"from \u003ctype\u003e this\". Give exactly one of to and from.",
+        "properties": {
+          "from": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Relationship": {
+        "description": "A way items can relate: label reads from the first item to the second (\"depends on\"), reverse from the second to the first (\"used by\"). With impact, trouble with the second item affects the first.",
+        "properties": {
+          "impact": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reverse": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "impact",
+          "label",
+          "name",
+          "reverse"
         ],
         "type": "object"
       },
@@ -1535,6 +1997,13 @@
                 "type": "null"
               }
             ]
+          },
+          "cis": {
+            "description": "The configuration items linked to it (single-ticket responses, for those who may read the CMDB).",
+            "items": {
+              "$ref": "#/components/schemas/CiSummary"
+            },
+            "type": "array"
           },
           "created_at": {
             "format": "date-time",
@@ -2897,6 +3366,1007 @@
         "summary": "List calendar",
         "tags": [
           "calendar"
+        ]
+      }
+    },
+    "/api/v1/cis": {
+      "get": {
+        "description": "(cmdb:read): configuration items by name. q matches part of a name; class finds that class and every class that extends it; retired items are left out unless include_retired=true or status=retired. more says there are more after this page.\n\nRequires the `cmdb:read` permission.",
+        "operationId": "listCIs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_retired",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "class",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "support_group",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/CiSummary"
+                      },
+                      "type": "array"
+                    },
+                    "more": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "more"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List c is",
+        "tags": [
+          "cis"
+        ],
+        "x-permissions": [
+          "cmdb:read"
+        ]
+      },
+      "post": {
+        "description": "(cmdb:manage) with {\"class\", \"name\", \"status\"?, \"description\"?, \"owner_group_id\"?, \"support_group_id\"?, \"fields\"?}: add a configuration item. Status defaults to active; fields left out take the class's defaults.\n\nRequires the `cmdb:manage` permission.",
+        "operationId": "createCI",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CiRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ci"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create CI",
+        "tags": [
+          "cis"
+        ],
+        "x-permissions": [
+          "cmdb:manage"
+        ]
+      }
+    },
+    "/api/v1/cis/{id}": {
+      "delete": {
+        "description": "(cmdb:manage): remove a configuration item and its relationships. One linked to any record cannot be removed (409): retire it instead, so the record keeps what it was about.\n\nRequires the `cmdb:manage` permission.",
+        "operationId": "deleteCI",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete CI",
+        "tags": [
+          "cis"
+        ],
+        "x-permissions": [
+          "cmdb:manage"
+        ]
+      },
+      "get": {
+        "description": "(cmdb:read): one configuration item, with its relationships and the records linked to it.\n\nRequires the `cmdb:read` permission.",
+        "operationId": "getCI",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ci"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get CI",
+        "tags": [
+          "cis"
+        ],
+        "x-permissions": [
+          "cmdb:read"
+        ]
+      },
+      "patch": {
+        "description": "(cmdb:manage) with any of {\"class\", \"name\", \"status\", \"description\", \"owner_group_id\", \"support_group_id\", \"fields\"}. Changing the class keeps the fields the new class also has.\n\nRequires the `cmdb:manage` permission.",
+        "operationId": "updateCI",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CiRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ci"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Update CI",
+        "tags": [
+          "cis"
+        ],
+        "x-permissions": [
+          "cmdb:manage"
+        ]
+      }
+    },
+    "/api/v1/cis/{id}/impact": {
+      "get": {
+        "description": "(cmdb:read): the items trouble with this one reaches, following the relationships that carry impact backwards (what depends on it, what runs on it, and so on), nearest first.\n\nRequires the `cmdb:read` permission.",
+        "operationId": "getCIImpact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Impact"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get CI impact",
+        "tags": [
+          "cis"
+        ],
+        "x-permissions": [
+          "cmdb:read"
+        ]
+      }
+    },
+    "/api/v1/cis/{id}/relationships": {
+      "post": {
+        "description": "(cmdb:manage) with {\"type\", \"to\"} or {\"type\", \"from\"}: relate two items. The same relationship twice is a 409.\n\nRequires the `cmdb:manage` permission.",
+        "operationId": "createCIRelationship",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CiRelation"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Create CI relationship",
+        "tags": [
+          "cis"
+        ],
+        "x-permissions": [
+          "cmdb:manage"
+        ]
+      }
+    },
+    "/api/v1/cis/{id}/relationships/{relId}": {
+      "delete": {
+        "description": "(cmdb:manage): remove one of an item's relationships.\n\nRequires the `cmdb:manage` permission.",
+        "operationId": "deleteCIRelationship",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "relId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Delete CI relationship",
+        "tags": [
+          "cis"
+        ],
+        "x-permissions": [
+          "cmdb:manage"
+        ]
+      }
+    },
+    "/api/v1/cmdb/model": {
+      "get": {
+        "description": "(cmdb:read): the classes items can be, how they can relate, and their statuses.\n\nRequires the `cmdb:read` permission.",
+        "operationId": "getCMDBModel",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CmdbModel"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get CMDB model",
+        "tags": [
+          "cmdb"
+        ],
+        "x-permissions": [
+          "cmdb:read"
         ]
       }
     },
@@ -6275,6 +7745,262 @@
         ]
       }
     },
+    "/api/v1/tickets/{id}/cis/{ciId}": {
+      "delete": {
+        "description": "(cmdb:read, and update on the record's type): unlink an item from a record. Answers the record's linked items.\n\nRequires the `records:update:\u003ctype\u003e` permission.",
+        "operationId": "unlinkTicketCI",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ciId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/CiSummary"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Unlink ticket CI",
+        "tags": [
+          "tickets"
+        ],
+        "x-permissions": [
+          "records:update:\u003ctype\u003e"
+        ]
+      },
+      "put": {
+        "description": "(cmdb:read, and update on the record's type): link an item to a record, such as a server an incident affects or a database a change touches. Linking one already linked does nothing. Answers the record's linked items.\n\nRequires the `records:update:\u003ctype\u003e` permission.",
+        "operationId": "linkTicketCI",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ciId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/CiSummary"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Link ticket CI",
+        "tags": [
+          "tickets"
+        ],
+        "x-permissions": [
+          "records:update:\u003ctype\u003e"
+        ]
+      }
+    },
     "/api/v1/tickets/{id}/comments": {
       "get": {
         "description": "Internal notes are filtered out by RLS for non-staff.",
@@ -6513,6 +8239,116 @@
         "summary": "Create comment",
         "tags": [
           "tickets"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/impact": {
+      "get": {
+        "description": "(cmdb:read): what trouble with the record's linked items reaches, as GET /cis/{id}/impact does for one item.\n\nRequires the `cmdb:read` permission.",
+        "operationId": "getTicketImpact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Impact"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get ticket impact",
+        "tags": [
+          "tickets"
+        ],
+        "x-permissions": [
+          "cmdb:read"
         ]
       }
     },
@@ -8086,6 +9922,12 @@
     },
     {
       "name": "calendar"
+    },
+    {
+      "name": "cis"
+    },
+    {
+      "name": "cmdb"
     },
     {
       "name": "forms"

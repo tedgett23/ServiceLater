@@ -343,7 +343,7 @@ func (f *Form) validateStructure(file string, p *Problems) {
 				p.add(file, "%s: every record has a summary, so it is always shown and can always be written", at)
 			}
 		} else {
-			fd.validateExtra(f.RecordType, at, file, p)
+			fd.validateExtra(f.RecordType+" records", func(n string) bool { return reservedName(f.RecordType, n) }, at, file, p)
 		}
 		if utf8.RuneCountInString(fd.Label) > maxLabel {
 			p.add(file, "%s: label is longer than %d characters", at, maxLabel)
@@ -439,16 +439,18 @@ func recordTypeWord(t string) string {
 	return "a " + t
 }
 
-func (fd *FormField) validateExtra(recordType, at, file string, p *Problems) {
+// validateExtra checks a field a form (or a CMDB class) declares itself. owner names what has it ("incident records")
+// and reserved says which names its own columns take.
+func (fd *FormField) validateExtra(owner string, reserved func(string) bool, at, file string, p *Problems) {
 	switch {
 	case !fieldNameRE.MatchString(fd.Name):
 		p.add(file, "%s: a field name is 1-40 characters: lowercase letters, digits and underscores, starting with a letter", at)
-	case reservedName(recordType, fd.Name):
-		p.add(file, "%s: %s records have a field of their own called %s, so an extra field cannot use the name", at, recordType, fd.Name)
+	case reserved(fd.Name):
+		p.add(file, "%s: %s have a field of their own called %s, so an extra field cannot use the name", at, owner, fd.Name)
 	}
 	if !slices.Contains(FormFieldTypes, fd.Type) {
 		if fd.Type == "" {
-			p.add(file, "%s: an extra field needs a type (%s); %s records have no field of that name", at, strings.Join(FormFieldTypes, ", "), recordType)
+			p.add(file, "%s: an extra field needs a type (%s); %s have no field of that name", at, strings.Join(FormFieldTypes, ", "), owner)
 		} else {
 			p.add(file, "%s: type must be one of %s, got %q", at, strings.Join(FormFieldTypes, ", "), fd.Type)
 		}

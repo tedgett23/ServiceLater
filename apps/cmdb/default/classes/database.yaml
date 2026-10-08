@@ -1,0 +1,16 @@
+kind: class
+name: database
+label: Database
+fields:
+  engine:
+    type: choice
+    label: Engine
+    options: [{value: postgresql, label: PostgreSQL}, {value: mysql, label: MySQL}, {value: sql_server, label: SQL Server}, {value: oracle, label: Oracle}, {value: other, label: Other}]
+  version:
+    type: text
+    label: Version
+    max_length: 100
+  environment:
+    type: choice
+    label: Environment
+    options: [{value: production, label: Production}, {value: staging, label: Staging}, {value: test, label: Test}, {value: development, label: Development}]

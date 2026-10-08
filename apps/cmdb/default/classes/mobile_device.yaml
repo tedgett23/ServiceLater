@@ -1,0 +1,17 @@
+kind: class
+name: mobile_device
+label: Mobile device
+extends: hardware
+fields:
+  phone_number:
+    type: text
+    label: Phone number
+    max_length: 50
+  operating_system:
+    type: text
+    label: Operating system
+    max_length: 200
+  used_by:
+    type: text
+    label: Used by
+    max_length: 200

@@ -1,0 +1,24 @@
+kind: class
+name: network_device
+label: Network device
+extends: hardware
+description: Routers, switches, firewalls, load balancers and wireless access points. Its device type says which; add a class in the local layer if one needs fields of its own.
+fields:
+  device_type:
+    type: choice
+    label: Device type
+    options:
+      - {value: router, label: Router}
+      - {value: switch, label: Switch}
+      - {value: firewall, label: Firewall}
+      - {value: load_balancer, label: Load balancer}
+      - {value: wireless, label: Wireless access point}
+      - {value: other, label: Other}
+  hostname:
+    type: text
+    label: Hostname
+    max_length: 253
+  ip_address:
+    type: text
+    label: IP address
+    max_length: 45

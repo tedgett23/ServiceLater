@@ -1,0 +1,21 @@
+kind: class
+name: application
+label: Application
+description: Software that runs somewhere and that services depend on.
+fields:
+  vendor:
+    type: text
+    label: Vendor
+    max_length: 200
+  version:
+    type: text
+    label: Version
+    max_length: 100
+  environment:
+    type: choice
+    label: Environment
+    options: [{value: production, label: Production}, {value: staging, label: Staging}, {value: test, label: Test}, {value: development, label: Development}]
+  url:
+    type: text
+    label: URL
+    max_length: 500

@@ -6,6 +6,7 @@ export type RealtimeEvent =
 	| { type: 'comment.added'; ticket_id: string }
 	| { type: 'notification.changed' }
 	| { type: 'freeze.changed'; id: string }
+	| { type: 'ci.changed'; id: string } // a configuration item or its relationships changed
 	| { type: 'resync' }
 	| { type: 'definitions.changed' }; // an app was installed, updated or removed
 

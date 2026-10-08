@@ -69,13 +69,19 @@ type ticketDTO struct {
 	// FieldStates says, for each field of the type's form, whether it is shown, required and writable now, and which
 	// options a choice offers (single-ticket responses). A field with no entry is shown, optional and writable.
 	FieldStates map[string]apps.FieldState `json:"field_states,omitempty"`
+	// CIs are the configuration items linked to it (single-ticket responses, for those who may read the CMDB).
+	CIs []ciSummaryDTO `json:"cis,omitempty"`
 }
 
-// detail adds what a single-ticket response carries beyond the ticket: the moves and the SLA clocks.
+// detail adds what a single-ticket response carries beyond the ticket: the moves, field states, linked items and the
+// SLA clocks.
 func (h *handlers) detail(ctx context.Context, q *dbgen.Queries, p auth.Principal, out *ticketDTO) error {
 	out.Moves = h.movesFor(ctx, q, p, *out)
 	out.FieldStates = h.svc.FieldStates(ctx, q, actorOf(p), out.Ticket)
 	var err error
+	if out.CIs, err = h.ticketCIs(ctx, q, p, out.ID); err != nil {
+		return err
+	}
 	out.SLAs, err = records.LoadSLAs(ctx, q, out.ID)
 	return err
 }

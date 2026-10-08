@@ -1,0 +1,24 @@
+kind: class
+name: server
+label: Server
+extends: hardware
+fields:
+  hostname:
+    type: text
+    label: Hostname
+    max_length: 253
+  ip_address:
+    type: text
+    label: IP address
+    max_length: 45
+  operating_system:
+    type: text
+    label: Operating system
+    max_length: 200
+  environment:
+    type: choice
+    label: Environment
+    options: [{value: production, label: Production}, {value: staging, label: Staging}, {value: test, label: Test}, {value: development, label: Development}]
+  virtual:
+    type: boolean
+    label: Virtual machine

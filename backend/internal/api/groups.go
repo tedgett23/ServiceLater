@@ -213,7 +213,7 @@ func (h *handlers) deleteGroup(w http.ResponseWriter, r *http.Request) {
 		var pe *pgconn.PgError
 		switch {
 		case errors.As(err, &pe) && pe.Code == "23503":
-			return &apiError{http.StatusConflict, "tickets are assigned to this group; move them to another group first"}
+			return &apiError{http.StatusConflict, "tickets or configuration items are assigned to this group; move them to another group first"}
 		case err != nil:
 			return err
 		case n == 0:

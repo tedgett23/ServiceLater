@@ -933,6 +933,62 @@ Not built yet: forms on `task` (inherited by every type), user and group pickers
 app's fields, per-field read permissions (a hidden field is not a secret: anyone who can read the record can read
 its fields through the API), extra fields in list views, search and lookups, and editing forms in the UI.
 
+### 8.2 CMDB (built)
+
+Configuration items are **core data people edit** (`cis`, migration 00027), like freezes: an item has a `class`, a
+`name` (unique within its class, case aside), a `status` (planned, active, maintenance, retired: core values,
+`apps.CIStatuses`), a description, an owner group and a support group, and its class's fields in `fields` (jsonb, as a
+ticket's extra fields). What an item *can be* and how items *relate* are app definitions, shipped by the `cmdb` app
+and changed in its local layer. The design aims at the useful core of a CMDB without the depth of ServiceNow's: no
+table per class, a handful of relationship types, no discovery or reconciliation engine yet.
+
+**Classes** (`classes/<name>.yaml`, `internal/apps/cmdb.go`): `label`, `description`, optional `extends` (a class of
+the same app, at most 5 deep, no loops) and `fields` in the form field syntax (`text`, `choice`, `date`...; `required`,
+`default`, limits; no conditions, since an item is not a record). A class has the fields of the classes it extends
+first, and counts as each of them: `GET /cis?class=hardware` finds servers too (`Registry.ClassAndDescendants`). Two
+apps cannot define one class name. `cmdb` 0.2.0 ships ten: business service, application, database, hardware with
+server, computer, mobile device and network device under it (load balancers and firewalls are a network device's
+`device_type`), cloud resource and other. An operator adds a class, or a field to a shipped one, in `local/`:
+
+```yaml
+# local/classes/load_balancer.yaml
+kind: class
+name: load_balancer
+label: Load balancer
+extends: network_device
+fields:
+  vip: { type: text, label: Virtual IP }
+```
+
+**Relationship types** (`relationships/<name>.yaml`): `label` reads from the first item, `reverse` from the second,
+and `impact: true` says trouble with the second affects the first. Shipped: `depends_on` (Used by) and `runs_on`
+(Runs) carry impact; `part_of` (Contains) and `connected_to` do not. Relationships are rows (`ci_relationships`:
+`from_ci`, `to_ci`, `type`); removing a type's definition leaves its rows, which then carry no impact.
+
+**Impact** is the items trouble reaches: the impact relationships followed backwards (what depends on it, what runs on
+it, and so on), breadth first, one query per step, each item once (so loops end), at most 10 steps and 1000 items
+(`internal/cmdb.Impact`). Postgres needs no graph extension for this; a recursive CTE was rejected because it
+enumerates paths, which explodes on dense graphs.
+
+**Records link to items** (`task_cis`): an incident's affected server, a change's database. Whoever reads the CMDB
+and may update the record links and unlinks them (RLS checks both); the link tells the record's watchers through the
+ticket channel. Single tickets carry `cis` (only for `cmdb:read`), `GET /tickets/{id}/impact` is what the linked items
+reach, and an item lists the records linked to it. An item linked to a record cannot be deleted (409): retire it.
+
+**Permissions**: `cmdb:read` (agents and admins) sees items, relationships and links; `cmdb:manage` (admins, and the
+cmdb app's `cmdb-manager` role) changes items and relationships. End users see none of it, including on their own
+tickets. Realtime `ci_changes` → `ci.changed` (ids only, to `cmdb:read`).
+
+**API**: `GET /cmdb/model` (classes with resolved fields, relationship types, statuses), `/cis` (list with `q`,
+`class`, `status`, `support_group`, `include_retired`; CRUD), `POST|DELETE /cis/{id}/relationships`,
+`GET /cis/{id}/impact`, `PUT|DELETE /tickets/{id}/cis/{ciId}`, `GET /tickets/{id}/impact`. **Web**: `/cmdb` (list),
+`/cmdb/new`, `/cmdb/{id}` (details, relationships, "If it fails", linked tickets), and an "Affected items" section on
+the ticket.
+
+Not built yet: rules and workflows reading linked items (routing by an item's support group, approvals by its
+owner), freezes scoped to items, lookups over items, CSV and API import keyed on a class's identifying field, sync
+from other systems, history of an item's changes, and items for requesters (picking the affected service when filing).
+
 ## 9. Data model and ownership
 
 Definitions are config, not user data. They live in Postgres so they can change without a restart (§5.5 of the
@@ -1182,7 +1238,8 @@ save, not built yet). `app install` takes several paths and installs dependencie
 11. **Reference data.** Runtime-editable data such as freeze windows and business calendars cannot be app-defined
     tables in v1. Freeze windows are now a core table (`freeze_windows`, not a record type: they have no lifecycle,
     number or comments), managed with `freezes:manage` and counted by lookups (§5); what a freeze stops is app content.
-    Business calendars are the same (`business_calendars`, `calendars:manage`, §6.6).
+    Business calendars are the same (`business_calendars`, `calendars:manage`, §6.6), and so are configuration items
+    (`cis`, `cmdb:manage`, §8.2), whose classes and relationship types are app definitions.
 12. **SLAs.** Built as a definition kind (§6.6). Still open: reporting, reset conditions and pause reasons.
 13. **Comment events.** Rules on comments ("a reply reopens the ticket") need `record_type: comment` and access to
     the parent record.
@@ -1209,6 +1266,7 @@ Each slice is shippable and leaves the product working.
 | **6b. SLAs** (done, §6.6) | First-class SLA definitions with pause and resume, business calendars and breach actions. | Slice 6 |
 | **7. Roles and permissions** (done, §11.1) | Custom RBAC and app service principals (open question 3). | Slice 5 |
 | **8. Content kinds** | Catalog, knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
+| **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items. Next: rules reading linked items, scoped freezes, import. | Slices 4 and 7 |
 | **9. Visual builder** | The Svelte Flow builder editing the same workflow files, with live execution highlighting. | Slice 6 |
 
 Later: script steps (Starlark, Lua or WASM), app-defined tables and migrations, custom UI components, signing and

@@ -23,7 +23,15 @@ type snapshot struct {
 	templates  map[string]*Notification // by "app/name"
 	slas       map[string][]*SLA        // by record type, by app then name
 	forms      map[string]*Form         // by record type
+	classes    map[string]*Class        // CMDB classes by name
+	relations  map[string]*Relationship // CMDB relationship types by name
 	apps       []Installed
+}
+
+func emptySnapshot() *snapshot {
+	return &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{},
+		templates: map[string]*Notification{}, slas: map[string][]*SLA{}, forms: map[string]*Form{},
+		classes: map[string]*Class{}, relations: map[string]*Relationship{}}
 }
 
 // Registry serves the current definitions from memory. Installs elsewhere reach it through NOTIFY, so every
@@ -41,7 +49,7 @@ type Registry struct {
 // ever does (useful in tests and before any app is installed).
 func NewRegistry(pool *pgxpool.Pool) *Registry {
 	r := &Registry{pool: pool}
-	r.snap.Store(&snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}, slas: map[string][]*SLA{}, forms: map[string]*Form{}})
+	r.snap.Store(emptySnapshot())
 	return r
 }
 
@@ -50,7 +58,7 @@ func (r *Registry) Load(ctx context.Context) error {
 	if r.pool == nil {
 		return nil
 	}
-	next := &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{}, templates: map[string]*Notification{}, slas: map[string][]*SLA{}, forms: map[string]*Form{}}
+	next := emptySnapshot()
 	err := db.WithSystem(ctx, r.pool, func(tx pgx.Tx) error {
 		q := dbgen.New(tx)
 		apps, err := q.ListApps(ctx)
@@ -152,6 +160,26 @@ func (r *Registry) Load(ctx context.Context) error {
 				next.forms[f.RecordType] = &f
 				continue
 			}
+			if d.Kind == "class" {
+				var c Class
+				if err := json.Unmarshal(d.Body, &c); err != nil {
+					slog.Error("skipping unreadable class", "app", d.AppName, "class", d.Name, "err", err)
+					continue
+				}
+				c.App, c.Version = d.AppName, versions[d.AppName]
+				next.classes[c.Name] = &c
+				continue
+			}
+			if d.Kind == "relationship" {
+				var rel Relationship
+				if err := json.Unmarshal(d.Body, &rel); err != nil {
+					slog.Error("skipping unreadable relationship type", "app", d.AppName, "relationship", d.Name, "err", err)
+					continue
+				}
+				rel.App, rel.Version = d.AppName, versions[d.AppName]
+				next.relations[rel.Name] = &rel
+				continue
+			}
 			if d.Kind != "lifecycle" {
 				continue
 			}
@@ -204,6 +232,7 @@ func (r *Registry) Load(ctx context.Context) error {
 	for _, list := range next.slas {
 		sort.Slice(list, func(i, j int) bool { return list[i].App+"/"+list[i].Name < list[j].App+"/"+list[j].Name })
 	}
+	resolveClasses(next.classes)
 	r.snap.Store(next)
 	return nil
 }
@@ -252,6 +281,58 @@ func builtinForm(recordType string) *Form {
 	}
 	f, _ := builtinForms.LoadOrStore(recordType, FormFor(recordType))
 	return f.(*Form)
+}
+
+// Class finds a CMDB class by name; it is nil when no installed app defines it.
+func (r *Registry) Class(name string) *Class { return r.snap.Load().classes[name] }
+
+// Classes lists the installed CMDB classes by label.
+func (r *Registry) Classes() []*Class {
+	m := r.snap.Load().classes
+	out := make([]*Class, 0, len(m))
+	for _, c := range m {
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	return out
+}
+
+// ClassAndDescendants is the class and every class that extends it, however deeply: what filtering items by it finds.
+func (r *Registry) ClassAndDescendants(name string) []string {
+	out := []string{name}
+	for _, c := range r.snap.Load().classes {
+		if slices.Contains(c.Ancestors, name) {
+			out = append(out, c.Name)
+		}
+	}
+	slices.Sort(out[1:])
+	return out
+}
+
+// Relationship finds a CMDB relationship type by name; it is nil when no installed app defines it.
+func (r *Registry) Relationship(name string) *Relationship { return r.snap.Load().relations[name] }
+
+// Relationships lists the installed relationship types by label.
+func (r *Registry) Relationships() []*Relationship {
+	m := r.snap.Load().relations
+	out := make([]*Relationship, 0, len(m))
+	for _, rel := range m {
+		out = append(out, rel)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	return out
+}
+
+// ImpactTypes are the relationship types trouble spreads along.
+func (r *Registry) ImpactTypes() []string {
+	var out []string
+	for _, rel := range r.snap.Load().relations {
+		if rel.Impact {
+			out = append(out, rel.Name)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // Notification finds a notification template by the app that defines it and its name. It is nil when there is none

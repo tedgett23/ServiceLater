@@ -1,0 +1,19 @@
+kind: class
+name: business_service
+label: Business service
+description: What the business sees and depends on, such as payroll or email. Start here and record what each service depends on.
+fields:
+  criticality:
+    type: choice
+    label: Criticality
+    help: How much it matters when this service is down.
+    options:
+      - {value: "1", label: Critical to the business}
+      - {value: "2", label: High}
+      - {value: "3", label: Medium}
+      - {value: "4", label: Low}
+  service_hours:
+    type: text
+    label: Service hours
+    help: When people expect it to work, for example "24x7" or "weekdays 8-18".
+    max_length: 100

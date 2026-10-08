@@ -1,0 +1,7 @@
+kind: role
+name: cmdb-manager
+label: CMDB manager
+description: "Keeps the CMDB: adds, changes and retires configuration items and records how they relate. Agents can already read it and link items to records."
+permissions:
+  - cmdb:read
+  - cmdb:manage

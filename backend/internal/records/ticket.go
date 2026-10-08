@@ -112,7 +112,7 @@ func FromParts(t dbgen.Task, prefix, requesterName string, assigneeName, groupNa
 	d := Ticket{ID: t.ID, Type: t.Type, Number: t.Number, Reference: fmt.Sprintf("%s%d", prefix, t.Number), Resolution: resolution,
 		Title: t.Title, Description: t.Description, Status: t.Status, StateCategory: t.StateCategory,
 		Priority: t.Priority, RequesterID: t.RequesterID, Requester: requesterName,
-		CreatedAt: t.CreatedAt.Time, UpdatedAt: t.UpdatedAt.Time, Fields: decodeFields(t.Fields)}
+		CreatedAt: t.CreatedAt.Time, UpdatedAt: t.UpdatedAt.Time, Fields: DecodeFields(t.Fields)}
 	if t.AssigneeID.Valid {
 		id := t.AssigneeID.UUID
 		d.AssigneeID = &id
@@ -130,8 +130,8 @@ func FromParts(t dbgen.Task, prefix, requesterName string, assigneeName, groupNa
 	return d
 }
 
-// decodeFields reads the stored extra fields. Whole numbers come back as int64, as a rule or a form check gives them.
-func decodeFields(raw []byte) map[string]any {
+// DecodeFields reads the stored extra fields. Whole numbers come back as int64, as a rule or a form check gives them.
+func DecodeFields(raw []byte) map[string]any {
 	out := map[string]any{}
 	if len(raw) == 0 {
 		return out
@@ -153,7 +153,8 @@ func decodeFields(raw []byte) map[string]any {
 	return out
 }
 
-func encodeFields(f map[string]any) []byte {
+// EncodeFields is DecodeFields backwards: the object as it is stored.
+func EncodeFields(f map[string]any) []byte {
 	if f == nil {
 		return []byte("{}")
 	}

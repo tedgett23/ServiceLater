@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { approvals } from '$lib/approvals.svelte';
+	import { cmdb } from '$lib/cmdb.svelte';
 	import { age } from '$lib/format';
 	import { forms } from '$lib/forms.svelte';
 	import { lifecycle } from '$lib/lifecycle.svelte';
@@ -35,6 +36,7 @@
 			if (e.type === 'definitions.changed' || e.type === 'resync') {
 				void lifecycle.reload();
 				void forms.reload();
+				void cmdb.reload();
 			}
 			if (e.type === 'definitions.changed') queue.scheduleRefresh();
 			// Pending approvals and app notifications (an assignment, say) both arrive as this.
@@ -56,6 +58,9 @@
 	{/if}
 	{#if canRecord(session.user, 'read', 'change') && lifecycle.types.some((t) => t.type === 'change')}
 		<a href="/calendar" aria-current={page.url.pathname.startsWith('/calendar') ? 'page' : undefined}>Calendar</a>
+	{/if}
+	{#if can(session.user, P.cmdbRead)}
+		<a href="/cmdb" aria-current={page.url.pathname.startsWith('/cmdb') ? 'page' : undefined}>CMDB</a>
 	{/if}
 	{#if can(session.user, P.workflowsReadAll)}
 		<a href="/runs" aria-current={page.url.pathname.startsWith('/runs') ? 'page' : undefined}>Runs</a>
@@ -171,6 +176,9 @@
 	nav.narrow {
 		display: none;
 		flex: none;
+		/* An admin has more sections than a phone is wide: they scroll sideways in the bar, never the page. */
+		overflow-x: auto;
+		scrollbar-width: none;
 		padding: 0.25rem 0.75rem;
 		background: var(--chrome);
 		border-top: 1px solid color-mix(in srgb, var(--on-chrome) 18%, transparent);

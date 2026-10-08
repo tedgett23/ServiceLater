@@ -1,0 +1,4 @@
+kind: class
+name: other
+label: Other
+description: Anything worth tracking that no other class fits.

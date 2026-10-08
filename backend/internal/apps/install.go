@@ -268,10 +268,10 @@ func buildPlan(ctx context.Context, q *dbgen.Queries, c *Compiled) (*Plan, error
 		ref := DefRef{d.Kind, d.Name}
 		seen[ref] = true
 		plan.Sources[ref] = d.Source()
-		// A record type has one lifecycle and one form, and a role name means one set of permissions, so two apps
-		// cannot both provide any of them. Rules do not compete: each is named within its own app, and every
-		// applicable rule runs.
-		if d.Kind == "lifecycle" || d.Kind == "role" || d.Kind == "form" {
+		// A record type has one lifecycle and one form, and a role, a CMDB class or a relationship type name means
+		// one thing, so two apps cannot both provide any of them. Rules do not compete: each is named within its own
+		// app, and every applicable rule runs.
+		if d.Kind == "lifecycle" || d.Kind == "role" || d.Kind == "form" || d.Kind == "class" || d.Kind == "relationship" {
 			if other, err := q.FindDefinitionProvider(ctx, dbgen.FindDefinitionProviderParams{Kind: d.Kind, Name: d.Name, AppName: m.Name}); err == nil {
 				problems = append(problems, fmt.Sprintf("the %s is already provided by %s: uninstall it first, or remove it from one of the apps", ref, other))
 				continue
@@ -303,8 +303,13 @@ func buildPlan(ctx context.Context, q *dbgen.Queries, c *Compiled) (*Plan, error
 	for ref := range have {
 		if !seen[ref] {
 			plan.Removed = append(plan.Removed, ref)
-			if ref.Kind == "role" {
+			switch ref.Kind {
+			case "role":
 				plan.Notes = append(plan.Notes, fmt.Sprintf("removing the role %s takes it away from everyone it was granted to", ref.Name))
+			case "class":
+				plan.Notes = append(plan.Notes, fmt.Sprintf("removing the class %s leaves its configuration items, whose fields cannot be changed until a class of that name is installed again", ref.Name))
+			case "relationship":
+				plan.Notes = append(plan.Notes, fmt.Sprintf("removing the relationship type %s leaves the relationships of that type, which no longer carry impact", ref.Name))
 			}
 		}
 	}

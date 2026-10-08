@@ -68,17 +68,21 @@ func toFormDTO(f *apps.Form) formDTO {
 		out.Reactive = []string{}
 	}
 	for _, fd := range f.Placed() {
-		d := formFieldDTO{Name: fd.Name, Type: fd.Type, Label: fd.Label, Help: fd.Help, Core: fd.Core(), Required: fd.Required,
-			MaxLength: fd.MaxLength, Min: fd.Min, Max: fd.Max}
-		for _, o := range fd.Options {
-			d.Options = append(d.Options, optionDTO{Value: o.Value, Label: o.Label})
-		}
-		if fd.Default != nil {
-			d.Default = fd.Default.Literal
-		}
-		out.Fields = append(out.Fields, d)
+		out.Fields = append(out.Fields, toFieldDTO(fd))
 	}
 	return out
+}
+
+func toFieldDTO(fd apps.FormField) formFieldDTO {
+	d := formFieldDTO{Name: fd.Name, Type: fd.Type, Label: fd.Label, Help: fd.Help, Core: fd.Core(), Required: fd.Required,
+		MaxLength: fd.MaxLength, Min: fd.Min, Max: fd.Max}
+	for _, o := range fd.Options {
+		d.Options = append(d.Options, optionDTO{Value: o.Value, Label: o.Label})
+	}
+	if fd.Default != nil {
+		d.Default = fd.Default.Literal
+	}
+	return d
 }
 
 // formType is the {type} path segment, if it names a record type with records of its own.

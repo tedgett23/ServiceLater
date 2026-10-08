@@ -21,6 +21,7 @@ const (
 	channelComments      = "comment_changes"
 	channelNotifications = "notification_changes"
 	channelFreezes       = "freeze_changes"
+	channelCIs           = "ci_changes"
 
 	sendBuffer = 32 // per client; a client that falls this far behind is dropped and resyncs on reconnect
 )
@@ -49,6 +50,13 @@ type resyncEvent struct {
 // it goes to everyone.
 type freezeEvent struct {
 	Type string    `json:"type"` // freeze.changed
+	ID   uuid.UUID `json:"id"`
+}
+
+// ciEvent says a configuration item, or one of its relationships, changed (migration 00027). It goes to those who
+// may read the CMDB.
+type ciEvent struct {
+	Type string    `json:"type"` // ci.changed
 	ID   uuid.UUID `json:"id"`
 }
 
@@ -102,7 +110,7 @@ func (h *Hub) Ready() <-chan struct{} { return h.ready }
 // because NOTIFY is fire-and-forget and anything sent while we were away is gone.
 func (h *Hub) Run(ctx context.Context, dsn string) {
 	defer h.closeAll()
-	db.Listen(ctx, dsn, []string{channelTickets, channelComments, channelNotifications, channelFreezes},
+	db.Listen(ctx, dsn, []string{channelTickets, channelComments, channelNotifications, channelFreezes, channelCIs},
 		func(reconnected bool) {
 			if reconnected {
 				h.broadcast(mustJSON(resyncEvent{Type: "resync"}), func(*client) bool { return true })
@@ -119,6 +127,8 @@ func (h *Hub) Run(ctx context.Context, dsn string) {
 				h.onNotification(payload)
 			case channelFreezes:
 				h.onFreeze(payload)
+			case channelCIs:
+				h.onCI(payload)
 			}
 		})
 }
@@ -132,6 +142,17 @@ func (h *Hub) onFreeze(payload string) {
 		return
 	}
 	h.broadcast(mustJSON(freezeEvent{Type: "freeze.changed", ID: n.ID}), func(*client) bool { return true })
+}
+
+func (h *Hub) onCI(payload string) {
+	var n struct {
+		ID uuid.UUID `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(payload), &n); err != nil {
+		slog.Error("realtime: bad configuration item notification", "err", err)
+		return
+	}
+	h.broadcast(mustJSON(ciEvent{Type: "ci.changed", ID: n.ID}), func(c *client) bool { return c.perms.Has(authz.CMDBRead) })
 }
 
 // DefinitionsChanged tells every connected client that installed apps changed, so screens that show

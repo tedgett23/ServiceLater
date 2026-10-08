@@ -1,0 +1,5 @@
+kind: relationship
+name: depends_on
+label: Depends on
+reverse: Used by
+impact: true

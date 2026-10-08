@@ -29,6 +29,8 @@ const (
 	RolesManage      = "roles:manage"     // grant and revoke roles
 	FreezesManage    = "freezes:manage"   // declare, change and lift change freeze windows
 	CalendarsManage  = "calendars:manage" // add, change and remove the business calendars SLAs count by
+	CMDBRead         = "cmdb:read"        // see configuration items, how they relate, and which records they are linked to
+	CMDBManage       = "cmdb:manage"      // add, change and remove configuration items and their relationships
 )
 
 // Record verbs: what records:<verb>:<type> allows on records of that type. A requester always sees, and comments on,
@@ -111,6 +113,8 @@ var Catalog = []Permission{
 	{RolesManage, "Grant and revoke roles"},
 	{FreezesManage, "Declare, change and lift change freezes"},
 	{CalendarsManage, "Add, change and remove business calendars"},
+	{CMDBRead, "See configuration items, how they relate and the records linked to them"},
+	{CMDBManage, "Add, change and remove configuration items and their relationships"},
 }
 
 // Known reports whether name is a permission the platform checks: one of the Catalog, or a well-formed record

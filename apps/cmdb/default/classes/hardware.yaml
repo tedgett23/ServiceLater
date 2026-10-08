@@ -1,0 +1,28 @@
+kind: class
+name: hardware
+label: Hardware
+description: A physical device. Servers, computers, mobile and network devices extend it; use it directly for anything else, such as a printer.
+fields:
+  manufacturer:
+    type: text
+    label: Manufacturer
+    max_length: 200
+  model:
+    type: text
+    label: Model
+    max_length: 200
+  serial_number:
+    type: text
+    label: Serial number
+    max_length: 100
+  asset_tag:
+    type: text
+    label: Asset tag
+    max_length: 100
+  location:
+    type: text
+    label: Location
+    max_length: 200
+  warranty_ends:
+    type: date
+    label: Warranty ends

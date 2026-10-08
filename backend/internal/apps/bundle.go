@@ -59,6 +59,10 @@ type Definition struct {
 	SLA *SLA
 	// Form lays out and checks a record type's fields (forms/).
 	Form *Form
+	// Class is a kind of configuration item (classes/).
+	Class *Class
+	// Relationship is a way configuration items relate (relationships/).
+	Relationship *Relationship
 }
 
 // Source is the layers joined for storage and display, for example "default+local".
@@ -76,6 +80,8 @@ var definitionDirs = map[string]struct{ kind, unsupported string }{
 	"rules":         {kind: "rule"},
 	"workflows":     {kind: "workflow"},
 	"forms":         {kind: "form"},
+	"classes":       {kind: "class"},
+	"relationships": {kind: "relationship"},
 	"catalog":       {unsupported: "catalog items are not supported yet"},
 	"knowledge":     {unsupported: "knowledge articles are not supported yet"},
 	"notifications": {kind: "notification"},
@@ -343,6 +349,7 @@ func (b *Bundle) Compile() (*Compiled, error) {
 	checkWorkflowStarts(defs, &p)
 	checkNotifyTemplates(defs, &p)
 	checkTransitionTargets(defs, &p)
+	checkClasses(defs, &p)
 	if err := p.orNil(); err != nil || m == nil {
 		return nil, p
 	}
@@ -430,6 +437,22 @@ func compileDefinition(kind, file string, data []byte, forms formSet, p *Problem
 		body, _ := json.Marshal(r)
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: r.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Role: r}
+	case "class":
+		c := parseClass(file, data, p)
+		if c == nil {
+			return nil
+		}
+		body, _ := json.Marshal(c)
+		sum := sha256.Sum256(body)
+		return &Definition{Kind: kind, Name: c.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Class: c}
+	case "relationship":
+		r := parseRelationship(file, data, p)
+		if r == nil {
+			return nil
+		}
+		body, _ := json.Marshal(r)
+		sum := sha256.Sum256(body)
+		return &Definition{Kind: kind, Name: r.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Relationship: r}
 	case "sla":
 		s := parseSLA(file, data, forms, p)
 		if s == nil {
