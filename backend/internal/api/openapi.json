@@ -1909,6 +1909,162 @@
         ],
         "type": "object"
       },
+      "History": {
+        "properties": {
+          "cmdb": {
+            "type": "boolean"
+          },
+          "record_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "HistoryEntry": {
+        "description": "One thing that happened to a record or an item. Values are given as stored (old, new) and as people read them (old_text, new_text: names rather than ids, labels rather than codes), resolved for the reader: something they may not see reads as \"an item\" or \"a record\".",
+        "properties": {
+          "action": {
+            "description": "Created, changed, linked, unlinked or deleted.",
+            "type": "string"
+          },
+          "actor_app": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actor_name": {
+            "description": "Who did it; ActorApp is set when an app did, for OnBehalfOfName. Both are empty for ServiceLater itself (the SLA timer, say).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "field": {
+            "description": "What changed as stored (status, fields.category, ci...); Label is what people call it.",
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "kind": {
+            "description": "Says how to show the values: text, time (RFC 3339, for the reader's time zone) or long (show the before and after rather than inline).",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "new": {},
+          "new_text": {
+            "type": "string"
+          },
+          "old": {},
+          "old_text": {
+            "description": "And NewText are the values as people read them.",
+            "type": "string"
+          },
+          "on_behalf_of_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "action",
+          "actor_name",
+          "at",
+          "field",
+          "id",
+          "kind",
+          "label",
+          "new",
+          "new_text",
+          "old",
+          "old_text"
+        ],
+        "type": "object"
+      },
+      "HistoryExclusion": {
+        "description": "A field an app leaves out of history.",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "subject": {
+            "description": "Task (a record type, Kind) or ci (a class, Kind).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "field",
+          "kind",
+          "label",
+          "subject"
+        ],
+        "type": "object"
+      },
+      "HistorySettings": {
+        "description": "What is recorded field by field. The basics are always recorded whatever it says: a record's creation, status, assignee and assignment group, and an item's creation, status and deletion.",
+        "properties": {
+          "cmdb": {
+            "type": "boolean"
+          },
+          "exclusions": {
+            "description": "The fields apps leave out of history (history: false in a form or a class).",
+            "items": {
+              "$ref": "#/components/schemas/HistoryExclusion"
+            },
+            "type": "array"
+          },
+          "log": {
+            "description": "Who changed these settings and when, newest first, so a gap in history can be told from a quiet record.",
+            "items": {
+              "$ref": "#/components/schemas/SettingChange"
+            },
+            "type": "array"
+          },
+          "record_type_options": {
+            "description": "The record types in use, to choose from.",
+            "items": {
+              "$ref": "#/components/schemas/RecordTypeOption"
+            },
+            "type": "array"
+          },
+          "record_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "cmdb",
+          "exclusions",
+          "log",
+          "record_type_options",
+          "record_types"
+        ],
+        "type": "object"
+      },
       "Hours": {
         "properties": {
           "day": {
@@ -2245,6 +2401,21 @@
         ],
         "type": "object"
       },
+      "RecordTypeOption": {
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
       "RelationRequest": {
         "description": "Relates an item to another: {\"type\", \"to\"} reads \"this \u003ctype\u003e to\", {\"type\", \"from\"} reads \"from \u003ctype\u003e this\". Give exactly one of to and from.",
         "properties": {
@@ -2576,6 +2747,34 @@
         },
         "required": [
           "fields"
+        ],
+        "type": "object"
+      },
+      "SettingChange": {
+        "description": "One change to a setting.",
+        "properties": {
+          "actor_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "new": {},
+          "old": {},
+          "setting": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor_name",
+          "at",
+          "new",
+          "old",
+          "setting"
         ],
         "type": "object"
       },
@@ -5036,6 +5235,128 @@
         ],
         "x-permissions": [
           "cmdb:manage"
+        ]
+      }
+    },
+    "/api/v1/cis/{id}/history": {
+      "get": {
+        "description": "(cmdb:read): what happened to a configuration item, oldest first (the latest 500 changes): its fields, its relationships and the records linked to it.\n\nRequires the `cmdb:read` permission.",
+        "operationId": "getCIHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/HistoryEntry"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get CI history",
+        "tags": [
+          "cis"
+        ],
+        "x-permissions": [
+          "cmdb:read"
         ]
       }
     },
@@ -9765,6 +10086,214 @@
         ]
       }
     },
+    "/api/v1/settings/history": {
+      "get": {
+        "description": "(settings:manage): which changes are recorded field by field, the fields apps leave out, and who changed these settings.\n\nRequires the `settings:manage` permission.",
+        "operationId": "getHistorySettings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistorySettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get history settings",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      },
+      "put": {
+        "description": "(settings:manage) with {\"record_types\", \"cmdb\"}: choose what is recorded field by field: record_types lists record types (or [\"*\"] for every type, including ones added later), cmdb is configuration items. The basics are always recorded, and the change itself is recorded.\n\nRequires the `settings:manage` permission.",
+        "operationId": "putHistorySettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/History"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistorySettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Put history settings",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      }
+    },
     "/api/v1/tickets": {
       "get": {
         "description": "Assignee and requester accept a user id or \"me\"; assignee also accepts \"none\". assignment_group accepts a group id, \"mine\" (any group the caller is in) or \"none\". open=true hides resolved and closed. breached=true keeps tickets with a breached SLA; sort=due lists those first, then the soonest SLA due time (newest first otherwise).",
@@ -11158,6 +11687,124 @@
           }
         ],
         "summary": "Create comment",
+        "tags": [
+          "tickets"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/history": {
+      "get": {
+        "description": "What happened to a record, oldest first (the latest 500 changes): every field a person, a rule or a workflow changed, from what to what, and the items and articles linked to it. Anyone who may see the record sees its history.",
+        "operationId": "getTicketHistory",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/HistoryEntry"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get ticket history",
         "tags": [
           "tickets"
         ]

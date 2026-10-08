@@ -10,7 +10,9 @@
 	import { display } from '$lib/fields';
 	import { groups } from '$lib/groups.svelte';
 	import { realtime } from '$lib/realtime.svelte';
-	import { can, P, type CIDetail, type CIImpact, type CIRelation, type CISummary, type FieldValue, type FormField } from '$lib/types';
+	import { long, what, who } from '$lib/history';
+	import { can, P, type CIDetail, type CIImpact, type CIRelation, type CISummary, type FieldValue, type FormField, type HistoryEntry } from '$lib/types';
+	import { when } from '$lib/format';
 	import { ui } from '$lib/ui.svelte';
 
 	let { data } = $props();
@@ -18,6 +20,7 @@
 
 	let ci = $state<CIDetail | null>(null);
 	let impact = $state<CIImpact | null>(null);
+	let history = $state<HistoryEntry[]>([]);
 	let loadError = $state('');
 	let error = $state('');
 	let busy = $state(false);
@@ -49,6 +52,11 @@
 			impact = await api<CIImpact>(`${path}/impact`);
 		} catch {
 			impact = null;
+		}
+		try {
+			history = (await api<{ items: HistoryEntry[] }>(`${path}/history`)).items;
+		} catch {
+			history = [];
 		}
 	}
 
@@ -320,6 +328,29 @@
 			{/if}
 		</section>
 
+		<section aria-labelledby="history-h">
+			<h2 id="history-h">History</h2>
+			{#if history.length === 0}
+				<p class="msg">Nothing is recorded yet.</p>
+			{:else}
+				<ol class="rows history">
+					{#each [...history].reverse() as e (e.id)}
+						<li>
+							<span class="what"><span><strong>{who(e)}</strong> {what(e, 'this item')}</span></span>
+							<time datetime={e.at}>{when(e.at)}</time>
+							{#if long(e)}
+								<details>
+									<summary>Show the change</summary>
+									<p class="was">{e.old_text || '(empty)'}</p>
+									<p>{e.new_text || '(empty)'}</p>
+								</details>
+							{/if}
+						</li>
+					{/each}
+				</ol>
+			{/if}
+		</section>
+
 		{#if canManage}
 			<section class="danger" aria-labelledby="delete-h">
 				<h2 id="delete-h">Remove</h2>
@@ -449,6 +480,32 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.5rem;
+	}
+	.history li {
+		flex-wrap: wrap;
+		font-size: 0.875rem;
+		color: var(--ink-2);
+	}
+	.history strong {
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.history time {
+		font-size: 0.8rem;
+		white-space: nowrap;
+	}
+	.history details {
+		flex-basis: 100%;
+	}
+	.history details p {
+		margin-top: 0.3rem;
+		padding-left: 0.6rem;
+		border-left: 3px solid var(--rule);
+		white-space: pre-wrap;
+		color: var(--ink);
+	}
+	.history details .was {
+		opacity: 0.75;
 	}
 	.danger {
 		display: grid;

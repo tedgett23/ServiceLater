@@ -16,7 +16,8 @@
 	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
 	import { staff } from '$lib/staff.svelte';
-	import type { Comment, FieldValue, FormField, Status as StatusT, Ticket } from '$lib/types';
+	import type { Comment, FieldValue, FormField, HistoryEntry, Status as StatusT, Ticket } from '$lib/types';
+	import { long, what, who } from '$lib/history';
 	import { can, canRecord, P, prefixOf } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
@@ -179,6 +180,48 @@
 	const setPriority = (p: 1 | 2 | 3 | 4) =>
 		change({ priority: p }, () => api<Ticket>(path, { method: 'PATCH', body: { priority: p } }), `Priority set to ${priorityLabel[p]}`);
 
+	// What the Activity section shows: the conversation, the record's history (every change, by whom), or both in the
+	// order they happened. The choice is remembered in this browser.
+	type Show = 'comments' | 'history' | 'all';
+	function remembered(): Show {
+		try {
+			const v = localStorage.getItem('activity.show');
+			if (v === 'history' || v === 'all') return v;
+		} catch {
+			/* storage unavailable: comments */
+		}
+		return 'comments';
+	}
+	let show = $state<Show>(remembered());
+	let history = $state<HistoryEntry[]>([]);
+	async function loadHistory() {
+		if (show === 'comments') return;
+		try {
+			history = (await api<{ items: HistoryEntry[] }>(`${path}/history`)).items;
+		} catch {
+			/* keep what is shown */
+		}
+	}
+	$effect(() => {
+		try {
+			localStorage.setItem('activity.show', show);
+		} catch {
+			/* not remembered */
+		}
+	});
+	// Whenever the ticket changes (an edit here, or a live update), its history has more in it.
+	$effect(() => {
+		void show;
+		void ticket;
+		void untrack(loadHistory);
+	});
+	type ActivityItem = { key: string; at: string; comment?: Comment; change?: HistoryEntry };
+	const activity = $derived.by((): ActivityItem[] => {
+		const cs: ActivityItem[] = show === 'history' ? [] : comments.map((c) => ({ key: `c${c.id}`, at: c.created_at, comment: c }));
+		const hs: ActivityItem[] = show === 'comments' ? [] : history.map((e) => ({ key: `h${e.id}`, at: e.at, change: e }));
+		return show === 'all' ? [...cs, ...hs].sort((a, b) => a.at.localeCompare(b.at)) : [...cs, ...hs];
+	});
+
 	// Comments
 	let draft = $state('');
 	let internal = $state(false);
@@ -260,21 +303,47 @@
 		</div>
 
 		<section class="activity" aria-labelledby="activity-h">
-				<h2 id="activity-h">Activity</h2>
+				<div class="activity-head">
+					<h2 id="activity-h">Activity</h2>
+					<label class="show">
+						<span>Show</span>
+						<select bind:value={show}>
+							<option value="comments">Comments</option>
+							<option value="history">History</option>
+							<option value="all">Everything</option>
+						</select>
+					</label>
+				</div>
 
-				{#if comments.length === 0}
-					<p class="none">No comments yet.</p>
+				{#if activity.length === 0}
+					<p class="none">{show === 'history' ? 'Nothing has changed yet.' : 'No comments yet.'}</p>
 				{/if}
 				<ol>
-					{#each comments as c (c.id)}
-						<li class:internal={c.internal} class:pending={c.pending}>
-							<div class="cmeta">
-								<strong>{c.author_name}</strong>{#if c.on_behalf_of_name}{' '}<span class="behalf">for {c.on_behalf_of_name}</span>{/if}
-								{#if c.internal}<span class="tag">Internal note</span>{/if}
-								<time datetime={c.created_at}>{c.pending ? 'Sending…' : when(c.created_at)}</time>
-							</div>
-							<p>{c.body}</p>
-						</li>
+					{#each activity as item (item.key)}
+						{#if item.comment}
+							{@const c = item.comment}
+							<li class:internal={c.internal} class:pending={c.pending}>
+								<div class="cmeta">
+									<strong>{c.author_name}</strong>{#if c.on_behalf_of_name}{' '}<span class="behalf">for {c.on_behalf_of_name}</span>{/if}
+									{#if c.internal}<span class="tag">Internal note</span>{/if}
+									<time datetime={c.created_at}>{c.pending ? 'Sending…' : when(c.created_at)}</time>
+								</div>
+								<p>{c.body}</p>
+							</li>
+						{:else if item.change}
+							{@const e = item.change}
+							<li class="change">
+								<span><strong>{who(e)}</strong> {what(e, `this ${lifecycle.typeLabel(ticket.type).toLowerCase()}`)}</span>
+								<time datetime={e.at}>{when(e.at)}</time>
+								{#if long(e)}
+									<details>
+										<summary>Show the change</summary>
+										<div class="was"><span>Before</span><p>{e.old_text || '(empty)'}</p></div>
+										<div><span>After</span><p>{e.new_text || '(empty)'}</p></div>
+									</details>
+								{/if}
+							</li>
+						{/if}
 					{/each}
 				</ol>
 
@@ -486,6 +555,71 @@
 		display: grid;
 		gap: 1.25rem;
 		max-width: 68ch;
+	}
+	.activity-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+	}
+	.show {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.85rem;
+		color: var(--ink-2);
+	}
+	.show select {
+		min-height: 2rem;
+		padding: 0.2rem 0.4rem;
+		border: 1px solid var(--rule);
+		border-radius: var(--radius);
+		background: var(--raised);
+		color: var(--ink);
+	}
+	/* A change is a line, quieter than a comment. */
+	.activity li.change {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.15rem 0.75rem;
+		padding: 0.4rem 0;
+		border: 0;
+		background: none;
+		font-size: 0.875rem;
+		color: var(--ink-2);
+		overflow-wrap: anywhere;
+	}
+	.activity li.change strong {
+		color: var(--ink);
+		font-weight: 600;
+	}
+	.activity li.change time {
+		font-size: 0.8rem;
+	}
+	.activity li.change details {
+		flex-basis: 100%;
+	}
+	.activity li.change summary {
+		cursor: pointer;
+		font-size: 0.8rem;
+	}
+	.activity li.change details div {
+		margin-top: 0.35rem;
+		padding-left: 0.6rem;
+		border-left: 3px solid var(--rule);
+	}
+	.activity li.change details .was {
+		opacity: 0.75;
+	}
+	.activity li.change details span {
+		font-size: 0.75rem;
+		font-weight: 700;
+	}
+	.activity li.change details p {
+		white-space: pre-wrap;
+		color: var(--ink);
 	}
 	.activity {
 		grid-area: activity;

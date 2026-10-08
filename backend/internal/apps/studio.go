@@ -177,3 +177,46 @@ func UpdateStudio(ctx context.Context, pool *pgxpool.Pool, u StudioUpdate) (*Com
 	}
 	return c, plan, nil
 }
+
+// storeHistoryExclusions keeps the fields the app's forms and classes leave out of history (history: false), where
+// the history triggers look for them, replacing what an earlier install kept.
+func storeHistoryExclusions(ctx context.Context, q *dbgen.Queries, c *Compiled) error {
+	if err := q.DeleteHistoryExclusions(ctx, c.Manifest.Name); err != nil {
+		return err
+	}
+	add := func(subject, kind, field string) error {
+		return q.InsertHistoryExclusion(ctx, dbgen.InsertHistoryExclusionParams{AppName: c.Manifest.Name, Subject: subject, Kind: kind, Field: field})
+	}
+	classes := map[string]*Class{}
+	for _, d := range c.Definitions {
+		if f := d.Form; f != nil {
+			for _, fd := range f.Fields {
+				if fd.Recorded() {
+					continue
+				}
+				field := "fields." + fd.Name
+				if _, core := coreField(f.RecordType, fd.Name); core {
+					field = fd.Name
+				}
+				if err := add("task", f.RecordType, field); err != nil {
+					return err
+				}
+			}
+		}
+		if d.Class != nil {
+			classes[d.Class.Name] = d.Class
+		}
+	}
+	// A class has the fields of the classes it extends, so what one leaves out is left out of those too.
+	resolveClasses(classes)
+	for _, cl := range classes {
+		for _, fd := range cl.All {
+			if !fd.Recorded() {
+				if err := add("ci", cl.Name, "fields."+fd.Name); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}

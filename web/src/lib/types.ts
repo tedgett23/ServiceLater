@@ -623,3 +623,20 @@ export interface ArticleVersion {
 	tags?: string[];
 	audience?: string;
 }
+
+/** One thing that happened to a record or an item (GET /tickets/{id}/history, /cis/{id}/history). */
+export interface HistoryEntry {
+	id: number;
+	at: string;
+	actor_name: string | null;
+	actor_app?: string;
+	on_behalf_of_name?: string;
+	action: 'created' | 'changed' | 'linked' | 'unlinked' | 'deleted';
+	field: string;
+	label: string;
+	old: unknown;
+	new: unknown;
+	old_text: string;
+	new_text: string;
+	kind: 'text' | 'time' | 'long';
+}

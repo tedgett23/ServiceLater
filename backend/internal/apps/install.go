@@ -159,6 +159,9 @@ func InstallAll(ctx context.Context, pool *pgxpool.Pool, apps []*Compiled, opts 
 				if err := storeFiles(ctx, q, c); err != nil {
 					return err
 				}
+				if err := storeHistoryExclusions(ctx, q, c); err != nil {
+					return err
+				}
 			}
 		}
 		if opts.DryRun {

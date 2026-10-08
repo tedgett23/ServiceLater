@@ -135,6 +135,7 @@ func NewRouter(d Deps) http.Handler {
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.getTicket)
 					r.Get("/comments", h.listComments)
+					r.Get("/history", h.getTicketHistory)
 					r.Post("/comments", h.createComment)
 					r.With(auth.RequireRecordPermission(authz.Update)).Patch("/", h.updateTicket)
 					r.With(auth.RequireRecordPermission(authz.Update)).Post("/transitions", h.transitionTicket)
@@ -181,6 +182,8 @@ func NewRouter(d Deps) http.Handler {
 					r.Get("/versions/{version}", h.getArticleVersion)
 				})
 			})
+			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/history", h.getHistorySettings)
+			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/history", h.putHistorySettings)
 			r.Route("/settings/email", func(r chi.Router) {
 				r.Use(auth.RequirePermission(authz.SettingsManage))
 				r.Get("/", h.getEmailSettings)
@@ -200,6 +203,7 @@ func NewRouter(d Deps) http.Handler {
 					r.With(auth.RequirePermission(authz.CMDBManage)).Patch("/", h.updateCI)
 					r.With(auth.RequirePermission(authz.CMDBManage)).Delete("/", h.deleteCI)
 					r.Get("/impact", h.getCIImpact)
+					r.Get("/history", h.getCIHistory)
 					r.With(auth.RequirePermission(authz.CMDBManage)).Post("/relationships", h.createCIRelationship)
 					r.With(auth.RequirePermission(authz.CMDBManage)).Delete("/relationships/{relId}", h.deleteCIRelationship)
 				})

@@ -23,9 +23,12 @@ test.describe('SLAs', () => {
 		await page.getByRole('button', { name: 'Resume' }).click();
 		await expect(resolve).toContainText(/Due (in|now)/);
 
-		// The queue's Due view lists open work by SLA, and the row says when it is due.
+		// The queue's Due view lists open work by SLA, and the row says when it is due. Searched for by its title: the
+		// view lists the soonest due first, and the incidents other tests leave open came before it (this failed once the
+		// suite had enough of them to push it off the first page).
 		await page.goto('/tickets');
 		await page.getByRole('button', { name: 'Due', exact: true }).click();
+		await page.getByPlaceholder('Search titles').fill(title);
 		await expect(row(page, title).locator('.sla')).toHaveText(/Due (in|now)/);
 	});
 

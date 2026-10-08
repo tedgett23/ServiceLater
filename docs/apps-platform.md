@@ -1228,6 +1228,38 @@ If `incident-management` is uninstalled while tickets exist, those tickets are k
 built-in lifecycle (new, open, closed) so nothing breaks. Uninstall also refuses while another installed app
 depends on it. Running workflow executions of a removed app are cancelled and recorded as such.
 
+### 9.4 History (built)
+
+Every record and configuration item keeps what happened to it, field by field (`record_history`, migration 00032):
+when, who (a person; an app's principal and the person it acted for; or the system, such as the SLA timer), what
+(`created`, `changed`, `linked`, `unlinked`, `deleted`), which field (a column, an extra field as `fields.<name>`, or
+what was linked: an item, an article, a record, a relationship) and the old and new values as stored. It is written
+by triggers on `tasks`, `incidents`, `changes`, `task_cis`, `task_articles`, `cis` and `ci_relationships`, so every
+way of changing them is recorded alike, and nothing else can write it: the app role may only read it, for records
+and items it may see, and admins cannot change or delete an entry either.
+
+`GET /tickets/{id}/history` and `GET /cis/{id}/history` give it oldest first (the latest 500 entries), with each
+field's label and its values as people read them (names for ids, status and option labels), resolved for the reader:
+an item they may not see reads as "an item". The ticket's Activity section shows comments, the history, or
+everything in order (remembered per browser); an item's page has a History section. A new record type gets history
+for its `tasks` columns and extra fields at once; a new extension table needs a trigger like `changes_history`.
+
+**Choosing what is recorded** (migration 00033). The basics are always recorded: a record's creation, status,
+assignee and assignment group; an item's creation, deletion and status. Beyond them:
+
+- **Admin → History** (`history.record_types`: record types, or `*` for every type including later ones;
+  `history.cmdb`), defaulting to everything. Every change to these settings is itself recorded (subject `setting`,
+  shown on that page), so a gap can be told from a quiet record. Turning something off acts from then on.
+- **`history: false`** on a form field or a CMDB class field leaves its changes out, set by the app or in its local
+  layer like any other change. The installer keeps these in `history_exclusions` (a class's exclusion applies to the
+  classes that extend it); the admin page lists them.
+
+One function decides (`app_history_on`, called by `app_history` for every entry the triggers make), at the cost of
+an indexed lookup or two per change.
+
+Not built yet: comments edited or deleted (they are not edited today), workflow and approval events in the same
+list (they are in the run history), SLA breaches, filtering by person or field, export, and a retention policy.
+
 ## 10. Install, update, uninstall
 
 **Install** (`servicelater app install ./my-app` or `my-app.swapp`):

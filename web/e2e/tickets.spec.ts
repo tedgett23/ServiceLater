@@ -80,13 +80,15 @@ test.describe('an agent working the queue', () => {
 		const t = await createTicket(context, { title: `Reassign ${uid()}` });
 		await openTicket(page, t.number);
 
-		await details(page).getByLabel('Priority').selectOption('Critical');
-		await details(page).getByLabel('Assignee').selectOption({ label: USERS.agent2.name });
+		// Each change saves in the background; wait for it before reloading, or the reload can cancel it (this raced).
+		const saved = () => page.waitForResponse((r) => r.url().endsWith(`/api/v1/tickets/${t.id}`) && r.request().method() === 'PATCH');
+		await Promise.all([saved(), details(page).getByLabel('Priority').selectOption('Critical')]);
+		await Promise.all([saved(), details(page).getByLabel('Assignee').selectOption({ label: USERS.agent2.name })]);
 		await page.reload();
 		await expect(details(page).getByLabel('Priority')).toHaveValue('1');
 		await expect(details(page).getByLabel('Assignee').locator('option:checked')).toHaveText(USERS.agent2.name);
 
-		await details(page).getByLabel('Assignee').selectOption('');
+		await Promise.all([saved(), details(page).getByLabel('Assignee').selectOption('')]);
 		await page.reload();
 		await expect(details(page).getByLabel('Assignee').locator('option:checked')).toHaveText('Unassigned');
 	});

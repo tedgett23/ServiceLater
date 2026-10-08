@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/mail"
 	"net/url"
+	"slices"
 	"strings"
 )
 
@@ -119,4 +120,73 @@ func Local(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// HistoryPrefix is what every history setting's name starts with.
+const HistoryPrefix = "history."
+
+// AllTypes in History.RecordTypes means every record type, including ones added later.
+const AllTypes = "*"
+
+// History is which changes are recorded field by field (docs/apps-platform.md §9.4). Whatever it says, a record's
+// creation, status, assignee and assignment group, and an item's creation, status and deletion, are always recorded:
+// "who closed this" must always have an answer. Fields an app marks history: false are left out too.
+type History struct {
+	// RecordTypes are the record types whose other changes are recorded: their names, or * for every type.
+	RecordTypes []string `json:"record_types"`
+	// CMDB records the other changes to configuration items.
+	CMDB bool `json:"cmdb"`
+}
+
+// DefaultHistory records everything.
+var DefaultHistory = History{RecordTypes: []string{AllTypes}, CMDB: true}
+
+// HistoryFrom reads the history settings from stored rows; what is not stored has its default.
+func HistoryFrom(stored map[string][]byte) History {
+	h := DefaultHistory
+	if raw, ok := stored[HistoryPrefix+"record_types"]; ok {
+		var types []string
+		if json.Unmarshal(raw, &types) == nil {
+			h.RecordTypes = types
+		}
+	}
+	if raw, ok := stored[HistoryPrefix+"cmdb"]; ok {
+		_ = json.Unmarshal(raw, &h.CMDB)
+	}
+	if h.RecordTypes == nil {
+		h.RecordTypes = []string{}
+	}
+	return h
+}
+
+// Rows are the history settings as they are stored.
+func (h History) Rows() map[string][]byte {
+	types, _ := json.Marshal(h.RecordTypes)
+	cmdb, _ := json.Marshal(h.CMDB)
+	return map[string][]byte{HistoryPrefix + "record_types": types, HistoryPrefix + "cmdb": cmdb}
+}
+
+// Check normalises the settings against the record types this version knows and says what is wrong.
+func (h *History) Check(known []string) error {
+	seen := map[string]bool{}
+	var out []string
+	for _, t := range h.RecordTypes {
+		t = strings.TrimSpace(t)
+		switch {
+		case t == AllTypes:
+			h.RecordTypes = []string{AllTypes}
+			return nil
+		case !slices.Contains(known, t):
+			return fmt.Errorf("record_types: %q is not a record type (available: %s, or * for every type)", t, strings.Join(known, ", "))
+		case !seen[t]:
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	slices.Sort(out)
+	if out == nil {
+		out = []string{}
+	}
+	h.RecordTypes = out
+	return nil
 }

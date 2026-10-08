@@ -92,6 +92,9 @@ type FormField struct {
 	MaxLength    int    `json:"max_length,omitempty"`
 	Min          *int64 `json:"min,omitempty"`
 	Max          *int64 `json:"max,omitempty"`
+	// History false leaves the field's changes out of the record's history (a noisy or sensitive field). The basics
+	// (status, assignee, assignment group) are always recorded and are not form fields.
+	History *bool `json:"history,omitempty"`
 
 	core                        bool
 	required, visible, readOnly *expr.Program
@@ -235,6 +238,7 @@ type formFieldFile struct {
 	MaxLength    int      `yaml:"max_length"`
 	Min          *int64   `yaml:"min"`
 	Max          *int64   `yaml:"max"`
+	History      *bool    `yaml:"history"`
 }
 
 // orderedFields reads the fields map keeping the author's order.
@@ -252,7 +256,7 @@ func (o *orderedFields) UnmarshalYAML(n *yaml.Node) error {
 		}
 		*o = append(*o, FormField{Name: key.Value, Type: f.Type, Label: f.Label, Help: f.Help, Options: f.Options,
 			Required: f.Required, RequiredWhen: f.RequiredWhen, VisibleWhen: f.VisibleWhen, ReadOnlyWhen: f.ReadOnlyWhen,
-			Default: f.Default, MaxLength: f.MaxLength, Min: f.Min, Max: f.Max})
+			Default: f.Default, MaxLength: f.MaxLength, Min: f.Min, Max: f.Max, History: f.History})
 	}
 	return nil
 }
@@ -881,3 +885,16 @@ func (f *Form) Defaults() map[string]any {
 	}
 	return out
 }
+
+// CoreFieldKind is the type of a record column a form can place (textarea for the long ones), or "" for one it cannot.
+func CoreFieldKind(name string) string {
+	for _, c := range CoreFields {
+		if c.Name == name {
+			return c.Type
+		}
+	}
+	return ""
+}
+
+// Recorded reports whether a field's changes go into history (history: false leaves them out).
+func (fd *FormField) Recorded() bool { return fd.History == nil || *fd.History }

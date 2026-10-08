@@ -152,6 +152,13 @@ type GroupMember struct {
 	AddedAt pgtype.Timestamptz `json:"added_at"`
 }
 
+type HistoryExclusion struct {
+	AppName string `json:"app_name"`
+	Subject string `json:"subject"`
+	Kind    string `json:"kind"`
+	Field   string `json:"field"`
+}
+
 type Incident struct {
 	TaskID     uuid.UUID `json:"task_id"`
 	Type       string    `json:"type"`
@@ -222,6 +229,19 @@ type RateLimit struct {
 	Key         string             `json:"key"`
 	Count       int32              `json:"count"`
 	WindowStart pgtype.Timestamptz `json:"window_start"`
+}
+
+type RecordHistory struct {
+	ID         int64              `json:"id"`
+	Subject    string             `json:"subject"`
+	SubjectID  uuid.UUID          `json:"subject_id"`
+	At         pgtype.Timestamptz `json:"at"`
+	ActorID    uuid.NullUUID      `json:"actor_id"`
+	OnBehalfOf uuid.NullUUID      `json:"on_behalf_of"`
+	Action     string             `json:"action"`
+	Field      string             `json:"field"`
+	Old        []byte             `json:"old"`
+	New        []byte             `json:"new"`
 }
 
 type Role struct {
