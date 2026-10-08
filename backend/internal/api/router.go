@@ -11,8 +11,10 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/authz"
+	"github.com/servicelater/servicelater/backend/internal/notify"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
 	"github.com/servicelater/servicelater/backend/internal/records"
+	"github.com/servicelater/servicelater/backend/internal/secrets"
 )
 
 type Deps struct {
@@ -21,14 +23,20 @@ type Deps struct {
 	Tokens *auth.Tokens
 	Hub    *realtime.Hub  // optional: without it there is no /ws endpoint
 	Apps   *apps.Registry // optional: without it every record type uses the built-in lifecycle
+	// Keys encrypt and decrypt secrets (optional: without them secrets can be neither set nor used).
+	Keys *secrets.Keyring
+	// Sender sends test emails; the zero value is the real one.
+	Sender notify.Sender
 }
 
 type handlers struct {
-	pool  *pgxpool.Pool
-	perms *auth.PermissionCache
-	auth  *auth.Service
-	apps  *apps.Registry
-	svc   *records.Service
+	pool   *pgxpool.Pool
+	perms  *auth.PermissionCache
+	auth   *auth.Service
+	apps   *apps.Registry
+	svc    *records.Service
+	keys   *secrets.Keyring
+	sender notify.Sender
 }
 
 // lifecycleFor is the status flow for a ticket type: the type's own, else the `task` default, else the built-in one.
@@ -51,7 +59,8 @@ func NewRouter(d Deps) http.Handler {
 	if d.Apps == nil {
 		d.Apps = apps.NewRegistry(nil)
 	}
-	h := &handlers{pool: d.Pool, perms: auth.NewPermissionCache(d.Pool), auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool}}
+	h := &handlers{pool: d.Pool, perms: auth.NewPermissionCache(d.Pool), auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool},
+		keys: d.Keys, sender: d.Sender}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer)
 
@@ -151,6 +160,15 @@ func NewRouter(d Deps) http.Handler {
 				r.With(auth.RequirePermission(authz.WorkflowsRun)).Post("/{id}/cancel", h.cancelRun)
 			})
 			r.With(auth.RequirePermission(authz.WorkflowsReadAll)).Get("/workflows", h.listWorkflows)
+			r.Route("/settings/email", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.SettingsManage))
+				r.Get("/", h.getEmailSettings)
+				r.Put("/", h.putEmailSettings)
+				r.Post("/test", h.testEmail)
+				r.Get("/deliveries", h.listEmailDeliveries)
+			})
+			r.Get("/account", h.getAccount)
+			r.Patch("/account", h.patchAccount)
 			r.With(auth.RequirePermission(authz.CMDBRead)).Get("/cmdb/model", h.getCMDBModel)
 			r.Route("/cis", func(r chi.Router) {
 				r.Use(auth.RequirePermission(authz.CMDBRead))

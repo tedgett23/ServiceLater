@@ -7,6 +7,7 @@ export type RealtimeEvent =
 	| { type: 'notification.changed' }
 	| { type: 'freeze.changed'; id: string }
 	| { type: 'ci.changed'; id: string } // a configuration item or its relationships changed
+	| { type: 'email.changed' } // an email was queued, sent or failed (to those who manage settings)
 	| { type: 'resync' }
 	| { type: 'definitions.changed' }; // an app was installed, updated or removed
 

@@ -21,10 +21,12 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/config"
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/jobs"
+	"github.com/servicelater/servicelater/backend/internal/notify"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/ruleruns"
 	"github.com/servicelater/servicelater/backend/internal/ruleworker"
+	"github.com/servicelater/servicelater/backend/internal/secrets"
 	"github.com/servicelater/servicelater/backend/internal/slaclock"
 	"github.com/servicelater/servicelater/backend/internal/slatimer"
 	"github.com/servicelater/servicelater/backend/internal/webui"
@@ -51,6 +53,15 @@ func Run(ctx context.Context, cfg config.Config) error {
 		}
 		slog.Info("database ready")
 		deps.Pool = pool
+		// The secrets key: without one the instance runs, and anything that needs a secret says so.
+		keys, err := secrets.FromEnv()
+		if err != nil {
+			return err
+		}
+		if !keys.Configured() {
+			slog.Warn("no secrets key: secrets (such as the mail server password) can be neither set nor used; set SL_SECRETS_KEY or SL_SECRETS_KEY_FILE")
+		}
+		deps.Keys = keys
 
 		// Install or upgrade the first-party apps that ship in this binary, applying this instance's local layer.
 		// A problem with an app is logged and leaves it as it was: the instance keeps running.
@@ -108,6 +119,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 			engine := workflowengine.New(workerPool, &records.Service{Apps: workerApps, Pool: workerPool})
 			worker.Register(workflow.RunKind, engine.Handler())
 			worker.Register(slaclock.AlertKind, slatimer.Handler(workerPool, workerApps))
+			worker.Register(notify.EmailKind, (&notify.Mailer{Pool: workerPool, Apps: workerApps, Keys: keys}).Handler())
 			background.Add(1)
 			go func() {
 				defer background.Done()

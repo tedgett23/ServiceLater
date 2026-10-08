@@ -2,4 +2,4 @@ kind: notification
 name: ticket-routed
 title: "{{record.reference}} is waiting for {{record.assignment_group}}"
 body: "{{record.title}}"
-channels: [in_app]
+channels: [in_app, email]

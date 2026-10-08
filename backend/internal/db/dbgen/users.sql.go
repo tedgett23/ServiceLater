@@ -63,7 +63,7 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (email, name, role)
 VALUES (lower($3::text), $1, $2)
-RETURNING id, email, name, role, created_at, deactivated_at, app_name
+RETURNING id, email, name, role, created_at, deactivated_at, app_name, email_notifications
 `
 
 type CreateUserParams struct {
@@ -83,6 +83,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.CreatedAt,
 		&i.DeactivatedAt,
 		&i.AppName,
+		&i.EmailNotifications,
 	)
 	return i, err
 }
@@ -125,7 +126,7 @@ func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) (int64, error) {
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, email, name, role, created_at, deactivated_at, app_name FROM users WHERE id = $1
+SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
@@ -139,12 +140,13 @@ func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.CreatedAt,
 		&i.DeactivatedAt,
 		&i.AppName,
+		&i.EmailNotifications,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, name, role, created_at, deactivated_at, app_name FROM users WHERE email = lower($1::text)
+SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications FROM users WHERE email = lower($1::text)
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -158,12 +160,13 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.CreatedAt,
 		&i.DeactivatedAt,
 		&i.AppName,
+		&i.EmailNotifications,
 	)
 	return i, err
 }
 
 const listStaff = `-- name: ListStaff :many
-SELECT id, email, name, role, created_at, deactivated_at, app_name FROM users
+SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications FROM users
 WHERE deactivated_at IS NULL AND app_name IS NULL
   AND (CASE WHEN $1::text IS NULL THEN app_user_can_record_any(id, 'update')
             ELSE app_user_can_record(id, 'update', $1) END)
@@ -189,6 +192,7 @@ func (q *Queries) ListStaff(ctx context.Context, recordType pgtype.Text) ([]User
 			&i.CreatedAt,
 			&i.DeactivatedAt,
 			&i.AppName,
+			&i.EmailNotifications,
 		); err != nil {
 			return nil, err
 		}
@@ -201,7 +205,7 @@ func (q *Queries) ListStaff(ctx context.Context, recordType pgtype.Text) ([]User
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, name, role, created_at, deactivated_at, app_name FROM users
+SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications FROM users
 WHERE app_name IS NULL
   AND ($1::text IS NULL OR name ILIKE '%' || $1 || '%' ESCAPE '\' OR email ILIKE '%' || $1 || '%' ESCAPE '\')
   AND ($2::text IS NULL OR role = $2)
@@ -243,6 +247,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.CreatedAt,
 			&i.DeactivatedAt,
 			&i.AppName,
+			&i.EmailNotifications,
 		); err != nil {
 			return nil, err
 		}
@@ -315,7 +320,7 @@ UPDATE users SET
         WHEN $4::bool THEN COALESCE(deactivated_at, now())
         ELSE NULL END
 WHERE id = $5
-RETURNING id, email, name, role, created_at, deactivated_at, app_name
+RETURNING id, email, name, role, created_at, deactivated_at, app_name, email_notifications
 `
 
 type UpdateUserParams struct {
@@ -344,6 +349,7 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.CreatedAt,
 		&i.DeactivatedAt,
 		&i.AppName,
+		&i.EmailNotifications,
 	)
 	return i, err
 }

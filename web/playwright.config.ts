@@ -34,6 +34,8 @@ export default defineConfig({
 			SL_JWT_SECRET: 'e2e-only-secret-e2e-only-secret-e2e-only',
 			SL_DATABASE_URL: DATABASE_URL,
 			SL_APPS_LOCAL_DIR: APPS_LOCAL_DIR,
+			// Encrypts the mail server password (e2e/email.spec.ts). Any 32 bytes, base64; never a real key.
+			SL_SECRETS_KEY: 'ZTJlLW9ubHktc2VjcmV0cy1rZXktMzItYnl0ZXMhISE=',
 			// Chromium releases a closed test context's sockets late, and the suite opens many as one user.
 			SL_MAX_LIVE_CONNS: '200'
 		}

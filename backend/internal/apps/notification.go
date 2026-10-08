@@ -7,8 +7,12 @@ import (
 	"unicode/utf8"
 )
 
-// Notification channels. Only in-app delivery exists; the others need secrets and a host allow-list first.
-const ChannelInApp = "in_app"
+// Notification channels. In-app always; email when the instance's email settings turn it on and the person has not
+// turned it off (internal/notify). SMS and Slack are not built yet.
+const (
+	ChannelInApp = "in_app"
+	ChannelEmail = "email"
+)
 
 const (
 	maxNotificationTitle = 200
@@ -94,14 +98,17 @@ func (n *Notification) validateStructure(file string, p *Problems) {
 	seen := map[string]bool{}
 	for _, c := range n.Channels {
 		switch {
-		case c == "email" || c == "sms" || c == "slack":
-			p.add(file, "channels: %s is not supported yet (only in_app)", c)
-		case c != ChannelInApp:
-			p.add(file, "channels: %q is not a channel (in_app)", c)
+		case c == "sms" || c == "slack":
+			p.add(file, "channels: %s is not supported yet (in_app and email are)", c)
+		case c != ChannelInApp && c != ChannelEmail:
+			p.add(file, "channels: %q is not a channel (in_app, email)", c)
 		case seen[c]:
 			p.add(file, "channels: %q is listed twice", c)
 		}
 		seen[c] = true
+	}
+	if !seen[ChannelInApp] {
+		p.add(file, "channels: must include in_app: an email is a copy of a notification in the app")
 	}
 }
 

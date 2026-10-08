@@ -25,6 +25,8 @@ services:
       # like an app's local/ folder, e.g. apps-local/incident-management/lifecycles/incident.yaml. Upgrades never touch it.
       SL_APPS_LOCAL_DIR: /data/apps-local
       SL_JWT_SECRET: ${SL_JWT_SECRET:?set in .env (openssl rand -base64 48)}
+      # Encrypts stored secrets such as the mail server password (servicelater secrets gen-key). Every api and worker needs the same one.
+      SL_SECRETS_KEY: ${SL_SECRETS_KEY:-}
       SL_BOOTSTRAP_ADMIN_EMAIL: ${SL_BOOTSTRAP_ADMIN_EMAIL:-}
       SL_BOOTSTRAP_ADMIN_PASSWORD: ${SL_BOOTSTRAP_ADMIN_PASSWORD:-}
       SL_DATABASE_URL: postgres://servicelater:${POSTGRES_PASSWORD}@db:5432/servicelater?sslmode=disable

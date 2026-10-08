@@ -118,9 +118,11 @@
 							{/each}
 						</ul>
 					{/if}
+					<!-- The header hides the name on a phone, so the way to the account page is here too. -->
+					<a class="prefs" href="/account" onclick={() => bell && (bell.open = false)}>Notification settings</a>
 				</div>
 			</details>
-			<span class="who">{session.user?.name}</span>
+			<a class="who" href="/account" aria-label="Your account, {session.user?.name}">{session.user?.name}</a>
 			<button class="btn quiet" onclick={() => session.logout()}>Sign out</button>
 		</div>
 	</header>
@@ -215,10 +217,15 @@
 		white-space: nowrap;
 	}
 	.who {
+		color: inherit;
+		text-decoration: none;
 		font-size: 0.9rem;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.who:hover {
+		text-decoration: underline;
 	}
 	.bell {
 		position: relative;
@@ -271,6 +278,13 @@
 		background: var(--surface);
 		color: var(--ink);
 		z-index: 20;
+	}
+	.bell .prefs {
+		display: block;
+		padding: 0.55rem 0.75rem;
+		border-top: 1px solid var(--rule);
+		font-size: 0.85rem;
+		font-weight: 600;
 	}
 	.bell .empty {
 		padding: 0.9rem;

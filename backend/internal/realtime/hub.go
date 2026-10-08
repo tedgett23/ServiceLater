@@ -22,6 +22,7 @@ const (
 	channelNotifications = "notification_changes"
 	channelFreezes       = "freeze_changes"
 	channelCIs           = "ci_changes"
+	channelEmail         = "email_changes"
 
 	sendBuffer = 32 // per client; a client that falls this far behind is dropped and resyncs on reconnect
 )
@@ -110,7 +111,7 @@ func (h *Hub) Ready() <-chan struct{} { return h.ready }
 // because NOTIFY is fire-and-forget and anything sent while we were away is gone.
 func (h *Hub) Run(ctx context.Context, dsn string) {
 	defer h.closeAll()
-	db.Listen(ctx, dsn, []string{channelTickets, channelComments, channelNotifications, channelFreezes, channelCIs},
+	db.Listen(ctx, dsn, []string{channelTickets, channelComments, channelNotifications, channelFreezes, channelCIs, channelEmail},
 		func(reconnected bool) {
 			if reconnected {
 				h.broadcast(mustJSON(resyncEvent{Type: "resync"}), func(*client) bool { return true })
@@ -129,6 +130,9 @@ func (h *Hub) Run(ctx context.Context, dsn string) {
 				h.onFreeze(payload)
 			case channelCIs:
 				h.onCI(payload)
+			case channelEmail:
+				// An email was queued, sent or failed: the delivery log is for those who manage settings.
+				h.broadcast(mustJSON(resyncEvent{Type: "email.changed"}), func(c *client) bool { return c.perms.Has(authz.SettingsManage) })
 			}
 		})
 }

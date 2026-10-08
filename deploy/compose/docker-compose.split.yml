@@ -20,6 +20,8 @@ services:
       SL_ROLES: api
       SL_APPS_LOCAL_DIR: /data/apps-local   # the same local layer on every api and worker
       SL_JWT_SECRET: ${SL_JWT_SECRET:?set in .env (openssl rand -base64 48)}  # identical on every api replica
+      # Encrypts stored secrets such as the mail server password (servicelater secrets gen-key). Every api and worker needs the same one.
+      SL_SECRETS_KEY: ${SL_SECRETS_KEY:-}
       SL_BOOTSTRAP_ADMIN_EMAIL: ${SL_BOOTSTRAP_ADMIN_EMAIL:-}
       SL_BOOTSTRAP_ADMIN_PASSWORD: ${SL_BOOTSTRAP_ADMIN_PASSWORD:-}
       SL_DATABASE_URL: postgres://servicelater:${POSTGRES_PASSWORD}@db:5432/servicelater?sslmode=disable

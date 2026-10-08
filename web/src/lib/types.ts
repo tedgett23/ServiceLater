@@ -218,7 +218,8 @@ export const P = {
 	freezesManage: 'freezes:manage',
 	calendarsManage: 'calendars:manage',
 	cmdbRead: 'cmdb:read',
-	cmdbManage: 'cmdb:manage'
+	cmdbManage: 'cmdb:manage',
+	settingsManage: 'settings:manage'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */
@@ -246,7 +247,7 @@ export interface RecordType {
 
 /** Whether someone may reach anything in the admin section. */
 export const canAdmin = (u: User | null | undefined) =>
-	can(u, P.usersManage) || can(u, P.groupsManage) || can(u, P.rolesManage) || can(u, P.calendarsManage);
+	can(u, P.usersManage) || can(u, P.groupsManage) || can(u, P.rolesManage) || can(u, P.calendarsManage) || can(u, P.settingsManage);
 
 export interface LifecycleState {
 	id: string;
@@ -515,4 +516,43 @@ export interface CIAffected extends CISummary {
 export interface CIImpact {
 	items: CIAffected[];
 	truncated: boolean;
+}
+
+/** How the instance sends email, from GET /settings/email. The password is never sent back. */
+export interface EmailSettings {
+	enabled: boolean;
+	host: string;
+	port: number;
+	tls: 'starttls' | 'tls' | 'none';
+	username: string;
+	from_address: string;
+	from_name: string;
+	base_url: string;
+	approvals: boolean;
+	password_set: boolean;
+	password_readable: boolean;
+	password_updated_at: string | null;
+	password_updated_by: string | null;
+	key_configured: boolean;
+}
+
+/** One email in the delivery log. */
+export interface EmailDelivery {
+	id: string;
+	to_address: string;
+	user_name: string | null;
+	kind: 'notification' | 'test';
+	what?: string;
+	status: 'queued' | 'sent' | 'failed' | 'skipped';
+	detail: string;
+	attempts: number;
+	created_at: string;
+	updated_at: string;
+}
+
+/** The signed-in person's own preferences. */
+export interface Account {
+	email: string;
+	email_notifications: boolean;
+	email_enabled: boolean;
 }

@@ -1,19 +1,15 @@
 package api
 
 import (
-	"context"
-	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
-	"github.com/servicelater/servicelater/backend/internal/records"
+	"github.com/servicelater/servicelater/backend/internal/notify"
 )
 
 // maxNotifications bounds the list to what a person could plausibly read in one sitting; older ones stay in the
@@ -42,101 +38,9 @@ type notificationDTO struct {
 	ReadAt    *time.Time `json:"read_at,omitempty"`
 }
 
-// renderer fills in notifications for one request, looking each ticket and person up once.
-type renderer struct {
-	h       *handlers
-	q       *dbgen.Queries
-	tickets map[uuid.UUID]*records.Ticket // nil: not visible to this person
-	names   map[uuid.UUID]string
-}
-
-func (h *handlers) renderer(q *dbgen.Queries) *renderer {
-	return &renderer{h: h, q: q, tickets: map[uuid.UUID]*records.Ticket{}, names: map[uuid.UUID]string{}}
-}
-
-// render returns the notification as its recipient sees it, and false for one about a ticket they can no longer
-// see (it was filed when they could).
-func (rd *renderer) render(ctx context.Context, n dbgen.Notification) (notificationDTO, bool, error) {
-	out := notificationDTO{ID: n.ID, Kind: n.Kind, CreatedAt: n.CreatedAt.Time}
-	if n.ReadAt.Valid {
-		out.ReadAt = &n.ReadAt.Time
-	}
-	switch {
-	case n.Kind == "approval_pending":
-		// Still hard-coded: this kind predates templates. It should become a template the approvals app ships (see
-		// docs/apps-platform.md, "Notifications").
-		id := n.ApprovalID.UUID
-		out.ApprovalID = &id
-		out.Title, out.Link = "Something needs your approval", "/approvals"
-		return out, true, nil
-	case n.TaskID.Valid:
-		t, err := rd.ticket(ctx, n.TaskID.UUID)
-		if err != nil || t == nil {
-			return out, false, err
-		}
-		id := t.ID
-		out.TaskID, out.Reference, out.Link = &id, t.Reference, "/tickets/"+t.Reference
-		tpl := rd.h.apps.Notification(n.App.String, n.Template.String)
-		if tpl == nil {
-			// The app that sent it is gone; the record is still worth pointing at.
-			out.Title = "Update on " + t.Reference
-			return out, true, nil
-		}
-		actor := ""
-		if n.ActorID.Valid {
-			if actor, err = rd.name(ctx, n.ActorID.UUID); err != nil {
-				return out, false, err
-			}
-		}
-		out.Title, out.Body = tpl.Render(rd.values(t, actor))
-		return out, true, nil
-	}
-	out.Title, out.Link = "Something changed", "/tickets"
-	return out, true, nil
-}
-
-func (rd *renderer) ticket(ctx context.Context, id uuid.UUID) (*records.Ticket, error) {
-	if t, seen := rd.tickets[id]; seen {
-		return t, nil
-	}
-	t, err := records.Load(ctx, rd.q, id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		rd.tickets[id] = nil
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	rd.tickets[id] = &t
-	return &t, nil
-}
-
-func (rd *renderer) name(ctx context.Context, id uuid.UUID) (string, error) {
-	if n, seen := rd.names[id]; seen {
-		return n, nil
-	}
-	u, err := rd.q.GetUser(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		u.Name, err = "Someone", nil
-	}
-	rd.names[id] = u.Name
-	return u.Name, err
-}
-
-// values are what a template's placeholders read (apps.Placeholders).
-func (rd *renderer) values(t *records.Ticket, actor string) map[string]string {
-	deref := func(s *string) string {
-		if s == nil {
-			return ""
-		}
-		return *s
-	}
-	return map[string]string{
-		"record.reference": t.Reference, "record.title": t.Title, "record.type": t.Type,
-		"record.status": rd.h.lifecycleFor(t.Type).Label(t.Status), "record.priority": strconv.Itoa(int(t.Priority)),
-		"record.requester_name": t.Requester, "record.assignee_name": deref(t.Assignee),
-		"record.assignment_group": deref(t.AssignmentGroup), "actor.name": actor,
-	}
+func toNotification(m notify.Message) notificationDTO {
+	return notificationDTO{ID: m.ID, Kind: m.Kind, ApprovalID: m.ApprovalID, TaskID: m.TaskID, Reference: m.Reference,
+		Title: m.Title, Body: m.Body, Link: m.Link, CreatedAt: m.CreatedAt, ReadAt: m.ReadAt}
 }
 
 // GET /notifications: the signed-in person's own, newest first, with unread_count. Anyone can have one (a workflow
@@ -149,14 +53,14 @@ func (h *handlers) listMyNotifications(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		rd := h.renderer(q)
+		rd := notify.NewRenderer(h.apps, q)
 		for _, row := range rows {
-			n, ok, err := rd.render(r.Context(), row)
+			n, ok, err := rd.Render(r.Context(), row)
 			if err != nil {
 				return err
 			}
 			if ok {
-				out = append(out, n)
+				out = append(out, toNotification(n))
 			}
 		}
 		unread, err = q.CountMyUnreadNotifications(r.Context(), p.UserID)
@@ -181,7 +85,8 @@ func (h *handlers) markNotificationRead(w http.ResponseWriter, r *http.Request) 
 		if err != nil {
 			return err
 		}
-		out, _, err = h.renderer(q).render(r.Context(), n)
+		m, _, err := notify.NewRenderer(h.apps, q).Render(r.Context(), n)
+		out = toNotification(m)
 		return err
 	}) {
 		return

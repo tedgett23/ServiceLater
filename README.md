@@ -37,6 +37,8 @@ Postgres 17. The migrating DB user needs `CREATEROLE` (migration `00001` creates
 
 Password login (bcrypt) issues two httpOnly, SameSite=Strict cookies: a 15-minute JWT access token and a 30-day rotating refresh token (stored hashed in the unlogged `sessions` table; replaying a rotated token revokes the whole session family). `SL_JWT_SECRET` is required for the `api` role. Set `SL_BOOTSTRAP_ADMIN_EMAIL` and `SL_BOOTSTRAP_ADMIN_PASSWORD` to create the first admin on an empty database. `make dev-backend` sets dev values (`admin@localhost` / `admin-password`).
 
+Secrets such as the mail server password are encrypted with `SL_SECRETS_KEY` (or the file in `SL_SECRETS_KEY_FILE`), which is never stored in the database; generate one with `servicelater secrets gen-key` and give every `api` and `worker` server the same key. Email is set up in Admin → Email.
+
 Endpoints: `POST /api/v1/auth/login`, `/refresh`, `/logout`, `GET /api/v1/auth/me`. Logins are limited to 10 attempts per 15 minutes per client IP and email.
 
 ## API

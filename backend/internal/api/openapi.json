@@ -1,6 +1,40 @@
 {
   "components": {
     "schemas": {
+      "Account": {
+        "description": "The signed-in person's own preferences.",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "email_enabled": {
+            "description": "Says the instance sends email at all.",
+            "type": "boolean"
+          },
+          "email_notifications": {
+            "description": "Says notifications also reach them by email (when the instance sends email).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "email",
+          "email_enabled",
+          "email_notifications"
+        ],
+        "type": "object"
+      },
+      "AccountRequest": {
+        "description": "Changes the signed-in person's own preferences.",
+        "properties": {
+          "email_notifications": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
       "Affected": {
         "description": "An item trouble reaches.",
         "properties": {
@@ -771,6 +805,178 @@
           "internal",
           "ticket_id"
         ],
+        "type": "object"
+      },
+      "Delivery": {
+        "description": "One email in the log.",
+        "properties": {
+          "attempts": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Notification or test; What says which notification (a template, or approval_pending).",
+            "type": "string"
+          },
+          "status": {
+            "description": "Queued, sent, failed or skipped; Detail says why it failed or was skipped.",
+            "type": "string"
+          },
+          "to_address": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "user_name": {
+            "description": "Who it was for, when it was for someone.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "what": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempts",
+          "created_at",
+          "detail",
+          "id",
+          "kind",
+          "status",
+          "to_address",
+          "updated_at",
+          "user_name"
+        ],
+        "type": "object"
+      },
+      "EmailSettings": {
+        "description": "How this instance sends email. The password is never sent back: only whether it is set.",
+        "properties": {
+          "approvals": {
+            "type": "boolean"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "from_address": {
+            "type": "string"
+          },
+          "from_name": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "key_configured": {
+            "description": "Says the server has a secrets key (SL_SECRETS_KEY or SL_SECRETS_KEY_FILE); without one the password cannot be set.",
+            "type": "boolean"
+          },
+          "password_readable": {
+            "description": "False when the password was stored with a key this server does not have, so it must be set again.",
+            "type": "boolean"
+          },
+          "password_set": {
+            "description": "Says the mail server password is stored (encrypted); PasswordUpdatedAt and PasswordUpdatedBy say when and by whom it was last set.",
+            "type": "boolean"
+          },
+          "password_updated_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "password_updated_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "port": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tls": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "approvals",
+          "base_url",
+          "enabled",
+          "from_address",
+          "from_name",
+          "host",
+          "key_configured",
+          "password_readable",
+          "password_set",
+          "password_updated_at",
+          "password_updated_by",
+          "port",
+          "tls",
+          "username"
+        ],
+        "type": "object"
+      },
+      "EmailSettingsRequest": {
+        "description": "Replaces the email settings. password sets the mail server password, null clears it, and leaving it out keeps it.",
+        "properties": {
+          "approvals": {
+            "type": "boolean"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "from_address": {
+            "type": "string"
+          },
+          "from_name": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "port": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tls": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "Error": {
@@ -1986,6 +2192,30 @@
         ],
         "type": "object"
       },
+      "TestEmail": {
+        "description": "How a test email went: sent, or failed with what the mail server said.",
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "TestEmailRequest": {
+        "description": "Asks for a test email to an address; the caller's own when left out.",
+        "properties": {
+          "to": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Ticket": {
         "description": "A ticket plus, on single-ticket responses (not lists), what the person may do next and its SLA clocks, and on lists a summary of its clocks.",
         "properties": {
@@ -2269,6 +2499,208 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/account": {
+      "get": {
+        "description": "The signed-in person's own preferences.",
+        "operationId": "getAccount",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get account",
+        "tags": [
+          "account"
+        ]
+      },
+      "patch": {
+        "description": "With {\"email_notifications\"}: turn email notifications on or off for yourself. In-app notifications are not affected.",
+        "operationId": "patchAccount",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Account"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Patch account",
+        "tags": [
+          "account"
+        ]
+      }
+    },
     "/api/v1/approvals": {
       "get": {
         "description": "The signed-in person's own pending requests, oldest first.",
@@ -7135,6 +7567,435 @@
         ]
       }
     },
+    "/api/v1/settings/email": {
+      "get": {
+        "description": "(settings:manage): how this instance sends email, without the password.\n\nRequires the `settings:manage` permission.",
+        "operationId": "getEmailSettings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get email settings",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      },
+      "put": {
+        "description": "(settings:manage) with every setting, and password to set it (null clears it; leave it out to keep it). The password is encrypted before it is stored, which needs the server's secrets key. Turning email on needs a host and a from address.\n\nRequires the `settings:manage` permission.",
+        "operationId": "putEmailSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmailSettings"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Put email settings",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      }
+    },
+    "/api/v1/settings/email/deliveries": {
+      "get": {
+        "description": "(settings:manage): the latest 100 emails, newest first, with how each went.\n\nRequires the `settings:manage` permission.",
+        "operationId": "listEmailDeliveries",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/Delivery"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List email deliveries",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      }
+    },
+    "/api/v1/settings/email/test": {
+      "post": {
+        "description": "(settings:manage) with {\"to\"?}: send a test email now with the saved settings, whether email is on or not, and answer with what the mail server said. It is recorded in the delivery log.\n\nRequires the `settings:manage` permission.",
+        "operationId": "testEmail",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestEmail"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Test email",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      }
+    },
     "/api/v1/tickets": {
       "get": {
         "description": "Assignee and requester accept a user id or \"me\"; assignee also accepts \"none\". assignment_group accepts a group id, \"mine\" (any group the caller is in) or \"none\". open=true hides resolved and closed. breached=true keeps tickets with a breached SLA; sort=due lists those first, then the soonest SLA due time (newest first otherwise).",
@@ -9947,6 +10808,9 @@
   },
   "tags": [
     {
+      "name": "account"
+    },
+    {
       "name": "approvals"
     },
     {
@@ -9990,6 +10854,9 @@
     },
     {
       "name": "roles"
+    },
+    {
+      "name": "settings"
     },
     {
       "name": "tickets"

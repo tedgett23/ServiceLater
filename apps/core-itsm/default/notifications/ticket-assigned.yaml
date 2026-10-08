@@ -2,4 +2,4 @@ kind: notification
 name: ticket-assigned
 title: "{{record.reference}} was assigned to you"
 body: "{{record.title}}"
-channels: [in_app]
+channels: [in_app, email]

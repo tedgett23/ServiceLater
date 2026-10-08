@@ -94,6 +94,20 @@ type CiRelationship struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type EmailDelivery struct {
+	ID             uuid.UUID          `json:"id"`
+	NotificationID uuid.NullUUID      `json:"notification_id"`
+	UserID         uuid.NullUUID      `json:"user_id"`
+	ToAddress      string             `json:"to_address"`
+	Kind           string             `json:"kind"`
+	What           string             `json:"what"`
+	Status         string             `json:"status"`
+	Detail         string             `json:"detail"`
+	Attempts       int32              `json:"attempts"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type FreezeWindow struct {
 	ID        uuid.UUID          `json:"id"`
 	Name      string             `json:"name"`
@@ -184,6 +198,15 @@ type RoleGrant struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type Secret struct {
+	Name       string             `json:"name"`
+	KeyID      string             `json:"key_id"`
+	Nonce      []byte             `json:"nonce"`
+	Ciphertext []byte             `json:"ciphertext"`
+	UpdatedBy  uuid.NullUUID      `json:"updated_by"`
+	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Session struct {
 	ID        uuid.UUID          `json:"id"`
 	UserID    uuid.UUID          `json:"user_id"`
@@ -192,6 +215,13 @@ type Session struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	RotatedAt pgtype.Timestamptz `json:"rotated_at"`
+}
+
+type Setting struct {
+	Name      string             `json:"name"`
+	Value     []byte             `json:"value"`
+	UpdatedBy uuid.NullUUID      `json:"updated_by"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Task struct {
@@ -257,13 +287,14 @@ type TaskType struct {
 }
 
 type User struct {
-	ID            uuid.UUID          `json:"id"`
-	Email         string             `json:"email"`
-	Name          string             `json:"name"`
-	Role          string             `json:"role"`
-	CreatedAt     pgtype.Timestamptz `json:"created_at"`
-	DeactivatedAt pgtype.Timestamptz `json:"deactivated_at"`
-	AppName       pgtype.Text        `json:"app_name"`
+	ID                 uuid.UUID          `json:"id"`
+	Email              string             `json:"email"`
+	Name               string             `json:"name"`
+	Role               string             `json:"role"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	DeactivatedAt      pgtype.Timestamptz `json:"deactivated_at"`
+	AppName            pgtype.Text        `json:"app_name"`
+	EmailNotifications bool               `json:"email_notifications"`
 }
 
 type UserCredential struct {

@@ -512,12 +512,12 @@ now). The engine is `internal/rules`; it does no database work, so the API appli
 - **Layers:** a rule is a definition like any other, so `local/` can change one field of a shipped rule (`order`,
   `on_error`, an action) without copying it.
 
-### 6.5 Notifications (built: in-app)
+### 6.5 Notifications (built: in-app and email)
 
 Who hears about what is app content, not code. It is split in two, so the wording and the policy change separately:
 
 - **What it says** is a `notification` definition in `notifications/*.yaml`: a `title`, an optional `body`, and
-  `channels` (`in_app` only; `email`, `sms` and `slack` are rejected as not supported yet). Placeholders come from a
+  `channels`: `in_app` (always required) and optionally `email`; `sms` and `slack` are rejected as not supported yet. Placeholders come from a
   fixed list checked at install: `{{record.reference}}`, `record.title`, `record.type`, `record.status` (its label),
   `record.priority`, `record.requester_name`, `record.assignee_name`, `record.assignment_group`, `{{actor.name}}`.
 - **When, and to whom** is a rule (after or async) with a `notify` action: `template` (a template in the same app,
@@ -558,6 +558,17 @@ see drops out of their list). A template whose app was removed shows "Update on 
 save's transaction, so a rolled-back save tells nobody; a template missing at run time is recorded in `action_runs`
 and never blocks the save.
 
+**Email** (migration 00029, `internal/notify`): when the instance's email settings turn it on, a trigger on
+`notifications` queues an email (an `email_deliveries` row and a `notify.email` job, in the same transaction) for each
+notification whose template lists `email`, and for each `approval_pending` while the `email.approvals` setting is not
+off, to recipients who have not turned email off (`users.email_notifications`, on their account page). The worker
+fills the template in **as the recipient** (their RLS, `notify.Renderer`, the same code the bell uses), so an email
+never says more than they could read in the app; it is plain text with a link back (`email.base_url`) and an
+`Auto-Submitted` header. One read in the app before the worker reaches it is skipped. A refusal from the mail server
+(5xx, a failed sign-in) fails it at once; anything else is retried by the job queue and fails after the last try. Every
+email and its outcome is in the delivery log (Admin → Email). Sending uses `github.com/wneessen/go-mail`
+(STARTTLS, TLS, or none only to a relay on this machine). core-itsm 0.4.0's templates send email.
+
 **Still hard-coded, and must move to templates or config:**
 
 - The `approval_pending` notification (title "Something needs your approval", link `/approvals`) is created by a
@@ -567,7 +578,8 @@ and never blocks the save.
   dismissed should be part of the template.
 - The placeholder list and the fixed recipient kinds (`assignee`, `requester`, `assignment_group`) are code. Adding
   one is a platform change, not an app change.
-- Per-person preferences (mute a kind, choose a channel) do not exist yet; they belong in config, not in each rule.
+- Per-person preferences are one switch (email on or off); muting a kind or choosing a channel per kind belongs in
+  config, not in each rule.
 
 ### 6.6 SLAs (built)
 
@@ -1219,6 +1231,30 @@ save, not built yet). `app install` takes several paths and installs dependencie
   approves is not a permission at all: it is the approval step's `approvers`.
 - Not yet: app-namespaced permissions, a role editor in the UI (roles are YAML), `run_as: app` for before rules,
   and the outbound capabilities (`notify:email`, `http:`) that manifests may already declare.
+
+### 11.2 Settings and secrets (built)
+
+**Settings** (`settings`, migration 00029, `internal/settings`) are instance configuration admins change at run time:
+the names, types, defaults and checks are Go (`settings.Email`), the table only stores values, and `settings:manage`
+(admins) reads and writes them. Email is the first group: `email.enabled`, `host`, `port`, `tls` (starttls, tls, or
+none only to localhost), `username`, `from_address`, `from_name`, `base_url`, `approvals`. API `GET|PUT
+/settings/email`, `POST /settings/email/test`, `GET /settings/email/deliveries`; web Admin → Email. App-defined
+config (the manifest's `config`) will use the same table.
+
+**Secrets** (`secrets`, `internal/secrets`) are encrypted in Go before they reach the database: AES-256-GCM, a random
+nonce per value, and the secret's name as additional data, so a ciphertext moved to another secret's row does not
+decrypt. The key is never stored: it comes from `SL_SECRETS_KEY` (32 random bytes, base64; `servicelater secrets
+gen-key`) or a file named by `SL_SECRETS_KEY_FILE`, and every api and worker server needs the same one. Each value
+records its key's id (a hash prefix), so rotation is: set the new key, list the old one in `SL_SECRETS_OLD_KEYS` (or
+`SL_SECRETS_OLD_KEYS_FILE`), run `servicelater secrets rotate`, restart, drop the old key. Without a key the server runs
+and refuses to store a secret rather than storing it in the clear; a secret under a key it lacks is reported, never
+treated as empty.
+
+The app role has no access to `secrets` at all (RLS on, no policies, privileges revoked, like the credential tables):
+admins set or clear one through SECURITY DEFINER `app_set_secret` / `app_clear_secret` (which check `settings:manage`)
+and see only whether it is set, when and by whom (`app_secret_status`); only the system (the worker, and the api for a
+test email) reads the ciphertext, decrypting it just before use. There is no API or CLI that returns a secret's value.
+A key service (KMS, Vault) is not supported; the keyring is the seam where one would go.
 
 ## 12. Performance notes
 
