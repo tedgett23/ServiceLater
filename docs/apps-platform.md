@@ -18,7 +18,7 @@ This document settles how apps are structured, how their logic runs, and how we 
 | D3 | Rules have three timings: **before**, **after** and **async**. Before and after run inside the save and can block it, using only expressions and built-in actions, with no external I/O and tight budgets. They fail closed. | Decided |
 | D4 | v1 apps have **declarative UI only**: forms, list views and layouts as data. No custom UI code. | Decided |
 | D5 | No Python, Starlark, Lua or WASM in v1. Actions and steps name a `type`, so a script step could be added later without changing the app format. | Decided |
-| D6 | v1 apps are **data only**: no app-defined tables or SQL migrations. Apps extend records through validated custom fields (`fields jsonb`). | Proposed |
+| D6 | v1 apps are **data only**: no app-defined tables or SQL migrations. Apps extend records through validated custom fields (`fields jsonb`), including on record types of their own (D17). | Decided |
 | D7 | Definitions are stored as immutable, versioned rows in Postgres, cached per instance, and reloaded through `NOTIFY`. | Proposed |
 | D8 | Statuses come from a **lifecycle definition**; core logic depends on state *categories*, not names. | Proposed |
 | D9 | Before and after rules run as the acting user under their RLS. Async rules and workflows run as the app's service principal, with permissions declared in the manifest. | Built (§11.1) |
@@ -29,6 +29,7 @@ This document settles how apps are structured, how their logic runs, and how we 
 | D15 | An app has a shipped layer, `default/`, and an optional operator layer, `local/`. Local overrides default by merging, and upgrades replace `default/` and never touch local (§4.5). | Decided |
 | D16 | The first-party apps are **embedded in the binary** and installed and upgraded at startup. An instance keeps its own changes to them in a local directory outside the binary (§4.5). | Decided |
 | D14 | Record types **extend a shared `task` base** (class-table inheritance): common columns live in `tasks`, type-specific columns in an extension table per type. Rules, lifecycles, forms and SLAs defined on `task` apply to every type. | Decided |
+| D17 | Apps define **record types of their own** (`record_type` definitions, §9.5): a `task_types` row with its own prefix, numbering and optional zero-padding, whose fields are `fields jsonb` declared by a form. Apps still never create tables or run DDL; typed extension tables stay core-only. | Decided, not built |
 
 Open questions are in §13.
 
@@ -1369,6 +1370,78 @@ an indexed lookup or two per change.
 Not built yet: comments edited or deleted (they are not edited today), workflow and approval events in the same
 list (they are in the run history), SLA breaches, filtering by person or field, export, and a retention policy.
 
+### 9.5 App-defined record types (designed, not built)
+
+An app can add a kind of record of its own: a `tyler` app adds Things, numbered TY001, TY002 and so on. A new type is
+**data, not schema**: a row in `task_types` plus records in `tasks` whose own fields live in `fields jsonb`, declared
+and checked by the type's form (§8.1). No app ever creates a table, runs DDL or ships a migration (D6); typed
+extension tables (`incidents`, `changes`, `requests`) stay core-only. Everything already built per type works on an app
+type unchanged: numbering, references, queue and filters, lifecycles, forms, rules, workflows, SLAs, history,
+attachments, notifications, permissions, the API and the UI, none of which keeps a list of types.
+
+**The definition.** A new definition kind, `record_type`, in `types/<name>.yaml`:
+
+```yaml
+# apps/tyler/default/types/tyler_thing.yaml
+kind: record_type
+name: tyler_thing          # the type's id: records:read:tyler_thing, record_type: tyler_thing, ?type=tyler_thing
+prefix: TY                 # references are prefix + number: TY001
+label: Thing
+plural: Things             # optional; the label + "s" by default
+number_width: 3            # optional: pad numbers with zeros to this many digits (TY001); 0 or absent, no padding (TY1)
+anyone_may_file: false     # optional: true lets everyone signed in file one (like incidents); else records:create:tyler_thing
+description: "Things Tyler tracks."
+```
+
+- `name`: `^[a-z][a-z0-9_]{1,30}$`, not a core type (`task`, `incident`, `change`, `request`, `problem`,
+  `work_task`). Prefixing it with the app's name (`tyler_thing`) is recommended, so two apps never compete for one.
+- `prefix`: `^[A-Z]{2,5}$`, unique across every type, core and app.
+- `number_width`: 0 to 9. Numbers are never truncated: past the width they simply grow (TY999, TY1000).
+- One app provides each type name and each prefix (an install that would take either from another app is refused, as
+  for lifecycles and roles). A type's other definitions (`lifecycles/tyler_thing.yaml`, `forms/tyler_thing.yaml`,
+  rules, SLAs, workflows) may come from the same app or from apps that depend on it.
+
+**What installing does.** In the install's transaction, each `record_type` upserts its `task_types` row (new columns:
+`owner_app`, `plural`, `number_width`, `description`; core rows have no owner). Inserting the row creates the type's
+number sequence through the existing trigger, so numbering needs no new code. A type with no lifecycle anywhere uses the
+`task` lifecycle, as today; `Registry.Provides` still decides whether it may be filed (an app must give it a lifecycle,
+directly or through `task`). The record permissions `records:<verb>:tyler_thing` exist at once, because
+`authz.RecordCatalog` and `GET /permissions` are built from `task_types`; the app's roles and manifest may name them.
+
+`apps.KnownRecordTypes` stops being a fixed list: definitions are checked against the core types plus the types the
+installed apps and the app being installed define, and the registry serves that set. A definition may name a type of
+its own app or of an app it depends on.
+
+**References and padding.** A reference is the prefix and the number zero-padded to the type's `number_width`. One
+formatter makes it everywhere: `records.Reference` in Go and an SQL function `app_reference(prefix, width, number)` for
+the queries that build references (the parent's reference on a task, notifications, history, the approvals inbox), so
+the two can never disagree. Looking a record up by reference ignores leading zeros: `TY1`, `TY001` and `ty0001` all
+find TY001 (`referenceRE` already parses the digits as a number). Changing `number_width` later changes only how
+references are shown; stored numbers, links by id and old links by reference all keep working. The core types keep
+width 0 (INC42); an instance may set a width for one in its local layer, as for any setting an app ships.
+
+**Fields and search.** The type's form declares its fields (text, choice, date, number...), with conditions and
+validation enforced on every save, as for incidents. Rules, workflows and SLAs read them typed (`record.fields.size`).
+Queue search and filters work on the columns every record has; filtering on an app field is a later addition, through
+expression indexes the platform creates for fields the form marks `indexed: true` (core-run DDL on `tasks`, never
+app SQL).
+
+**Uninstalling and changing.** Removing the app keeps every record of its types (D10): the type row stays, marked
+retired, so references, history and reading go on working, but nobody may file a new one and it leaves the New ticket
+dialog and the type filter. Reinstalling the app brings it back with its numbering carried on. While records of a type
+exist, its `name` and `prefix` cannot change (an install that tries is refused, naming the count); `label`, `plural`,
+`number_width`, `anyone_may_file` and `description` may.
+
+**Not part of this:** typed columns or extension tables for app types (an app that needs heavy reporting on its fields
+asks for core support), parent-child rules between app types beyond `parent_id`, a type being ordered only from the
+catalog (`from_catalog` stays core), and a limit on types per instance (to be set when measured; 100 is the working
+figure).
+
+**Work when it is built:** migration (the `task_types` columns, `app_reference`), the `record_type` kind with
+validation and install upsert, a dynamic `KnownRecordTypes` in validation and the registry, `records.Reference` used
+wherever references are formatted, retire on uninstall, tests (install, numbering with padding, lookup by any padding,
+conflicts, uninstall keeping records), and the docs and CLAUDE.md.
+
 ## 10. Install, update, uninstall
 
 **Install** (`servicelater app install ./my-app` or `my-app.swapp`):
@@ -1496,8 +1569,9 @@ A key service (KMS, Vault) is not supported; the keyring is the seam where one w
 
 ## 13. Open questions
 
-1. ~~App-declared record types.~~ **Resolved by D14.** An app-defined type is a `tasks` row plus `fields jsonb`.
-   Apps declaring their own typed tables (runtime DDL, auto-applied RLS, queries alongside sqlc) stay deferred.
+1. ~~App-declared record types.~~ **Resolved by D14 and D17 (§9.5, designed, not built).** An app-defined type is a
+   `task_types` row (its own prefix, numbering and padding) plus `fields jsonb`. Apps declaring their own typed tables
+   (runtime DDL, auto-applied RLS, queries alongside sqlc) stay deferred.
 2. ~~Polymorphic comments.~~ **Resolved by D14.** Comments reference `tasks.id` with a real foreign key.
 3. ~~Service principal and RLS.~~ **Resolved (§11.1).** One permission model for people and apps: RLS checks
    permissions, people get them from roles, app principals from their manifest.
@@ -1549,6 +1623,8 @@ Each slice is shippable and leaves the product working.
 | **8c. Knowledge base** (done, §8.3) | Articles with review and publishing, versions, audiences, full-text search, suggestions while filing, links to records. | Slice 7 |
 | **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items, rules reading them (routing by support group), freezes scoped to items, approvals by owner, CSV import and export. Next: sync from other systems. | Slices 4 and 7 |
 | **9. Visual builder** (done, §7.7) | The Svelte Flow builder editing the same workflow definitions, saved in the database-kept studio layer, with live highlighting of where runs are. | Slice 6 |
+
+| **10. App-defined record types** (designed, §9.5) | `record_type` definitions: an app's own types with their prefix, numbering and zero-padding, fields in `fields jsonb`, retired (not deleted) on uninstall. | Slices 3 and 4 |
 
 Later: script steps (Starlark, Lua or WASM), app-defined tables and migrations, custom UI components, signing and
 a marketplace.
