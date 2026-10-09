@@ -14,5 +14,5 @@
 
 <!-- Keyed so moving to another ticket starts from that ticket's data, not the previous one's edits. -->
 {#key data.ticket.id}
-	<TicketDetail ticket={data.ticket} comments={data.comments} />
+	<TicketDetail ticket={data.ticket} comments={data.comments} loadedAt={data.loadedAt} />
 {/key}

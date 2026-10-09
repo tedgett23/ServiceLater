@@ -92,6 +92,13 @@ type CreateInput struct {
 	Fields map[string]any
 	// CIs are configuration items to link it to (needs cmdb:read).
 	CIs []uuid.UUID
+	// ParentID makes it part of another record (a task under a request); the parent must be one the actor can see.
+	ParentID *uuid.UUID
+	// AssignmentGroupID routes it to a team as it is filed.
+	AssignmentGroupID *uuid.UUID
+	// CatalogItem orders a request from the catalog: the item's form asks the questions (Fields), its title is the
+	// request's, and its workflow starts once the request is filed. Title is then ignored.
+	CatalogItem string
 }
 
 // ChangePatch is a change to a change's own fields. A nil field is left alone; SetPlannedStart with a nil
@@ -259,8 +266,28 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	} else if err != nil {
 		return Ticket{}, err
 	}
-	// Anyone may file a record of an open type (incidents); any other type needs records:create:<type>.
-	if !tt.AnyoneMayFile && !a.CanRecord(authz.Create, tt.Type) {
+	// Anyone may file a record of an open type (incidents); any other type needs records:create:<type>. A type ordered
+	// from the catalog (requests) is open to anyone only through an item they may order.
+	var item *apps.CatalogItem
+	switch {
+	case in.CatalogItem != "":
+		if !tt.FromCatalog {
+			return Ticket{}, Invalid("only a request is ordered from the catalog")
+		}
+		if item = s.Apps.CatalogItem(in.CatalogItem); item == nil {
+			return Ticket{}, Invalid(fmt.Sprintf("there is no catalog item %q", in.CatalogItem))
+		}
+		ok, err := MayOrder(ctx, q, a.Person(), item)
+		if err != nil {
+			return Ticket{}, err
+		}
+		if !ok {
+			return Ticket{}, Forbidden(fmt.Sprintf("%s is not available to you", item.Label))
+		}
+		in.Title = item.Label // worked out from the answers below
+	case tt.FromCatalog && !a.CanRecord(authz.Create, tt.Type):
+		return Ticket{}, needs("filing a "+strings.ToLower(tt.Label)+" outside the catalog", tt.Type, authz.Create)
+	case !tt.AnyoneMayFile && !a.CanRecord(authz.Create, tt.Type):
 		return Ticket{}, needs("filing a "+strings.ToLower(tt.Label), tt.Type, authz.Create)
 	}
 	if err := validTitle(in.Title); err != nil {
@@ -303,11 +330,48 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 			return Ticket{}, err
 		}
 	}
-	form := s.Apps.Form(tt.Type)
+	if in.ParentID != nil {
+		parent, err := q.GetTask(ctx, *in.ParentID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Ticket{}, Invalid("there is no record to put it under")
+		} else if err != nil {
+			return Ticket{}, err
+		}
+		if parent.ParentID.Valid {
+			return Ticket{}, Invalid("a record under another cannot have records of its own")
+		}
+		next.ParentID = &parent.ID
+	}
+	if in.AssignmentGroupID != nil {
+		g, err := q.GetGroup(ctx, *in.AssignmentGroupID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Ticket{}, Invalid("assignment group does not exist")
+		} else if err != nil {
+			return Ticket{}, err
+		}
+		next.AssignmentGroupID, next.AssignmentGroup = &g.ID, &g.Name
+	}
+	next.CatalogItem = in.CatalogItem
+	form := s.Apps.FormOf(tt.Type, in.CatalogItem)
 	next.Fields = form.Defaults()
 	for k, v := range in.Fields {
 		if v != nil {
 			next.Fields[k] = v
+		}
+	}
+	if item != nil {
+		// The answers as given, normalised as the form check will have them, so the title reads what is saved.
+		draft := next
+		draft.Fields = cloneFields(next.Fields)
+		for k, v := range draft.Fields {
+			if fd, ok := form.Extra(k); ok {
+				if norm, msg := fd.Check(v); msg == "" {
+					draft.Fields[k] = norm
+				}
+			}
+		}
+		if next.Title, err = itemTitle(ctx, q, a, item, draft); err != nil {
+			return Ticket{}, err
 		}
 	}
 	if err := s.checkReadOnly(ctx, q, a, apps.EventCreate, nil, next, createTouched(in)); err != nil {
@@ -325,11 +389,11 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	t, err := q.CreateTask(ctx, dbgen.CreateTaskParams{
 		Type: next.Type, Title: strings.TrimSpace(next.Title), Description: next.Description, Priority: next.Priority, RequesterID: requester,
 		Status: lc.Initial, StateCategory: string(category), AssignmentGroupID: nullUUID(next.AssignmentGroupID),
-		Fields: EncodeFields(next.Fields)})
+		Fields: EncodeFields(next.Fields), ParentID: nullUUID(next.ParentID)})
 	if err != nil {
 		return Ticket{}, err
 	}
-	if err := createExtension(ctx, q, t); err != nil {
+	if err := createExtension(ctx, q, t, in.CatalogItem); err != nil {
 		return Ticket{}, err
 	}
 	// What the rules changed beyond the columns the insert takes is written now.
@@ -346,7 +410,13 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	if err != nil {
 		return Ticket{}, err
 	}
-	return out, s.runAfter(ctx, q, a, cause, apps.EventCreate, nil, out)
+	if err := s.runAfter(ctx, q, a, cause, apps.EventCreate, nil, out); err != nil {
+		return Ticket{}, err
+	}
+	if item != nil {
+		return out, s.startItemWorkflow(ctx, q, a, cause, item, out)
+	}
+	return out, nil
 }
 
 // Update edits a ticket. It locks the row first, so rules see the ticket as it is and two edits cannot both act on
@@ -547,12 +617,14 @@ func (s *Service) mayUpdate(ctx context.Context, q *dbgen.Queries, a Actor, id u
 }
 
 // createExtension writes the type's own row, for the types that have one, in the save's transaction.
-func createExtension(ctx context.Context, q *dbgen.Queries, t dbgen.Task) error {
+func createExtension(ctx context.Context, q *dbgen.Queries, t dbgen.Task, catalogItem string) error {
 	switch t.Type {
 	case "incident":
 		return q.CreateIncident(ctx, t.ID)
 	case "change":
 		return q.CreateChange(ctx, t.ID)
+	case "request":
+		return q.CreateRequest(ctx, dbgen.CreateRequestParams{TaskID: t.ID, CatalogItem: catalogItem})
 	}
 	return nil
 }

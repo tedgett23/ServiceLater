@@ -1,0 +1,41 @@
+# Gets everything ready for someone joining: HR, IT and Facilities each get a task at once, and the request is
+# fulfilled when all of them are finished.
+kind: workflow
+name: new-starter
+record_type: request
+start: start_work
+steps:
+  start_work:
+    type: record.transition
+    to: in_progress
+    next: hr
+  hr:
+    type: task.create
+    title: '="Prepare the contract and first-day pack for " + record.fields.starter_name'
+    group: HR
+    wait: false
+    next: it
+  it:
+    type: task.create
+    title: '="Create accounts for " + record.fields.starter_name + (record.fields.needs_laptop ? ", with a laptop" : "")'
+    description: '="Ready by " + string(record.fields.start_date) + "."'
+    group: Service Desk
+    wait: false
+    next: facilities
+  facilities:
+    type: task.create
+    title: '="Desk and building pass for " + record.fields.starter_name'
+    group: Facilities
+    wait: false
+    next: all_done
+  all_done:
+    type: wait
+    until: record.open_tasks == 0
+    timeout: 30d
+    next: fulfil
+  fulfil:
+    type: record.transition
+    to: fulfilled
+    next: done
+  done:
+    type: end

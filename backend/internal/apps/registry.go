@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -25,13 +26,14 @@ type snapshot struct {
 	forms      map[string]*Form         // by record type
 	classes    map[string]*Class        // CMDB classes by name
 	relations  map[string]*Relationship // CMDB relationship types by name
+	items      map[string]*CatalogItem  // catalog items by name
 	apps       []Installed
 }
 
 func emptySnapshot() *snapshot {
 	return &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{},
 		templates: map[string]*Notification{}, slas: map[string][]*SLA{}, forms: map[string]*Form{},
-		classes: map[string]*Class{}, relations: map[string]*Relationship{}}
+		classes: map[string]*Class{}, relations: map[string]*Relationship{}, items: map[string]*CatalogItem{}}
 }
 
 // Registry serves the current definitions from memory. Installs elsewhere reach it through NOTIFY, so every
@@ -170,6 +172,19 @@ func (r *Registry) Load(ctx context.Context) error {
 				next.classes[c.Name] = &c
 				continue
 			}
+			if d.Kind == "catalog_item" {
+				var it CatalogItem
+				if err := json.Unmarshal(d.Body, &it); err != nil || it.Form == nil {
+					slog.Error("skipping unreadable catalog item", "app", d.AppName, "item", d.Name, "err", err)
+					continue
+				}
+				// A question's condition or a title that no longer compiles stays, and refuses orders until fixed.
+				it.compile()
+				it.App, it.Version = d.AppName, versions[d.AppName]
+				it.Form.App, it.Form.Version = d.AppName, versions[d.AppName]
+				next.items[it.Name] = &it
+				continue
+			}
 			if d.Kind == "relationship" {
 				var rel Relationship
 				if err := json.Unmarshal(d.Body, &rel); err != nil {
@@ -306,6 +321,39 @@ func (r *Registry) ClassAndDescendants(name string) []string {
 		}
 	}
 	slices.Sort(out[1:])
+	return out
+}
+
+// FormOf is the form a record is filled in and checked against: the catalog item's it was ordered from, while that
+// item is installed, else its type's.
+func (r *Registry) FormOf(recordType, catalogItem string) *Form {
+	if catalogItem != "" {
+		if it := r.CatalogItem(catalogItem); it != nil {
+			return it.Form
+		}
+	}
+	return r.Form(recordType)
+}
+
+// CatalogItem returns the catalog item of this name, or nil.
+func (r *Registry) CatalogItem(name string) *CatalogItem { return r.snap.Load().items[name] }
+
+// CatalogItems are every item in the catalog, by category, then order, then label.
+func (r *Registry) CatalogItems() []*CatalogItem {
+	items := r.snap.Load().items
+	out := make([]*CatalogItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, it)
+	}
+	slices.SortFunc(out, func(a, b *CatalogItem) int {
+		if c := strings.Compare(a.Category, b.Category); c != 0 {
+			return c
+		}
+		if a.Order != b.Order {
+			return a.Order - b.Order
+		}
+		return strings.Compare(a.Label, b.Label)
+	})
 	return out
 }
 

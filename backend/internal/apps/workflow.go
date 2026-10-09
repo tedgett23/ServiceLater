@@ -24,7 +24,10 @@ const (
 	StepRecordTransition = "record.transition"
 	StepCommentAdd       = "comment.add"
 	StepApproval         = "approval"
-	StepEnd              = "end"
+	// StepTaskCreate files a task under the record for a team, and (unless wait: false) waits until it is done or
+	// cancelled. The result is vars.<id>_outcome: done, cancelled or timeout.
+	StepTaskCreate = "task.create"
+	StepEnd        = "end"
 
 	maxWorkflowSteps = 50
 	maxStepAssigns   = 20
@@ -42,7 +45,7 @@ const (
 
 var approvalRules = []string{RuleAny, RuleAll, RuleMajority}
 
-var stepTypes = []string{StepSet, StepCondition, StepWait, StepRecordUpdate, StepRecordTransition, StepCommentAdd, StepApproval, StepEnd}
+var stepTypes = []string{StepSet, StepCondition, StepWait, StepRecordUpdate, StepRecordTransition, StepCommentAdd, StepApproval, StepTaskCreate, StepEnd}
 
 var stepIDRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
 
@@ -83,6 +86,13 @@ type Step struct {
 	// has one vote that any of its members may cast.
 	Groups string `json:"groups,omitempty"`
 	Rule   string `json:"rule,omitempty"` // approval: any, all or majority of the votes (default any)
+
+	// task.create: the task's title and description, and the team (group name) it goes to. Wait false files it and
+	// carries on (a later wait until record.open_tasks == 0 can collect several).
+	Title       *Value `json:"title,omitempty"`
+	Description *Value `json:"description,omitempty"`
+	Group       *Value `json:"group,omitempty"`
+	Wait        *bool  `json:"wait,omitempty"`
 
 	cond      *expr.Program
 	until     *expr.Program
@@ -145,6 +155,10 @@ type stepFile struct {
 	Approvers string        `yaml:"approvers"`
 	Groups    string        `yaml:"groups"`
 	Rule      string        `yaml:"rule"`
+	Title     *Value        `yaml:"title"`
+	Desc      *Value        `yaml:"description"`
+	Group     *Value        `yaml:"group"`
+	Wait      *bool         `yaml:"wait"`
 }
 
 // orderedSteps reads the steps map keeping the author's order, which is the order the viewer lists them in.
@@ -163,7 +177,7 @@ func (o *orderedSteps) UnmarshalYAML(n *yaml.Node) error {
 		}
 		*o = append(*o, Step{ID: key.Value, Type: f.Type, Next: f.Next, Vars: f.Vars, If: f.If, Then: f.Then, Else: f.Else,
 			For: f.For, Until: f.Until, Timeout: f.Timeout, OnTimeout: f.OnTimeout, Set: f.Set, To: f.To, Body: f.Body, Internal: f.Internal,
-			Approvers: f.Approvers, Groups: f.Groups, Rule: f.Rule})
+			Approvers: f.Approvers, Groups: f.Groups, Rule: f.Rule, Title: f.Title, Description: f.Desc, Group: f.Group, Wait: f.Wait})
 	}
 	return nil
 }
@@ -319,11 +333,12 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 	unused := func(used ...string) {
 		all := map[string]bool{"next": s.Next != "", "vars": len(s.Vars) > 0, "if": s.If != "", "then": s.Then != "", "else": s.Else != "",
 			"for": s.For != "", "until": s.Until != "", "timeout": s.Timeout != "", "on_timeout": s.OnTimeout != "",
-			"set": len(s.Set) > 0, "to": s.To != "", "body": s.Body != nil, "internal": s.Internal, "approvers": s.Approvers != "", "groups": s.Groups != "", "rule": s.Rule != ""}
+			"set": len(s.Set) > 0, "to": s.To != "", "body": s.Body != nil, "internal": s.Internal, "approvers": s.Approvers != "", "groups": s.Groups != "", "rule": s.Rule != "",
+			"title": s.Title != nil, "description": s.Description != nil, "group": s.Group != nil, "wait": s.Wait != nil}
 		for _, u := range used {
 			delete(all, u)
 		}
-		for _, name := range []string{"next", "vars", "if", "then", "else", "for", "until", "timeout", "on_timeout", "set", "to", "body", "internal", "approvers", "groups", "rule"} {
+		for _, name := range []string{"next", "vars", "if", "then", "else", "for", "until", "timeout", "on_timeout", "set", "to", "body", "internal", "approvers", "groups", "rule", "title", "description", "group", "wait"} {
 			forbid(name, all[name])
 		}
 	}
@@ -433,6 +448,33 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 		}
 		if s.Rule != "" && !slices.Contains(approvalRules, s.Rule) {
 			add("rule must be one of %s, got %q", strings.Join(approvalRules, ", "), s.Rule)
+		}
+		if s.Timeout != "" {
+			if d, err := ParseDuration(s.Timeout); err != nil {
+				add("timeout: %v", err)
+			} else if d < minWait || d > maxWait {
+				add("timeout must be between %s and 30d", minWait)
+			}
+		}
+	case StepTaskCreate:
+		unused("next", "title", "description", "group", "wait", "timeout", "on_timeout")
+		target("next", s.Next, true)
+		target("on_timeout", s.OnTimeout, false)
+		if s.Title == nil {
+			add("task.create needs a title")
+		} else if s.Title.Expr == "" {
+			if t, ok := s.Title.Literal.(string); !ok || strings.TrimSpace(t) == "" {
+				add("title must be text, or =an expression")
+			}
+		}
+		if s.Group != nil && s.Group.Expr == "" {
+			if g, ok := s.Group.Literal.(string); !ok || strings.TrimSpace(g) == "" {
+				add("group must be a group's name, or =an expression giving one")
+			}
+		}
+		if !s.Waits() {
+			forbid("timeout", s.Timeout != "")
+			forbid("on_timeout", s.OnTimeout != "")
 		}
 		if s.Timeout != "" {
 			if d, err := ParseDuration(s.Timeout); err != nil {
@@ -577,6 +619,15 @@ func (w *Workflow) compile() {
 		if s.Body != nil {
 			fail("body", s.Body.err)
 		}
+		for _, v := range []struct {
+			name string
+			val  *Value
+		}{{"title", s.Title}, {"description", s.Description}, {"group", s.Group}} {
+			v.val.compile(env, envErr, expr.String)
+			if v.val != nil {
+				fail(v.name, v.val.err)
+			}
+		}
 		if len(problems) > 0 {
 			s.compileEr = fmt.Errorf("%s", strings.Join(problems, "; "))
 		}
@@ -632,6 +683,9 @@ func (s *Step) ApprovalRule() string {
 // ForDuration and TimeoutDuration are a wait step's parsed durations.
 func (s *Step) ForDuration() time.Duration     { return s.forDur }
 func (s *Step) TimeoutDuration() time.Duration { return s.timeout }
+
+// Waits says whether a task.create step waits for its task (the default) or carries on once it is filed.
+func (s *Step) Waits() bool { return s.Wait == nil || *s.Wait }
 
 // Err is why the step's expressions cannot run, or nil.
 func (s *Step) Err() error { return s.compileEr }

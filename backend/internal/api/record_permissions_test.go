@@ -142,7 +142,7 @@ func TestRecordTypesSayWhoMayFileWhat(t *testing.T) {
 		}
 		return out
 	}
-	if got := types(lena); len(got) != 2 || !got["incident"].CanFile || got["incident"].CanFileForOthers || got["change"].CanFile {
+	if got := types(lena); len(got) != 4 || !got["incident"].CanFile || got["incident"].CanFileForOthers || got["change"].CanFile || got["request"].CanFile || got["work_task"].CanFile {
 		t.Errorf("an end user: %+v", got)
 	}
 	if got := types(chris); !got["change"].CanFile || got["change"].CanFileForOthers || got["change"].Prefix != "CHG" {

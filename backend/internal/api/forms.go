@@ -91,15 +91,16 @@ func formType(r *http.Request) (string, bool) {
 	return t, t != "task" && slices.Contains(apps.KnownRecordTypes, t)
 }
 
-// GET /forms/{type}: the form for a record type, for anyone signed in (people file incidents). A type no app gives a
-// form to has one made of its own fields.
+// GET /forms/{type}?item=: the form for a record type, for anyone signed in (people file incidents). A type no app
+// gives a form to has one made of its own fields. With item, a request's: the catalog item's questions, which is how a
+// request ordered from it is laid out (the type's form when the item is gone).
 func (h *handlers) getForm(w http.ResponseWriter, r *http.Request) {
 	t, ok := formType(r)
 	if !ok {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, toFormDTO(h.apps.Form(t)))
+	writeJSON(w, http.StatusOK, toFormDTO(h.apps.FormOf(t, r.URL.Query().Get("item"))))
 }
 
 // formStatesDTO is how the form for filing stands for a draft.

@@ -5,8 +5,8 @@
 -- The assignment group is written with the row, not after it: a before rule routes an end user's ticket as it is
 -- filed, and only staff may update a task.
 -- name: CreateTask :one
-INSERT INTO tasks (type, title, description, priority, requester_id, status, state_category, assignment_group_id, fields)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE(sqlc.narg('fields')::jsonb, '{}'::jsonb))
+INSERT INTO tasks (type, title, description, priority, requester_id, status, state_category, assignment_group_id, fields, parent_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE(sqlc.narg('fields')::jsonb, '{}'::jsonb), sqlc.narg('parent_id'))
 RETURNING *;
 
 -- The extension row for an incident. Every incident has one; the composite key guarantees the task really is one.
@@ -14,6 +14,9 @@ RETURNING *;
 INSERT INTO incidents (task_id) VALUES ($1);
 
 -- The extension row for a change, with its defaults; the save writes what was filed into it after.
+-- name: CreateRequest :exec
+INSERT INTO requests (task_id, catalog_item) VALUES ($1, $2);
+
 -- name: CreateChange :exec
 INSERT INTO changes (task_id) VALUES ($1);
 
@@ -44,7 +47,9 @@ SELECT sqlc.embed(t), tt.prefix AS type_prefix, r.name AS requester_name, a.name
        g.name AS assignment_group_name, COALESCE(i.resolution, '')::text AS resolution,
        c.change_type, COALESCE(c.risk, '')::text AS risk, COALESCE(c.impact, '')::text AS impact,
        c.planned_start, c.planned_end, COALESCE(c.implementation_plan, '')::text AS implementation_plan,
-       COALESCE(c.backout_plan, '')::text AS backout_plan, COALESCE(c.test_plan, '')::text AS test_plan
+       COALESCE(c.backout_plan, '')::text AS backout_plan, COALESCE(c.test_plan, '')::text AS test_plan,
+       COALESCE(rq.catalog_item, '')::text AS catalog_item, r.manager_id AS requester_manager_id, COALESCE(pt.prefix || p.number, '')::text AS parent_reference,
+       (SELECT count(*) FROM tasks k WHERE k.parent_id = t.id AND k.state_category IN ('open', 'waiting')) AS open_tasks
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 JOIN users r ON r.id = t.requester_id
@@ -52,6 +57,9 @@ LEFT JOIN users a ON a.id = t.assignee_id
 LEFT JOIN groups g ON g.id = t.assignment_group_id
 LEFT JOIN incidents i ON i.task_id = t.id
 LEFT JOIN changes c ON c.task_id = t.id
+LEFT JOIN requests rq ON rq.task_id = t.id
+LEFT JOIN tasks p ON p.id = t.parent_id
+LEFT JOIN task_types pt ON pt.type = p.type
 WHERE t.id = $1;
 
 -- The queue works on tasks alone, whatever their type, so it never needs the extension tables.
@@ -145,3 +153,13 @@ WHERE c.planned_start IS NOT NULL AND c.planned_end IS NOT NULL
   AND c.planned_start < sqlc.arg('to')::timestamptz AND c.planned_end > sqlc.arg('from')::timestamptz
 ORDER BY c.planned_start, t.number
 LIMIT 501;
+
+-- name: ListChildTasks :many
+-- The tasks under a record that the reader may see, oldest first.
+SELECT sqlc.embed(t), tt.prefix AS type_prefix, a.name AS assignee_name, g.name AS assignment_group_name
+FROM tasks t
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN users a ON a.id = t.assignee_id
+LEFT JOIN groups g ON g.id = t.assignment_group_id
+WHERE t.parent_id = $1
+ORDER BY t.created_at, t.number;

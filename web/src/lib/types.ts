@@ -58,6 +58,27 @@ export interface Ticket {
 	attachments?: Attachment[];
 	/** Single-ticket responses: whether the reader may attach files (its requester, or who may update it). */
 	can_attach?: boolean;
+	/** The catalog item a request was ordered from: its questions are the request's form. */
+	catalog_item?: string;
+	/** The record this one is part of (a request, for its tasks), and how people name it. */
+	parent_id: string | null;
+	parent_reference?: string;
+	/** Single-ticket responses: how many tasks under it are still open or waiting, and the tasks themselves. */
+	open_tasks?: number;
+	tasks?: ChildTask[];
+}
+
+/** A record under another: one team's part of the work on a request. */
+export interface ChildTask {
+	id: string;
+	type: string;
+	reference: string;
+	title: string;
+	status: string;
+	state_category: Category;
+	assignee_name: string | null;
+	assignment_group_name: string | null;
+	updated_at: string;
 }
 
 /** A file attached to a record. */
@@ -268,7 +289,8 @@ export const P = {
 	settingsManage: 'settings:manage',
 	knowledgeWrite: 'knowledge:write',
 	knowledgePublish: 'knowledge:publish',
-	workflowsEdit: 'workflows:edit'
+	workflowsEdit: 'workflows:edit',
+	catalogManage: 'catalog:manage'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */
@@ -292,11 +314,36 @@ export interface RecordType {
 	label: string;
 	can_file: boolean;
 	can_file_for_others: boolean;
+	/** Ordered from the service catalog (requests), not filed from the New ticket dialog. */
+	from_catalog?: boolean;
+}
+
+/** An item in the service catalog, as the list shows it. */
+export interface CatalogItem {
+	name: string;
+	label: string;
+	category: string;
+	summary?: string;
+	icon?: string;
+}
+
+/** An item with what ordering it needs, from GET /catalog/{name}. */
+export interface CatalogItemDetail extends CatalogItem {
+	/** Markdown. */
+	description?: string;
+	form: FormDef;
+	can_order_for_others: boolean;
+	app: string;
 }
 
 /** Whether someone may reach anything in the admin section. */
 export const canAdmin = (u: User | null | undefined) =>
-	can(u, P.usersManage) || can(u, P.groupsManage) || can(u, P.rolesManage) || can(u, P.calendarsManage) || can(u, P.settingsManage);
+	can(u, P.usersManage) ||
+	can(u, P.groupsManage) ||
+	can(u, P.rolesManage) ||
+	can(u, P.calendarsManage) ||
+	can(u, P.settingsManage) ||
+	can(u, P.catalogManage);
 
 export interface LifecycleState {
 	id: string;
@@ -424,9 +471,12 @@ export interface Person extends User {
 	created_at: string;
 	/** Set when an admin deactivated them: they cannot sign in, and pickers leave them out. */
 	deactivated_at: string | null;
+	/** Their manager, who approves what they request. */
+	manager_id: string | null;
 }
 
 export interface PersonDetail extends Person {
+	manager_name: string | null;
 	groups: { id: string; name: string }[];
 	roles: HeldRole[];
 }

@@ -42,6 +42,7 @@
 		// Keep where it goes next when the new type goes somewhere.
 		if (step.next && typeInfo(t)?.exits.some((e) => e.field === 'next')) next.next = step.next;
 		if (t === 'comment.add') next.body = { literal: '' };
+		if (t === 'task.create') next.title = { literal: '' };
 		onchange(next);
 	}
 
@@ -108,7 +109,25 @@
 		</div>
 	{/if}
 
-	{#if step.type === 'approval' || (step.type === 'wait' && step.until)}
+	{#if step.type === 'task.create'}
+		<div class="field">
+			<label for="step-title">Task</label>
+			<input id="step-title" value={valueText(step.title)} disabled={!editable} placeholder={'="Order a laptop for " + record.requester_name'} onchange={(e) => set('title', parseValue(e.currentTarget.value))} />
+			<small class="hint">Text, or =an expression.</small>
+		</div>
+		<div class="field">
+			<label for="step-description">Details</label>
+			<textarea id="step-description" rows="2" value={valueText(step.description)} disabled={!editable} onchange={(e) => set('description', parseValue(e.currentTarget.value))}></textarea>
+		</div>
+		<div class="field">
+			<label for="step-group">Team</label>
+			<input id="step-group" value={valueText(step.group)} disabled={!editable} placeholder="Service Desk" onchange={(e) => set('group', parseValue(e.currentTarget.value))} />
+			<small class="hint">A group’s name. A group that does not exist leaves the task unrouted.</small>
+		</div>
+		<label class="check"><input type="checkbox" checked={step.wait !== false} disabled={!editable} onchange={(e) => set('wait', e.currentTarget.checked ? undefined : false)} /> Wait until it is done</label>
+	{/if}
+
+	{#if step.type === 'approval' || (step.type === 'wait' && step.until) || (step.type === 'task.create' && step.wait !== false)}
 		<div class="field">
 			<label for="step-timeout">Time limit</label>
 			<input id="step-timeout" value={step.timeout ?? ''} disabled={!editable} placeholder="5d" onchange={(e) => set('timeout', e.currentTarget.value.trim())} />

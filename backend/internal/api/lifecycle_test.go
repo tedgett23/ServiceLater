@@ -181,7 +181,7 @@ transitions:
 	if got := decodeBody[withCategory](t, w); got.Category != "waiting" {
 		t.Errorf("category %q, want waiting", got.Category)
 	}
-	expect(t, agent.do(h, "GET", "/api/v1/tickets?status=in_progress", ""), 400, "filtering by a state that does not exist")
+	expect(t, agent.do(h, "GET", "/api/v1/tickets?status=resolved", ""), 400, "filtering by a state that no installed lifecycle has")
 	expect(t, agent.do(h, "GET", "/api/v1/tickets?status=fixing", ""), 200, "filtering by an installed state")
 }
 

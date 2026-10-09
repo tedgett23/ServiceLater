@@ -1,0 +1,85 @@
+# Fulfils a new laptop: the manager approves (when there is one), then a task each for ordering it, setting it up and
+# handing it over, one after another.
+kind: workflow
+name: laptop
+record_type: request
+start: has_manager
+steps:
+  has_manager:
+    type: condition
+    if: has(record.requester_manager_id)
+    then: ask_approval
+    else: start_work
+  ask_approval:
+    type: record.transition
+    to: approval
+    next: manager
+  manager:
+    type: approval
+    approvers: '[record.requester_manager_id]'
+    timeout: 7d
+    on_timeout: expired
+    next: decided
+  decided:
+    type: condition
+    if: 'string(vars.manager_decision) == "approved"'
+    then: approved
+    else: rejected
+  approved:
+    type: record.transition
+    to: in_progress
+    next: order
+  start_work:
+    type: record.transition
+    to: in_progress
+    next: order
+  order:
+    type: task.create
+    title: '="Order a " + record.fields.model + " laptop for " + record.requester_name'
+    description: '="For " + record.reference + "." + (has(record.fields.needed_by) ? " Needed by " + string(record.fields.needed_by) + "." : "")'
+    group: Procurement
+    next: ordered
+  ordered:
+    type: condition
+    if: 'string(vars.order_outcome) == "done"'
+    then: set_up
+    else: stopped
+  set_up:
+    type: task.create
+    title: '="Set up the laptop for " + record.requester_name'
+    description: Install the standard software and sign them in to their accounts.
+    group: Desktop Support
+    next: hand_over
+  hand_over:
+    type: task.create
+    title: '="Hand the laptop over to " + record.requester_name'
+    description: '=has(record.fields.old_asset_tag) ? "Collect their old laptop, asset tag " + record.fields.old_asset_tag + "." : "Nothing to collect."'
+    group: Service Desk
+    next: fulfil
+  fulfil:
+    type: record.transition
+    to: fulfilled
+    next: done
+  rejected:
+    type: record.transition
+    to: rejected
+    next: say_rejected
+  say_rejected:
+    type: comment.add
+    body: '="Your manager did not approve this request" + (string(vars.manager_comment) != "" ? ": " + string(vars.manager_comment) : ".")'
+    next: done
+  expired:
+    type: record.transition
+    to: rejected
+    next: say_expired
+  say_expired:
+    type: comment.add
+    body: Your manager did not decide within a week, so this request was closed. Order it again if you still need it.
+    next: done
+  stopped:
+    type: comment.add
+    body: The order was cancelled, so the laptop will not be set up. The Service Desk will be in touch.
+    internal: false
+    next: done
+  done:
+    type: end

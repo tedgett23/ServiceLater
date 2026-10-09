@@ -1,10 +1,10 @@
 -- name: CreateUser :one
 INSERT INTO users (email, name, role)
 VALUES (lower(sqlc.arg(email)::text), $1, $2)
-RETURNING id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme;
+RETURNING id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id;
 
 -- name: GetUser :one
-SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme FROM users WHERE id = $1;
+SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id FROM users WHERE id = $1;
 
 -- People, not app principals: the bootstrap admin is created when there are none.
 -- name: CountUsers :one
@@ -13,7 +13,7 @@ SELECT count(*) FROM users WHERE app_name IS NULL;
 -- Who can be assigned a ticket: everyone active who may work records of its type (records:update:<type>), whatever
 -- role gives it; with no type, everyone who may work some type.
 -- name: ListStaff :many
-SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme FROM users
+SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id FROM users
 WHERE deactivated_at IS NULL AND app_name IS NULL
   AND (CASE WHEN sqlc.narg('record_type')::text IS NULL THEN app_user_can_record_any(id, 'update')
             ELSE app_user_can_record(id, 'update', sqlc.narg('record_type')) END)
@@ -22,7 +22,7 @@ ORDER BY name;
 -- The directory, for pickers such as group membership. q matches a name or email. Deactivated people are left out
 -- unless asked for (the admin's user list).
 -- name: ListUsers :many
-SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme FROM users
+SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id FROM users
 WHERE app_name IS NULL
   AND (sqlc.narg('q')::text IS NULL OR name ILIKE '%' || sqlc.narg('q') || '%' ESCAPE '\' OR email ILIKE '%' || sqlc.narg('q') || '%' ESCAPE '\')
   AND (sqlc.narg('role')::text IS NULL OR role = sqlc.narg('role'))
@@ -31,7 +31,7 @@ ORDER BY name, id
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: GetUserByEmail :one
-SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme FROM users WHERE email = lower(sqlc.arg('email')::text);
+SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id FROM users WHERE email = lower(sqlc.arg('email')::text);
 
 -- An admin's edit. Deactivating keeps the first time it happened; reactivating clears it.
 -- name: UpdateUser :one
@@ -42,9 +42,10 @@ UPDATE users SET
     deactivated_at = CASE
         WHEN sqlc.narg('deactivated')::bool IS NULL THEN deactivated_at
         WHEN sqlc.narg('deactivated')::bool THEN COALESCE(deactivated_at, now())
-        ELSE NULL END
+        ELSE NULL END,
+    manager_id = CASE WHEN sqlc.arg('set_manager')::bool THEN sqlc.narg('manager_id')::uuid ELSE manager_id END
 WHERE id = sqlc.arg('id')
-RETURNING id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme;
+RETURNING id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id;
 
 -- Only someone with no history can be deleted: tickets, comments and approvals keep a reference to them.
 -- name: DeleteUser :execrows

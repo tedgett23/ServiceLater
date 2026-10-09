@@ -1,0 +1,5 @@
+kind: notification
+name: request-fulfilled
+title: "{{record.reference}} is fulfilled"
+body: "{{record.title}}"
+channels: [in_app, email]

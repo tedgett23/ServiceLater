@@ -75,6 +75,31 @@ func (q *Queries) GrantRole(ctx context.Context, arg GrantRoleParams) (GrantRole
 	return i, err
 }
 
+const inAudience = `-- name: InAudience :one
+SELECT EXISTS (
+    SELECT 1 FROM users u WHERE u.id = $1 AND (
+        u.role = ANY ($2::text[])
+        OR EXISTS (SELECT 1 FROM role_grants g WHERE g.role = ANY ($2::text[])
+                   AND (g.user_id = u.id OR g.group_id IN (SELECT m.group_id FROM group_members m WHERE m.user_id = u.id)))
+        OR EXISTS (SELECT 1 FROM group_members m JOIN groups gr ON gr.id = m.group_id
+                   WHERE m.user_id = u.id AND lower(gr.name) = ANY ($3::text[]))))
+`
+
+type InAudienceParams struct {
+	UserID uuid.UUID `json:"user_id"`
+	Roles  []string  `json:"roles"`
+	Groups []string  `json:"groups"`
+}
+
+// Whether a person holds any of the roles (as their base role, directly, or through a group) or is in any of the groups
+// (names lowercased): who may see and order a catalog item.
+func (q *Queries) InAudience(ctx context.Context, arg InAudienceParams) (bool, error) {
+	row := q.db.QueryRow(ctx, inAudience, arg.UserID, arg.Roles, arg.Groups)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const listGroupRoles = `-- name: ListGroupRoles :many
 SELECT g.id, g.role, r.label
 FROM role_grants g JOIN roles r ON r.name = g.role

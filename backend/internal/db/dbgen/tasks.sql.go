@@ -16,7 +16,6 @@ const createChange = `-- name: CreateChange :exec
 INSERT INTO changes (task_id) VALUES ($1)
 `
 
-// The extension row for a change, with its defaults; the save writes what was filed into it after.
 func (q *Queries) CreateChange(ctx context.Context, taskID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, createChange, taskID)
 	return err
@@ -65,11 +64,26 @@ func (q *Queries) CreateIncident(ctx context.Context, taskID uuid.UUID) error {
 	return err
 }
 
+const createRequest = `-- name: CreateRequest :exec
+INSERT INTO requests (task_id, catalog_item) VALUES ($1, $2)
+`
+
+type CreateRequestParams struct {
+	TaskID      uuid.UUID `json:"task_id"`
+	CatalogItem string    `json:"catalog_item"`
+}
+
+// The extension row for a change, with its defaults; the save writes what was filed into it after.
+func (q *Queries) CreateRequest(ctx context.Context, arg CreateRequestParams) error {
+	_, err := q.db.Exec(ctx, createRequest, arg.TaskID, arg.CatalogItem)
+	return err
+}
+
 const createTask = `-- name: CreateTask :one
 
-INSERT INTO tasks (type, title, description, priority, requester_id, status, state_category, assignment_group_id, fields)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::jsonb, '{}'::jsonb))
-RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields
+INSERT INTO tasks (type, title, description, priority, requester_id, status, state_category, assignment_group_id, fields, parent_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::jsonb, '{}'::jsonb), $10)
+RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields, parent_id
 `
 
 type CreateTaskParams struct {
@@ -82,6 +96,7 @@ type CreateTaskParams struct {
 	StateCategory     string        `json:"state_category"`
 	AssignmentGroupID uuid.NullUUID `json:"assignment_group_id"`
 	Fields            []byte        `json:"fields"`
+	ParentID          uuid.NullUUID `json:"parent_id"`
 }
 
 // Tasks are the shared base of every record type; a type with typed columns adds an extension table
@@ -100,6 +115,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		arg.StateCategory,
 		arg.AssignmentGroupID,
 		arg.Fields,
+		arg.ParentID,
 	)
 	var i Task
 	err := row.Scan(
@@ -117,6 +133,7 @@ func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, e
 		&i.Type,
 		&i.AssignmentGroupID,
 		&i.Fields,
+		&i.ParentID,
 	)
 	return i, err
 }
@@ -151,7 +168,7 @@ func (q *Queries) GetCommentView(ctx context.Context, id uuid.UUID) (GetCommentV
 }
 
 const getTask = `-- name: GetTask :one
-SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields FROM tasks WHERE id = $1
+SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields, parent_id FROM tasks WHERE id = $1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id uuid.UUID) (Task, error) {
@@ -172,12 +189,13 @@ func (q *Queries) GetTask(ctx context.Context, id uuid.UUID) (Task, error) {
 		&i.Type,
 		&i.AssignmentGroupID,
 		&i.Fields,
+		&i.ParentID,
 	)
 	return i, err
 }
 
 const getTaskByReference = `-- name: GetTaskByReference :one
-SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields FROM tasks t JOIN task_types tt ON tt.type = t.type WHERE tt.prefix = $1 AND t.number = $2
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id FROM tasks t JOIN task_types tt ON tt.type = t.type WHERE tt.prefix = $1 AND t.number = $2
 `
 
 type GetTaskByReferenceParams struct {
@@ -204,12 +222,13 @@ func (q *Queries) GetTaskByReference(ctx context.Context, arg GetTaskByReference
 		&i.Type,
 		&i.AssignmentGroupID,
 		&i.Fields,
+		&i.ParentID,
 	)
 	return i, err
 }
 
 const getTaskByTypeNumber = `-- name: GetTaskByTypeNumber :one
-SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields FROM tasks WHERE type = $1 AND number = $2
+SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields, parent_id FROM tasks WHERE type = $1 AND number = $2
 `
 
 type GetTaskByTypeNumberParams struct {
@@ -235,12 +254,13 @@ func (q *Queries) GetTaskByTypeNumber(ctx context.Context, arg GetTaskByTypeNumb
 		&i.Type,
 		&i.AssignmentGroupID,
 		&i.Fields,
+		&i.ParentID,
 	)
 	return i, err
 }
 
 const getTaskForUpdate = `-- name: GetTaskForUpdate :one
-SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields FROM tasks WHERE id = $1 FOR UPDATE
+SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields, parent_id FROM tasks WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetTaskForUpdate(ctx context.Context, id uuid.UUID) (Task, error) {
@@ -261,12 +281,13 @@ func (q *Queries) GetTaskForUpdate(ctx context.Context, id uuid.UUID) (Task, err
 		&i.Type,
 		&i.AssignmentGroupID,
 		&i.Fields,
+		&i.ParentID,
 	)
 	return i, err
 }
 
 const getTaskType = `-- name: GetTaskType :one
-SELECT type, prefix, label, anyone_may_file FROM task_types WHERE type = $1
+SELECT type, prefix, label, anyone_may_file, from_catalog FROM task_types WHERE type = $1
 `
 
 func (q *Queries) GetTaskType(ctx context.Context, type_ string) (TaskType, error) {
@@ -277,16 +298,19 @@ func (q *Queries) GetTaskType(ctx context.Context, type_ string) (TaskType, erro
 		&i.Prefix,
 		&i.Label,
 		&i.AnyoneMayFile,
+		&i.FromCatalog,
 	)
 	return i, err
 }
 
 const getTicketView = `-- name: GetTicketView :one
-SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
        g.name AS assignment_group_name, COALESCE(i.resolution, '')::text AS resolution,
        c.change_type, COALESCE(c.risk, '')::text AS risk, COALESCE(c.impact, '')::text AS impact,
        c.planned_start, c.planned_end, COALESCE(c.implementation_plan, '')::text AS implementation_plan,
-       COALESCE(c.backout_plan, '')::text AS backout_plan, COALESCE(c.test_plan, '')::text AS test_plan
+       COALESCE(c.backout_plan, '')::text AS backout_plan, COALESCE(c.test_plan, '')::text AS test_plan,
+       COALESCE(rq.catalog_item, '')::text AS catalog_item, r.manager_id AS requester_manager_id, COALESCE(pt.prefix || p.number, '')::text AS parent_reference,
+       (SELECT count(*) FROM tasks k WHERE k.parent_id = t.id AND k.state_category IN ('open', 'waiting')) AS open_tasks
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 JOIN users r ON r.id = t.requester_id
@@ -294,6 +318,9 @@ LEFT JOIN users a ON a.id = t.assignee_id
 LEFT JOIN groups g ON g.id = t.assignment_group_id
 LEFT JOIN incidents i ON i.task_id = t.id
 LEFT JOIN changes c ON c.task_id = t.id
+LEFT JOIN requests rq ON rq.task_id = t.id
+LEFT JOIN tasks p ON p.id = t.parent_id
+LEFT JOIN task_types pt ON pt.type = p.type
 WHERE t.id = $1
 `
 
@@ -312,6 +339,10 @@ type GetTicketViewRow struct {
 	ImplementationPlan  string             `json:"implementation_plan"`
 	BackoutPlan         string             `json:"backout_plan"`
 	TestPlan            string             `json:"test_plan"`
+	CatalogItem         string             `json:"catalog_item"`
+	RequesterManagerID  uuid.NullUUID      `json:"requester_manager_id"`
+	ParentReference     string             `json:"parent_reference"`
+	OpenTasks           int64              `json:"open_tasks"`
 }
 
 // A ticket as clients see it: the task, display names, the type's prefix, and the type's own columns. Plain joins,
@@ -334,6 +365,7 @@ func (q *Queries) GetTicketView(ctx context.Context, id uuid.UUID) (GetTicketVie
 		&i.Task.Type,
 		&i.Task.AssignmentGroupID,
 		&i.Task.Fields,
+		&i.Task.ParentID,
 		&i.TypePrefix,
 		&i.RequesterName,
 		&i.AssigneeName,
@@ -347,8 +379,69 @@ func (q *Queries) GetTicketView(ctx context.Context, id uuid.UUID) (GetTicketVie
 		&i.ImplementationPlan,
 		&i.BackoutPlan,
 		&i.TestPlan,
+		&i.CatalogItem,
+		&i.RequesterManagerID,
+		&i.ParentReference,
+		&i.OpenTasks,
 	)
 	return i, err
+}
+
+const listChildTasks = `-- name: ListChildTasks :many
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, tt.prefix AS type_prefix, a.name AS assignee_name, g.name AS assignment_group_name
+FROM tasks t
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN users a ON a.id = t.assignee_id
+LEFT JOIN groups g ON g.id = t.assignment_group_id
+WHERE t.parent_id = $1
+ORDER BY t.created_at, t.number
+`
+
+type ListChildTasksRow struct {
+	Task                Task        `json:"task"`
+	TypePrefix          string      `json:"type_prefix"`
+	AssigneeName        pgtype.Text `json:"assignee_name"`
+	AssignmentGroupName pgtype.Text `json:"assignment_group_name"`
+}
+
+// The tasks under a record that the reader may see, oldest first.
+func (q *Queries) ListChildTasks(ctx context.Context, parentID uuid.NullUUID) ([]ListChildTasksRow, error) {
+	rows, err := q.db.Query(ctx, listChildTasks, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChildTasksRow
+	for rows.Next() {
+		var i ListChildTasksRow
+		if err := rows.Scan(
+			&i.Task.ID,
+			&i.Task.Number,
+			&i.Task.Title,
+			&i.Task.Description,
+			&i.Task.Status,
+			&i.Task.Priority,
+			&i.Task.RequesterID,
+			&i.Task.AssigneeID,
+			&i.Task.CreatedAt,
+			&i.Task.UpdatedAt,
+			&i.Task.StateCategory,
+			&i.Task.Type,
+			&i.Task.AssignmentGroupID,
+			&i.Task.Fields,
+			&i.Task.ParentID,
+			&i.TypePrefix,
+			&i.AssigneeName,
+			&i.AssignmentGroupName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listComments = `-- name: ListComments :many
@@ -466,7 +559,7 @@ func (q *Queries) ListPlannedWindows(ctx context.Context, arg ListPlannedWindows
 }
 
 const listTaskTypes = `-- name: ListTaskTypes :many
-SELECT type, prefix, label, anyone_may_file FROM task_types ORDER BY anyone_may_file DESC, type
+SELECT type, prefix, label, anyone_may_file, from_catalog FROM task_types ORDER BY anyone_may_file DESC, type
 `
 
 // Types open to everyone (incidents) first: the New ticket dialog starts on the first one the person may file.
@@ -484,6 +577,7 @@ func (q *Queries) ListTaskTypes(ctx context.Context) ([]TaskType, error) {
 			&i.Prefix,
 			&i.Label,
 			&i.AnyoneMayFile,
+			&i.FromCatalog,
 		); err != nil {
 			return nil, err
 		}
@@ -496,7 +590,7 @@ func (q *Queries) ListTaskTypes(ctx context.Context) ([]TaskType, error) {
 }
 
 const listTickets = `-- name: ListTickets :many
-SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
        g.name AS assignment_group_name, sla.due_at::timestamptz AS sla_due_at, COALESCE(sla.breached, false)::bool AS sla_breached
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
@@ -598,6 +692,7 @@ func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]Lis
 			&i.Task.Type,
 			&i.Task.AssignmentGroupID,
 			&i.Task.Fields,
+			&i.Task.ParentID,
 			&i.TypePrefix,
 			&i.RequesterName,
 			&i.AssigneeName,
@@ -676,7 +771,7 @@ UPDATE tasks SET
     -- The whole object: the save works out the fields from the form and writes the result.
     fields      = COALESCE($8::jsonb, fields)
 WHERE id = $9
-RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields
+RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields, parent_id
 `
 
 type UpdateTaskParams struct {
@@ -719,12 +814,13 @@ func (q *Queries) UpdateTask(ctx context.Context, arg UpdateTaskParams) (Task, e
 		&i.Type,
 		&i.AssignmentGroupID,
 		&i.Fields,
+		&i.ParentID,
 	)
 	return i, err
 }
 
 const updateTaskStatus = `-- name: UpdateTaskStatus :one
-UPDATE tasks SET status = $2, state_category = $3 WHERE id = $1 RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields
+UPDATE tasks SET status = $2, state_category = $3 WHERE id = $1 RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields, parent_id
 `
 
 type UpdateTaskStatusParams struct {
@@ -751,6 +847,7 @@ func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusPara
 		&i.Type,
 		&i.AssignmentGroupID,
 		&i.Fields,
+		&i.ParentID,
 	)
 	return i, err
 }

@@ -101,6 +101,129 @@
         ],
         "type": "object"
       },
+      "ApiForm": {
+        "description": "How a record type's fields are laid out: every field the form places, which go on the form for filing one and in which sections on the record. Whether each is shown, required or writable right now is a ticket's field_states, or for a record being filed, POST /forms/{type}/states.",
+        "properties": {
+          "app": {
+            "description": "The app that defines the form; empty for the form a type has without one.",
+            "type": "string"
+          },
+          "create": {
+            "description": "Lists the fields on the form for filing one, in order.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "detail": {
+            "description": "Lists the sections of fields shown on the record, in order. Title, description and priority have places of their own there and are not listed.",
+            "items": {
+              "$ref": "#/components/schemas/Section"
+            },
+            "type": "array"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/ApiFormField"
+            },
+            "type": "array"
+          },
+          "reactive": {
+            "description": "The fields the form's conditions read: when one of them changes while filing, ask for the states again.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "record_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "create",
+          "detail",
+          "fields",
+          "reactive",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "ApiFormField": {
+        "description": "One field: one of the record's own (core) or an extra field the form declares.",
+        "properties": {
+          "core": {
+            "description": "Set for the record's own fields, which requests name directly (title, resolution) or under change; extra fields go under fields.",
+            "type": "boolean"
+          },
+          "default": {
+            "description": "What a new record starts with, for extra fields that have one."
+          },
+          "help": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "max": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "max_length": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "min": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/ApiOption"
+            },
+            "type": "array"
+          },
+          "required": {
+            "description": "Set when the field is always required; field_states says when it is now.",
+            "type": "boolean"
+          },
+          "type": {
+            "description": "Text, textarea, number, boolean, date, datetime or choice; the core priority field is priority.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "core",
+          "label",
+          "name",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ApiOption": {
+        "description": "One value a choice offers.",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "value"
+        ],
+        "type": "object"
+      },
       "Approval": {
         "description": "One pending approval request, with enough of the ticket to show in a list. Anyone can be asked to approve something, staff or not, so this is not a staff-only endpoint.",
         "properties": {
@@ -142,6 +265,72 @@
         ],
         "type": "object"
       },
+      "AppsCatalogItem": {
+        "properties": {
+          "available_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Audience"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "form": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Form"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "icon": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "order": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Value"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "workflow": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "form",
+          "label",
+          "name"
+        ],
+        "type": "object"
+      },
       "AppsStep": {
         "properties": {
           "approvers": {
@@ -157,11 +346,31 @@
               }
             ]
           },
+          "description": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Value"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "else": {
             "type": "string"
           },
           "for": {
             "type": "string"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Value"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "groups": {
             "type": "string"
@@ -196,6 +405,16 @@
           "timeout": {
             "type": "string"
           },
+          "title": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Value"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "to": {
             "type": "string"
           },
@@ -210,6 +429,12 @@
               "$ref": "#/components/schemas/NamedValue"
             },
             "type": "array"
+          },
+          "wait": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         },
         "required": [
@@ -609,6 +834,23 @@
         ],
         "type": "object"
       },
+      "Audience": {
+        "properties": {
+          "groups": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "Calendar": {
         "description": "A business calendar: the working hours an SLA counts, in a time zone, less holidays. An SLA definition names one by name.",
         "properties": {
@@ -798,6 +1040,257 @@
         },
         "type": "object"
       },
+      "CatalogApp": {
+        "description": "An app new items can be added to, with the workflows an item of it may name.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "workflows": {
+            "description": "Its workflows for requests.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "workflows"
+        ],
+        "type": "object"
+      },
+      "CatalogEntry": {
+        "description": "An item in the editor's list: every item, whoever it is for.",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "available_to": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Audience"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who may order it; absent, everyone."
+          },
+          "category": {
+            "type": "string"
+          },
+          "edited": {
+            "description": "Says it was changed here; Shipped that its app (or a local file) defines it.",
+            "type": "boolean"
+          },
+          "icon": {
+            "description": "One of a fixed set of pictures (laptop, software, access...).",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "shipped": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "category",
+          "edited",
+          "label",
+          "name",
+          "shipped"
+        ],
+        "type": "object"
+      },
+      "CatalogItem": {
+        "description": "An item in the catalog, as the list shows it.",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "icon": {
+            "description": "One of a fixed set of pictures (laptop, software, access...).",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "label",
+          "name"
+        ],
+        "type": "object"
+      },
+      "CatalogItemDef": {
+        "description": "An item as the editor changes it: the same definition its file holds.",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "edited": {
+            "type": "boolean"
+          },
+          "edited_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "edited_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "item": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppsCatalogItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "layers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "override": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "shipped": {
+            "type": "boolean"
+          },
+          "workflows": {
+            "description": "Its app's workflows for requests, any of which may fulfil it.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "yaml": {
+            "description": "The item as a file; Override is the edit as it is kept (what `servicelater app export-local` writes).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "edited",
+          "item",
+          "layers",
+          "path",
+          "shipped",
+          "workflows",
+          "yaml"
+        ],
+        "type": "object"
+      },
+      "CatalogItemDetail": {
+        "description": "An item with what ordering it needs.",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "can_order_for_others": {
+            "description": "Says the caller may name someone else as who it is for (records:update:request).",
+            "type": "boolean"
+          },
+          "category": {
+            "type": "string"
+          },
+          "description": {
+            "description": "The item's page, in Markdown.",
+            "type": "string"
+          },
+          "form": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ApiForm"
+              }
+            ],
+            "description": "Its questions: fields, and which are asked when ordering (create) and shown on the request (detail)."
+          },
+          "icon": {
+            "description": "One of a fixed set of pictures (laptop, software, access...).",
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "can_order_for_others",
+          "category",
+          "form",
+          "label",
+          "name"
+        ],
+        "type": "object"
+      },
+      "CatalogItemSaveRequest": {
+        "description": "An item as the editor saves it. App names the app a new item goes in (an existing item stays in its own).",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "item": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppsCatalogItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "CatalogStatesRequest": {
+        "description": "An order as far as it is filled in.",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {},
+            "description": "The answers so far, by question name.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "Category": {
         "properties": {
           "articles": {
@@ -920,6 +1413,58 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "ChildTask": {
+        "description": "A record under another: one team's part of the work.",
+        "properties": {
+          "assignee_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assignment_group_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "state_category": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignee_name",
+          "assignment_group_name",
+          "id",
+          "reference",
+          "state_category",
+          "status",
+          "title",
+          "type",
+          "updated_at"
+        ],
         "type": "object"
       },
       "Ci": {
@@ -1214,7 +1759,7 @@
           "fields": {
             "description": "Its fields, those of the classes it extends first.",
             "items": {
-              "$ref": "#/components/schemas/FormField"
+              "$ref": "#/components/schemas/ApiFormField"
             },
             "type": "array"
           },
@@ -1251,7 +1796,7 @@
           },
           "statuses": {
             "items": {
-              "$ref": "#/components/schemas/Option"
+              "$ref": "#/components/schemas/ApiOption"
             },
             "type": "array"
           }
@@ -1561,21 +2106,14 @@
         "type": "object"
       },
       "Form": {
-        "description": "How a record type's fields are laid out: every field the form places, which go on the form for filing one and in which sections on the record. Whether each is shown, required or writable right now is a ticket's field_states, or for a record being filed, POST /forms/{type}/states.",
         "properties": {
-          "app": {
-            "description": "The app that defines the form; empty for the form a type has without one.",
-            "type": "string"
-          },
           "create": {
-            "description": "Lists the fields on the form for filing one, in order.",
             "items": {
               "type": "string"
             },
             "type": "array"
           },
           "detail": {
-            "description": "Lists the sections of fields shown on the record, in order. Title, description and priority have places of their own there and are not listed.",
             "items": {
               "$ref": "#/components/schemas/Section"
             },
@@ -1587,38 +2125,47 @@
             },
             "type": "array"
           },
-          "reactive": {
-            "description": "The fields the form's conditions read: when one of them changes while filing, ask for the states again.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
           "record_type": {
             "type": "string"
+          },
+          "title_given": {
+            "type": "boolean"
+          },
+          "validate": {
+            "items": {
+              "$ref": "#/components/schemas/Guard"
+            },
+            "type": "array"
           }
         },
         "required": [
           "create",
           "detail",
           "fields",
-          "reactive",
           "record_type"
         ],
         "type": "object"
       },
       "FormField": {
-        "description": "One field: one of the record's own (core) or an extra field the form declares.",
         "properties": {
-          "core": {
-            "description": "Set for the record's own fields, which requests name directly (title, resolution) or under change; extra fields go under fields.",
-            "type": "boolean"
-          },
           "default": {
-            "description": "What a new record starts with, for extra fields that have one."
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Value"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "help": {
             "type": "string"
+          },
+          "history": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "label": {
             "type": "string"
@@ -1650,20 +2197,24 @@
             },
             "type": "array"
           },
+          "read_only_when": {
+            "type": "string"
+          },
           "required": {
-            "description": "Set when the field is always required; field_states says when it is now.",
             "type": "boolean"
           },
+          "required_when": {
+            "type": "string"
+          },
           "type": {
-            "description": "Text, textarea, number, boolean, date, datetime or choice; the core priority field is priority.",
+            "type": "string"
+          },
+          "visible_when": {
             "type": "string"
           }
         },
         "required": [
-          "core",
-          "label",
-          "name",
-          "type"
+          "name"
         ],
         "type": "object"
       },
@@ -2012,6 +2563,21 @@
         "required": [
           "id",
           "name"
+        ],
+        "type": "object"
+      },
+      "Guard": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "when": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "when"
         ],
         "type": "object"
       },
@@ -2537,12 +3103,14 @@
         "type": "object"
       },
       "Option": {
-        "description": "One value a choice offers.",
         "properties": {
           "label": {
             "type": "string"
           },
           "value": {
+            "type": "string"
+          },
+          "when": {
             "type": "string"
           }
         },
@@ -2550,6 +3118,29 @@
           "label",
           "value"
         ],
+        "type": "object"
+      },
+      "OrderRequest": {
+        "description": "Orders an item.",
+        "properties": {
+          "description": {
+            "description": "Anything else the requester wants to say, when the item asks (its form places description).",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {},
+            "description": "The answers to the item's questions, by name.",
+            "type": "object"
+          },
+          "requester_id": {
+            "description": "Orders it for someone else (needs records:update:request); the caller by default.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "Part": {
@@ -2649,6 +3240,14 @@
             "format": "uuid",
             "type": "string"
           },
+          "manager_id": {
+            "description": "Their manager, who approves what they request (record.requester_manager_id in workflows).",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -2662,6 +3261,7 @@
           "deactivated_at",
           "email",
           "id",
+          "manager_id",
           "name",
           "role"
         ],
@@ -2693,6 +3293,10 @@
           },
           "can_file_for_others": {
             "description": "Says whether they may also name someone else as the requester (records:update:\u003ctype\u003e too).",
+            "type": "boolean"
+          },
+          "from_catalog": {
+            "description": "Types (requests) are ordered from the service catalog; CanFile says whether the caller may also file one by hand, with no item.",
             "type": "boolean"
           },
           "label": {
@@ -3421,6 +4025,9 @@
             "description": "Says the reader may attach files to it (single-ticket responses).",
             "type": "boolean"
           },
+          "catalog_item": {
+            "type": "string"
+          },
           "change": {
             "anyOf": [
               {
@@ -3471,6 +4078,23 @@
             "format": "int64",
             "type": "integer"
           },
+          "open_tasks": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "parent_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_reference": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "priority": {
             "format": "int32",
             "type": "integer"
@@ -3512,6 +4136,13 @@
           "status": {
             "type": "string"
           },
+          "tasks": {
+            "description": "The records under it that the reader may see, oldest first: a request's tasks (single-ticket responses).",
+            "items": {
+              "$ref": "#/components/schemas/ChildTask"
+            },
+            "type": "array"
+          },
           "title": {
             "type": "string"
           },
@@ -3533,6 +4164,8 @@
           "fields",
           "id",
           "number",
+          "open_tasks",
+          "parent_id",
           "priority",
           "reference",
           "requester_id",
@@ -3627,6 +4260,21 @@
             "format": "uuid",
             "type": "string"
           },
+          "manager_id": {
+            "description": "Their manager, who approves what they request (record.requester_manager_id in workflows).",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "manager_name": {
+            "description": "Their manager's name, when they have one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -3647,6 +4295,8 @@
           "email",
           "groups",
           "id",
+          "manager_id",
+          "manager_name",
           "name",
           "role",
           "roles"
@@ -5934,6 +6584,914 @@
         ]
       }
     },
+    "/api/v1/catalog": {
+      "get": {
+        "description": "The items the caller may order, by category, then the order their apps give, then label.",
+        "operationId": "listCatalog",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/CatalogItem"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List catalog",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/catalog-items": {
+      "get": {
+        "description": "(catalog:manage): every catalog item, whoever may order it, with where it comes from; and the apps new items can go in.\n\nRequires the `catalog:manage` permission.",
+        "operationId": "listCatalogItems",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "apps": {
+                      "items": {
+                        "$ref": "#/components/schemas/CatalogApp"
+                      },
+                      "type": "array"
+                    },
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/CatalogEntry"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "apps",
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "List catalog items",
+        "tags": [
+          "catalog-items"
+        ],
+        "x-permissions": [
+          "catalog:manage"
+        ]
+      }
+    },
+    "/api/v1/catalog-items/{name}": {
+      "get": {
+        "description": "(catalog:manage): an item's definition for the editor, with where it comes from, whether it was edited here, and its YAML.\n\nRequires the `catalog:manage` permission.",
+        "operationId": "getCatalogItemDef",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogItemDef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get catalog item def",
+        "tags": [
+          "catalog-items"
+        ],
+        "x-permissions": [
+          "catalog:manage"
+        ]
+      },
+      "put": {
+        "description": "(catalog:manage) with {\"app\"?, \"item\"}: save an item into its app's studio layer, adding it to app when no app has it, and reinstall the app with it at once. It is checked as an install checks it; every problem is listed (422 with problems). Upgrades of the app keep the edit; requests already filed keep their answers.\n\nRequires the `catalog:manage` permission.",
+        "operationId": "putCatalogItemDef",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogItemSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogItemDef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Put catalog item def",
+        "tags": [
+          "catalog-items"
+        ],
+        "x-permissions": [
+          "catalog:manage"
+        ]
+      }
+    },
+    "/api/v1/catalog-items/{name}/edits": {
+      "delete": {
+        "description": "(catalog:manage): undo the edits made here: an item its app ships goes back to the app's version; one added here is removed from the catalog. Requests already filed from it are kept.\n\nRequires the `catalog:manage` permission.",
+        "operationId": "resetCatalogItemDef",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogItemDef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Reset catalog item def",
+        "tags": [
+          "catalog-items"
+        ],
+        "x-permissions": [
+          "catalog:manage"
+        ]
+      }
+    },
+    "/api/v1/catalog/{name}": {
+      "get": {
+        "description": "An item the caller may order, with its questions.",
+        "operationId": "getCatalogItem",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogItemDetail"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Get catalog item",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/catalog/{name}/request": {
+      "post": {
+        "description": "With {fields, description?, requester_id?}: order an item. It files a request, named after the item and the answers, and starts the item's fulfilment workflow (approvals, tasks for the teams involved). Answers are checked against the item's questions like any form.",
+        "operationId": "orderCatalogItem",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ticket"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Order catalog item",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/catalog/{name}/states": {
+      "post": {
+        "description": "Whether each of an item's questions is shown, required and writable for an order with these answers, and which options a choice offers. Nothing is saved; ordering checks it all again.",
+        "operationId": "catalogStates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CatalogStatesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormStates"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Catalog states",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
     "/api/v1/cis": {
       "get": {
         "description": "(cmdb:read): configuration items by name. q matches part of a name; class finds that class and every class that extends it; retired items are left out unless include_retired=true or status=retired. more says there are more after this page.\n\nRequires the `cmdb:read` permission.",
@@ -7527,13 +9085,20 @@
     },
     "/api/v1/forms/{type}": {
       "get": {
-        "description": "The form for a record type, for anyone signed in (people file incidents). A type no app gives a form to has one made of its own fields.",
+        "description": "The form for a record type, for anyone signed in (people file incidents). A type no app gives a form to has one made of its own fields. With item, a request's: the catalog item's questions, which is how a request ordered from it is laid out (the type's form when the item is gone).",
         "operationId": "getForm",
         "parameters": [
           {
             "in": "path",
             "name": "type",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "item",
             "schema": {
               "type": "string"
             }
@@ -7544,7 +9109,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Form"
+                  "$ref": "#/components/schemas/ApiForm"
                 }
               }
             },
@@ -12587,6 +14152,14 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "assignment_group_id": {
+                    "description": "Routes it to a team as it is filed.",
+                    "format": "uuid",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "change": {
                     "anyOf": [
                       {
@@ -12613,6 +14186,14 @@
                     "additionalProperties": {},
                     "description": "Fills in extra fields, by name, as the type's form declares them (GET /forms/{type}).",
                     "type": "object"
+                  },
+                  "parent_id": {
+                    "description": "Files it under another record (a task under a request).",
+                    "format": "uuid",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "priority": {
                     "format": "int32",
@@ -14865,7 +16446,7 @@
         ]
       },
       "patch": {
-        "description": "With {\"email\"?, \"name\"?, \"role\"?, \"deactivated\"?}. Deactivating signs them out everywhere and stops them signing in; their tickets and comments keep their name. Admins cannot demote or deactivate themselves, and there is always at least one active admin.\n\nRequires the `users:manage` permission.",
+        "description": "With {\"email\"?, \"name\"?, \"role\"?, \"deactivated\"?, \"manager_id\"?} (null: no manager). Deactivating signs them out everywhere and stops them signing in; their tickets and comments keep their name. Admins cannot demote or deactivate themselves, and there is always at least one active admin.\n\nRequires the `users:manage` permission.",
         "operationId": "updateUser",
         "parameters": [
           {
@@ -14891,6 +16472,14 @@
                     ]
                   },
                   "email": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "manager_id": {
+                    "description": "Their manager; null removes it.",
+                    "format": "uuid",
                     "type": [
                       "string",
                       "null"
@@ -16254,6 +17843,12 @@
     },
     {
       "name": "calendar"
+    },
+    {
+      "name": "catalog"
+    },
+    {
+      "name": "catalog-items"
     },
     {
       "name": "cis"

@@ -260,6 +260,12 @@ type RecordHistory struct {
 	New        []byte             `json:"new"`
 }
 
+type Request struct {
+	TaskID      uuid.UUID `json:"task_id"`
+	Type        string    `json:"type"`
+	CatalogItem string    `json:"catalog_item"`
+}
+
 type Role struct {
 	Name        string             `json:"name"`
 	Label       string             `json:"label"`
@@ -320,6 +326,7 @@ type Task struct {
 	Type              string             `json:"type"`
 	AssignmentGroupID uuid.NullUUID      `json:"assignment_group_id"`
 	Fields            []byte             `json:"fields"`
+	ParentID          uuid.NullUUID      `json:"parent_id"`
 }
 
 type TaskArticle struct {
@@ -372,6 +379,7 @@ type TaskType struct {
 	Prefix        string `json:"prefix"`
 	Label         string `json:"label"`
 	AnyoneMayFile bool   `json:"anyone_may_file"`
+	FromCatalog   bool   `json:"from_catalog"`
 }
 
 type User struct {
@@ -384,6 +392,7 @@ type User struct {
 	AppName            pgtype.Text        `json:"app_name"`
 	EmailNotifications bool               `json:"email_notifications"`
 	Theme              string             `json:"theme"`
+	ManagerID          uuid.NullUUID      `json:"manager_id"`
 }
 
 type UserCredential struct {

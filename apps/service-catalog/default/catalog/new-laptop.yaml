@@ -1,0 +1,44 @@
+# A laptop for work. The requester's manager approves it (when they have one); then Procurement orders it, Desktop
+# Support sets it up and the Service Desk hands it over, each as a task of their own (workflows/laptop.yaml). Teams
+# that do not exist yet get their tasks unrouted: create the groups, or change the names in local/.
+kind: catalog_item
+name: new-laptop
+label: New laptop
+category: Hardware
+icon: laptop
+order: 10
+summary: A work laptop, set up with your accounts and handed to you.
+description: |
+  Choose the model that fits your work. Your manager is asked to approve it first.
+
+  Once it is approved, it is ordered, set up with your accounts and the standard software, and handed over at the
+  Service Desk. You can follow each step on the request.
+title: '="New laptop: " + record.fields.model'
+workflow: laptop
+fields:
+  model:
+    type: choice
+    label: Model
+    required: true
+    options:
+      - { value: Standard 14-inch, label: "Standard 14-inch, for most people" }
+      - { value: Performance 16-inch, label: "Performance 16-inch, for development and design" }
+      - { value: MacBook, label: MacBook }
+  replacing:
+    type: boolean
+    label: It replaces a laptop I have now
+  old_asset_tag:
+    type: text
+    label: Asset tag of the old laptop
+    help: The label on its underside. It is collected when the new one is handed over.
+    visible_when: has(record.fields.replacing) && record.fields.replacing
+    required_when: has(record.fields.replacing) && record.fields.replacing
+    max_length: 40
+  needed_by:
+    type: date
+    label: Needed by
+  reason:
+    type: textarea
+    label: What do you need it for?
+    required: true
+    max_length: 2000

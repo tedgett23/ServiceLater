@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
+	import PersonPicker from '$lib/components/PersonPicker.svelte';
 	import { groups } from '$lib/groups.svelte';
 	import { can, P, roleLabel, type PersonDetail, type Role, type RoleInfo } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
@@ -165,6 +166,20 @@
 			{#if self}<p class="hint">You cannot change your own role. Another admin can.</p>{/if}
 			<div><button class="btn primary" disabled={!dirty || !name.trim() || !email.trim() || busy}>Save</button></div>
 		</form>
+
+		<section class="block" aria-labelledby="manager-h">
+			<h2 id="manager-h">Manager</h2>
+			<p class="hint">Approves what {person.name} requests, when a request’s workflow asks the manager.</p>
+			<PersonPicker
+				id="manager"
+				label="Manager"
+				value={person.manager_id}
+				name={person.manager_name}
+				exclude={[person.id]}
+				disabled={busy}
+				onchange={(id, who) => patch({ manager_id: id }, id ? `${who} is now the manager` : 'Manager removed')}
+			/>
+		</section>
 
 		<section class="block" aria-labelledby="groups-h">
 			<h2 id="groups-h">Groups</h2>

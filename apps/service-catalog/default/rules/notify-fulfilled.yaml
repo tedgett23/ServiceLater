@@ -1,0 +1,12 @@
+# Tell the requester when their request is fulfilled, or was not approved.
+kind: rule
+name: notify-fulfilled
+record_type: request
+timing: after
+on: [update]
+when: record.status != old.status && record.state_category == "done"
+on_error: skip
+run:
+  - action: notify
+    template: request-fulfilled
+    to: [requester]

@@ -1,0 +1,32 @@
+# Access to an application. The requester's manager approves; administrator access also needs someone holding the
+# software-approver role (grant it to your software team leads); then the Service Desk grants it.
+kind: catalog_item
+name: software-access
+label: Software access
+category: Software
+icon: software
+order: 10
+summary: Access to an application you need for your work.
+title: '="Access to " + record.fields.application + " (" + record.fields.access_level + ")"'
+workflow: software-access
+fields:
+  application:
+    type: text
+    label: Application
+    help: Its name as you know it, such as Figma or the finance system.
+    required: true
+    max_length: 100
+  access_level:
+    type: choice
+    label: Access
+    required: true
+    default: standard
+    options:
+      - { value: read-only, label: Read only }
+      - { value: standard, label: Standard }
+      - { value: administrator, label: Administrator }
+  reason:
+    type: textarea
+    label: What do you need it for?
+    required: true
+    max_length: 2000

@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -30,12 +31,18 @@ type personDTO struct {
 	CreatedAt time.Time `json:"created_at"`
 	// DeactivatedAt is set when an admin deactivated them: they cannot sign in, and pickers leave them out.
 	DeactivatedAt *time.Time `json:"deactivated_at"`
+	// ManagerID is their manager, who approves what they request (record.requester_manager_id in workflows).
+	ManagerID *uuid.UUID `json:"manager_id"`
 }
 
 func toPerson(u dbgen.User) personDTO {
 	p := personDTO{ID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role, CreatedAt: u.CreatedAt.Time}
 	if u.DeactivatedAt.Valid {
 		p.DeactivatedAt = &u.DeactivatedAt.Time
+	}
+	if u.ManagerID.Valid {
+		id := u.ManagerID.UUID
+		p.ManagerID = &id
 	}
 	return p
 }
@@ -49,8 +56,10 @@ type groupRefDTO struct {
 // userDetailDTO is someone, the groups they are in, and the roles they hold on top of their base role.
 type userDetailDTO struct {
 	personDTO
-	Groups []groupRefDTO `json:"groups"`
-	Roles  []heldRoleDTO `json:"roles"`
+	// ManagerName is their manager's name, when they have one.
+	ManagerName *string       `json:"manager_name"`
+	Groups      []groupRefDTO `json:"groups"`
+	Roles       []heldRoleDTO `json:"roles"`
 }
 
 // GET /users/staff?type= (staff): everyone active who may be assigned a ticket of the type (records:update:<type>),
@@ -225,6 +234,13 @@ func (h *handlers) getUser(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		out.personDTO = toPerson(u)
+		if u.ManagerID.Valid {
+			m, err := q.GetUser(r.Context(), u.ManagerID.UUID)
+			if err != nil {
+				return err
+			}
+			out.ManagerName = &m.Name
+		}
 		if out.Groups, err = userGroups(r, q, id); err != nil {
 			return err
 		}
@@ -245,7 +261,7 @@ func userGroups(r *http.Request, q *dbgen.Queries, id uuid.UUID) ([]groupRefDTO,
 	return out, err
 }
 
-// PATCH /users/{id} (admin) with {"email"?, "name"?, "role"?, "deactivated"?}. Deactivating signs them out
+// PATCH /users/{id} (admin) with {"email"?, "name"?, "role"?, "deactivated"?, "manager_id"?} (null: no manager). Deactivating signs them out
 // everywhere and stops them signing in; their tickets and comments keep their name. Admins cannot demote or
 // deactivate themselves, and there is always at least one active admin.
 func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +275,8 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 		Role  *string `json:"role"`
 		// Deactivated true deactivates them, false lets them sign in again.
 		Deactivated *bool `json:"deactivated"`
+		// ManagerID is their manager; null removes it.
+		ManagerID nullable[uuid.UUID] `json:"manager_id"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -306,6 +324,24 @@ func (h *handlers) updateUser(w http.ResponseWriter, r *http.Request) {
 				return invalid("you cannot deactivate yourself")
 			}
 			args.Deactivated = pgtype.Bool{Bool: *req.Deactivated, Valid: true}
+		}
+		if req.ManagerID.Set {
+			args.SetManager = true
+			if m := req.ManagerID.Value; m != nil {
+				if *m == id {
+					return invalid("nobody is their own manager")
+				}
+				mgr, err := q.GetUser(r.Context(), *m)
+				if errors.Is(err, pgx.ErrNoRows) || (err == nil && mgr.AppName.Valid) {
+					return invalid("there is no person with that id to be the manager")
+				} else if err != nil {
+					return err
+				}
+				if mgr.DeactivatedAt.Valid {
+					return invalid("the manager is deactivated")
+				}
+				args.ManagerID = uuid.NullUUID{UUID: *m, Valid: true}
+			}
 		}
 		u, err := q.UpdateUser(r.Context(), args)
 		if err != nil {

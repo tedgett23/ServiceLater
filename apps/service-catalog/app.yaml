@@ -1,8 +1,17 @@
 apiVersion: 1
 name: service-catalog
-version: 0.1.0
+version: 0.2.0
 author: ServiceLater
-description: "Self-service request portal, form builder and fulfilment workflows."
+description: "Self-service requests: the catalog, requests and the tasks that fulfil them."
 ServiceLater_min_version: 0.1.0
 dependencies:
   - core-itsm: ">=0.1.0"
+# What the app itself may do when a fulfilment workflow acts for the requester: read and move their request, file
+# tasks under it for the teams that do the work, and follow those tasks.
+permissions:
+  - records:read:request
+  - records:update:request
+  - records:read:work_task
+  - records:create:work_task
+  - records:update:work_task
+  - comments:internal

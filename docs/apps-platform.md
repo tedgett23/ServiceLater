@@ -1155,6 +1155,64 @@ Not built yet: app-shipped articles (the `knowledge/` folder is still rejected),
 feedback and view counts, attachments and images uploaded with an article, search in other languages (the search
 configuration is English), notifications when an article is sent for review, and per-group audiences.
 
+### 8.4 Service catalog (built)
+
+The catalog is **app content**: each item is a `catalog_item` definition (`catalog/*.yaml`, `internal/apps/catalog.go`),
+installed, layered (`local/`, the studio layer) and promoted like workflows. One app provides each item name. An item
+has a label, a category, a summary, a Markdown description, an icon from a fixed set (`apps.CatalogIcons`), an order,
+and:
+
+- `available_to` (`roles` and/or `groups`; absent means everyone signed in): who sees and may order it. It is checked
+  on every listing and every order (`records.MayOrder`: a base role, a role granted directly or through a group, or a
+  group membership). Items are definitions, not rows, so this is a Go check; the requests they file are ordinary
+  records under RLS.
+- its questions, in the **form field syntax** (`fields`, `layout`, `validate`, with conditions): an item's form is a
+  request's form. The save path checks a request against the form of the item it was ordered from
+  (`Registry.FormOf`), on create and on every later edit, as any form. An item's form does not ask for a summary: its
+  `title` (text, or `=an expression` over the answers) names the request. Left out, the layouts are the questions in
+  order. All of an app's items add their questions to its request fields, so its rules and workflows read
+  `record.fields.x` typed (two items asking the same name must agree on its type).
+- `workflow`: a workflow of the same app for requests, started as the request is filed, for the person who ordered it
+  (it runs as the app).
+
+**Requests and tasks.** A request (REQ) has its own row (`requests`: the item it was ordered from). Anyone may file one,
+but only by ordering an item open to them (`task_types.from_catalog`); filing one by hand needs `records:create:request`.
+Records may have a parent (`tasks.parent_id`, one level): a request's **tasks** (TASK, type `work_task`) are each a
+team's part of the work, worked from their own queue. A task's requester is the request's, so its requester follows
+them; the request shows its tasks, and `record.open_tasks` counts those still open or waiting. A task's change wakes
+workflows waiting on its parent and tells the parent's watchers.
+
+**Fulfilment** uses the workflow engine: `approval` steps (the requester's manager is `record.requester_manager_id`,
+from `users.manager_id`, which only those who manage people set; a second level is another approval step), and
+`task.create`, which files a task (`title`, `description`, `group`) and waits until it is done or cancelled
+(`vars.<id>_outcome`: done, cancelled, timeout), or with `wait: false` files it and carries on, so several tasks run at
+once and a later `wait` until `record.open_tasks == 0` collects them. A `group` that does not exist files the task
+without a team (the step says so) rather than stopping the request. Notifications a workflow step sends may reach the
+person it runs for (the requester), unlike a person's own change.
+
+API: `GET /catalog`, `GET /catalog/{name}`, `POST /catalog/{name}/states`, `POST /catalog/{name}/request`
+(`fields`, `description`, `requester_id`), `GET /forms/request?item=`. Web: `/catalog` (the portal: report a problem,
+the catalog by category with search, and what you asked for; end users land here), `/catalog/{name}` (ordering, with
+files and, for staff, who it is for), Tasks on a request, a Manager on each person in Admin → Users.
+
+`service-catalog` (0.2.0, bundled) ships the request and task lifecycles, four items (new laptop, software access, new
+starter, something else) with their workflows, the `software-approver` role and fulfilment and rejection notices. The
+teams its workflows name (Procurement, Desktop Support, Service Desk, HR, Facilities) are groups to create, or to
+rename in `local/`.
+
+**The catalog editor** (Admin → Catalog, `catalog:manage`: admins, and the app's `catalog-manager` role) changes items
+the way the workflow builder changes workflows (§7.7): an edit is kept in the app's studio layer as only what it changes
+(`apps.CatalogItemOverride`, falling back to `override: replace` when the smallest override would not reproduce the
+item), the app is reinstalled with it at once, and upgrades keep it; `servicelater app export-local` writes it as a
+`local/catalog/` file. A new item goes in an app chosen when it is created. The editor sets everything an item file
+can: label, category, picture, summary, description, title, position, who may order it, the questions (kinds, choices
+with conditions, required and shown conditions, defaults, limits; the layouts follow the order of the questions),
+checks and the workflow, with the order form previewed beside it. API: `GET /catalog-items`, `GET|PUT
+/catalog-items/{name}`, `DELETE /catalog-items/{name}/edits`.
+
+Not built yet: a cart and quantities, prices and costs as anything more than a question, item visibility by department or location (people
+have neither yet), variables shared between items, and tasks under changes and incidents.
+
 ## 9. Data model and ownership
 
 Definitions are config, not user data. They live in Postgres so they can change without a restart (§5.5 of the
@@ -1486,7 +1544,8 @@ Each slice is shippable and leaves the product working.
 | **6. Workflow engine** (done: durable engine, `set` / `condition` / `wait` / `record.update` / `comment.add` / `end`, rule and manual triggers, run history API and viewer, load harness; the rest of the step library follows, see §7.6) | Durable execution, the v1 step library, workflows as YAML, run history API and a read-only run viewer. | Slice 5 |
 | **6b. SLAs** (done, §6.6) | First-class SLA definitions with pause and resume, business calendars and breach actions. | Slice 6 |
 | **7. Roles and permissions** (done, §11.1) | Custom RBAC and app service principals (open question 3). | Slice 5 |
-| **8. Content kinds** | Catalog, knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
+| **8. Content kinds** | Catalog (done, §8.4), knowledge, notification templates (in-app done, §6.5), declarative list views and dashboards. | Slice 4 |
+| **8d. Service catalog** (done, §8.4) | Catalog items as app definitions with questions and audiences, requests and their tasks, `task.create`, managers, the self-service portal, and an item editor writing the studio layer. | Slices 4, 6, 7 and 9 |
 | **8c. Knowledge base** (done, §8.3) | Articles with review and publishing, versions, audiences, full-text search, suggestions while filing, links to records. | Slice 7 |
 | **8b. CMDB** (done, §8.2) | Item classes and relationship types as app definitions, items and relationships as core data, impact, records linked to items, rules reading them (routing by support group), freezes scoped to items, approvals by owner, CSV import and export. Next: sync from other systems. | Slices 4 and 7 |
 | **9. Visual builder** (done, §7.7) | The Svelte Flow builder editing the same workflow definitions, saved in the database-kept studio layer, with live highlighting of where runs are. | Slice 6 |

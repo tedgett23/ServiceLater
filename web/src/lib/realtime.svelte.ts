@@ -50,7 +50,22 @@ class Realtime {
 		return () => this.handlers.delete(h);
 	}
 
+	/** When each ticket last changed or was commented on, by this client's clock: see changedSince. */
+	private touched = new Map<string, number>();
+
+	/**
+	 * Whether a ticket changed after a moment (Date.now()). A page that fetched a ticket and only then started
+	 * listening asks this, so a change that landed in between is not lost: a workflow moving a request the moment it
+	 * is filed, say.
+	 */
+	changedSince(id: string, at: number) {
+		return (this.touched.get(id) ?? 0) >= at;
+	}
+
 	private emit(e: RealtimeEvent) {
+		if (e.type === 'ticket.changed') this.touched.set(e.id, Date.now());
+		if (e.type === 'comment.added') this.touched.set(e.ticket_id, Date.now());
+		if (this.touched.size > 500) this.touched.clear();
 		for (const h of this.handlers) h(e);
 	}
 

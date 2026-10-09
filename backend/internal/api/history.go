@@ -15,6 +15,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
+	"github.com/servicelater/servicelater/backend/internal/records"
 )
 
 const maxHistory = 500
@@ -260,7 +261,15 @@ func (h *handlers) getTicketHistory(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		form, lc := h.apps.Form(t.Type), h.lifecycleFor(t.Type)
+		item := ""
+		if t.Type == "request" {
+			full, err := records.Load(r.Context(), q, t.ID)
+			if err != nil {
+				return err
+			}
+			item = full.CatalogItem // its questions are labelled by its item's form
+		}
+		form, lc := h.apps.FormOf(t.Type, item), h.lifecycleFor(t.Type)
 		out = h.toHistory(rows, func(row dbgen.ListHistoryRow) (string, historyText, string) {
 			switch row.Field {
 			case "":

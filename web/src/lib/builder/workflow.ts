@@ -33,6 +33,11 @@ export interface Step {
 	approvers?: string;
 	groups?: string;
 	rule?: string;
+	/** task.create: the task, the team (a group's name) it goes to, and whether to wait for it (true unless false). */
+	title?: Value | null;
+	description?: Value | null;
+	group?: Value | null;
+	wait?: boolean;
 }
 
 export interface WorkflowDef {
@@ -55,7 +60,7 @@ export interface WorkflowDef {
 	app_permissions: string[];
 }
 
-export type StepType = 'set' | 'condition' | 'wait' | 'record.update' | 'record.transition' | 'comment.add' | 'approval' | 'end';
+export type StepType = 'set' | 'condition' | 'wait' | 'record.update' | 'record.transition' | 'comment.add' | 'approval' | 'task.create' | 'end';
 
 /** Where a step can go next: the field that holds it, and what the connection is called in the diagram. */
 export type Exit = { field: 'next' | 'then' | 'else' | 'on_timeout'; label: string };
@@ -87,6 +92,15 @@ export const stepTypes: { type: StepType; label: string; help: string; exits: Ex
 		type: 'approval',
 		label: 'Ask for approval',
 		help: 'Ask people to approve; the result is vars.<step>_decision.',
+		exits: [
+			{ field: 'next', label: 'next' },
+			{ field: 'on_timeout', label: 'on timeout' }
+		]
+	},
+	{
+		type: 'task.create',
+		label: 'File a task',
+		help: 'A task under the record for a team; waits for it unless told not to. The result is vars.<step>_outcome.',
 		exits: [
 			{ field: 'next', label: 'next' },
 			{ field: 'on_timeout', label: 'on timeout' }
@@ -135,12 +149,14 @@ export function tidy(s: Step): Step {
 		'record.transition': ['next', 'to'],
 		'comment.add': ['next', 'body', 'internal'],
 		approval: ['next', 'approvers', 'groups', 'rule', 'timeout', 'on_timeout'],
+		'task.create': ['next', 'title', 'description', 'group', 'wait', 'timeout', 'on_timeout'],
 		end: []
 	};
 	const out: Step = { id: s.id, type: s.type };
 	for (const k of keep[s.type] ?? []) {
 		const v = s[k];
-		if (v === undefined || v === '' || v === null || v === false || (Array.isArray(v) && v.length === 0)) continue;
+		if (v === undefined || v === '' || v === null || (v === false && k !== 'wait') || (Array.isArray(v) && v.length === 0)) continue;
+		if (k === 'wait' && v === true) continue; // waiting is the default
 		(out as unknown as Record<string, unknown>)[k] = v;
 	}
 	return out;
@@ -177,5 +193,7 @@ export interface WorkflowActivity {
 /** The ways out a step has as it is now: a wait for a fixed time cannot time out, so it has only next. */
 export function exitsOf(s: Step): Exit[] {
 	const all = typeInfo(s.type)?.exits ?? [];
-	return s.type === 'wait' && !s.until ? all.filter((e) => e.field !== 'on_timeout') : all;
+	if (s.type === 'wait' && !s.until) return all.filter((e) => e.field !== 'on_timeout');
+	if (s.type === 'task.create' && s.wait === false) return all.filter((e) => e.field !== 'on_timeout');
+	return all;
 }

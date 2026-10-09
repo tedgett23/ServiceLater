@@ -8,37 +8,39 @@ import type { FormDef } from './types';
  * rules.
  */
 class Forms {
+	/** By type, or type/item for a request ordered from a catalog item, whose questions are its form. */
 	byType = $state<Record<string, FormDef>>({});
 	private loading = new Map<string, Promise<void>>();
 
-	/** Loads a type's form once; later calls wait for the same request. */
-	ensure(type: string): Promise<void> {
-		let p = this.loading.get(type);
+	/** Loads a form once; later calls wait for the same request. */
+	ensure(type: string, item = ''): Promise<void> {
+		const key = item ? `${type}/${item}` : type;
+		let p = this.loading.get(key);
 		if (!p) {
-			p = this.load(type);
-			this.loading.set(type, p);
+			p = this.load(key, type, item);
+			this.loading.set(key, p);
 		}
 		return p;
 	}
 
-	private async load(type: string) {
+	private async load(key: string, type: string, item: string) {
 		try {
-			const f = await api<FormDef>(`/api/v1/forms/${type}`);
-			this.byType = { ...this.byType, [type]: f };
+			const f = await api<FormDef>(`/api/v1/forms/${type}${item ? `?${new URLSearchParams({ item })}` : ''}`);
+			this.byType = { ...this.byType, [key]: f };
 		} catch {
-			this.loading.delete(type); // try again next time
+			this.loading.delete(key); // try again next time
 		}
 	}
 
 	/** An app changed: load again every form already shown. */
 	async reload() {
-		const types = Object.keys(this.byType);
+		const keys = Object.keys(this.byType);
 		this.loading.clear();
-		await Promise.all(types.map((t) => this.ensure(t)));
+		await Promise.all(keys.map((k) => this.ensure(...(k.split('/') as [string, string?]))));
 	}
 
-	of(type: string): FormDef | undefined {
-		return this.byType[type];
+	of(type: string, item = ''): FormDef | undefined {
+		return this.byType[item ? `${type}/${item}` : type];
 	}
 }
 

@@ -5,6 +5,7 @@
 	import AffectedItems from '$lib/components/AffectedItems.svelte';
 	import TicketArticles from '$lib/components/TicketArticles.svelte';
 	import TicketAttachments from '$lib/components/TicketAttachments.svelte';
+	import RequestTasks from '$lib/components/RequestTasks.svelte';
 	import Signal from '$lib/components/Signal.svelte';
 	import RecordFields from '$lib/components/RecordFields.svelte';
 	import SlaClocks from '$lib/components/SlaClocks.svelte';
@@ -23,7 +24,7 @@
 	import { can, canRecord, P, prefixOf } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
-	let props: { ticket: Ticket; comments: Comment[] } = $props();
+	let props: { ticket: Ticket; comments: Comment[]; loadedAt?: number } = $props();
 
 	// Local working copies: edits apply instantly, then reconcile with the server's answer.
 	let ticket = $state(untrack(() => props.ticket));
@@ -39,8 +40,8 @@
 	const moves = $derived(ticket.moves ?? []);
 
 	// The type's form says which fields the record shows and in which sections; the ticket says their state now.
-	$effect(() => void forms.ensure(ticket.type));
-	const form = $derived(forms.of(ticket.type));
+	$effect(() => void forms.ensure(ticket.type, ticket.catalog_item));
+	const form = $derived(forms.of(ticket.type, ticket.catalog_item));
 	const priorityField = $derived(form?.fields.find((f) => f.name === 'priority'));
 	const priorityLocked = $derived(!!ticket.field_states?.priority?.read_only);
 
@@ -135,6 +136,15 @@
 			/* keep showing what we have */
 		}
 	}
+
+	$effect(() => {
+		// Listening starts only now: anything that changed since the ticket was fetched is fetched again.
+		const since = untrack(() => props.loadedAt);
+		if (since !== undefined && realtime.changedSince(untrack(() => ticket.id), since)) {
+			void reloadTicket();
+			void reloadComments();
+		}
+	});
 
 	$effect(() =>
 		realtime.on((e) => {
@@ -292,6 +302,9 @@
 			<p class="byline">
 				Opened by <strong>{ticket.requester_name}</strong> on <time datetime={ticket.created_at}>{when(ticket.created_at)}</time>
 			</p>
+			{#if ticket.parent_reference}
+				<p class="byline">Part of <a href="/tickets/{ticket.parent_reference}">{ticket.parent_reference}</a></p>
+			{/if}
 		</div>
 	</header>
 
@@ -307,6 +320,9 @@
 			{#if form}
 				<RecordFields {ticket} {form} {canEdit} save={saveField} />
 			{/if}
+
+			<!-- A request's tasks: each team's part of the work, and where it stands. -->
+			<RequestTasks {ticket} onadded={() => void reloadTicket()} />
 
 			<!-- Files: everyone who sees the record downloads them; its requester and staff attach more. -->
 			<TicketAttachments {ticket} onchange={(attachments) => (ticket = { ...ticket, attachments })} />
