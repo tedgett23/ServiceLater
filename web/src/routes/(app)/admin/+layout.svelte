@@ -12,6 +12,7 @@
 		{#if can(data.user, P.usersManage)}<a href="/admin/users" aria-current={here('/admin/users')}>Users</a>{/if}
 		{#if can(data.user, P.groupsManage)}<a href="/admin/groups" aria-current={here('/admin/groups')}>Groups</a>{/if}
 		<a href="/admin/roles" aria-current={here('/admin/roles')}>Roles</a>
+		{#if can(data.user, P.catalogManage)}<a href="/admin/catalog" aria-current={here('/admin/catalog')}>Catalog</a>{/if}
 		{#if can(data.user, P.calendarsManage)}<a href="/admin/calendars" aria-current={here('/admin/calendars')}>Calendars</a>{/if}
 		{#if can(data.user, P.settingsManage)}<a href="/admin/email" aria-current={here('/admin/email')}>Email</a>{/if}
 		{#if can(data.user, P.settingsManage)}<a href="/admin/storage" aria-current={here('/admin/storage')}>Storage</a>{/if}

@@ -248,7 +248,19 @@ func NewRouter(d Deps) http.Handler {
 					r.With(auth.RequirePermission(authz.CMDBManage)).Delete("/relationships/{relId}", h.deleteCIRelationship)
 				})
 			})
-			// TODO: catalog routes (§7.3)
+			r.Route("/catalog-items", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.CatalogManage))
+				r.Get("/", h.listCatalogItems)
+				r.Get("/{name}", h.getCatalogItemDef)
+				r.Put("/{name}", h.putCatalogItemDef)
+				r.Delete("/{name}/edits", h.resetCatalogItemDef)
+			})
+			r.Route("/catalog", func(r chi.Router) {
+				r.Get("/", h.listCatalog)
+				r.Get("/{name}", h.getCatalogItem)
+				r.Post("/{name}/states", h.catalogStates)
+				r.Post("/{name}/request", h.orderCatalogItem)
+			})
 		})
 	})
 

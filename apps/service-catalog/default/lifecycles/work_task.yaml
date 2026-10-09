@@ -1,0 +1,20 @@
+# A task is one team's part of the work on a request: ordering the laptop, imaging it, handing it over. Its request's
+# workflow waits for it: done carries the request on, cancelled tells the workflow it was not done.
+kind: lifecycle
+record_type: work_task
+initial: open
+states:
+  open:        { label: Open,        category: open }
+  in_progress: { label: In progress, category: open }
+  on_hold:     { label: On hold,     category: waiting }
+  done:        { label: Done,        category: done }
+  cancelled:   { label: Cancelled,   category: closed }
+transitions:
+  - { from: open,        to: in_progress, verb: Start work,  primary: true }
+  - { from: open,        to: done,        verb: Done }
+  - { from: open,        to: cancelled,   verb: Cancel }
+  - { from: in_progress, to: done,        verb: Done,        primary: true }
+  - { from: in_progress, to: on_hold,     verb: Put on hold }
+  - { from: in_progress, to: cancelled,   verb: Cancel }
+  - { from: on_hold,     to: in_progress, verb: Resume,      primary: true }
+  - { from: on_hold,     to: cancelled,   verb: Cancel }

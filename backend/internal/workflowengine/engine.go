@@ -129,10 +129,17 @@ type runAs struct {
 }
 
 func (e *Engine) inTx(ctx context.Context, who runAs, fn func(pgx.Tx) error) error {
-	if !who.principal.Valid {
-		return db.WithUser(ctx, e.Pool, who.person, fn)
+	// A step's notifications may reach the person it runs for: what it does is news to them (app_notify).
+	marked := func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "SELECT set_config('app.workflow_step', 'on', true)"); err != nil {
+			return err
+		}
+		return fn(tx)
 	}
-	return db.WithPrincipal(ctx, e.Pool, who.principal.UUID, who.person, fn)
+	if !who.principal.Valid {
+		return db.WithUser(ctx, e.Pool, who.person, marked)
+	}
+	return db.WithPrincipal(ctx, e.Pool, who.principal.UUID, who.person, marked)
 }
 
 // step runs the execution's current step in one transaction. It reports whether the execution has more to do right now.

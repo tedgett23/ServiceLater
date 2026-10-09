@@ -63,7 +63,7 @@ func checkValues(form *apps.Form, cur *Ticket, next Ticket) (Ticket, error) {
 // as the request would leave it, before the rules run: a rule may change a read-only field (that is often why it is
 // read-only), and must not hide that the person's own change was refused.
 func (s *Service) checkReadOnly(ctx context.Context, q *dbgen.Queries, a Actor, event string, cur *Ticket, requested Ticket, touched []string) error {
-	form := s.Apps.Form(requested.Type)
+	form := s.Apps.FormOf(requested.Type, requested.CatalogItem)
 	if len(touched) == 0 || !form.HasReadOnly() {
 		return nil
 	}
@@ -93,7 +93,7 @@ func (s *Service) checkReadOnly(ctx context.Context, q *dbgen.Queries, a Actor, 
 // must be filled in (unless it is hidden); and the form's own checks must pass. It returns next with the extra fields
 // as they are stored.
 func (s *Service) checkForm(ctx context.Context, q *dbgen.Queries, a Actor, event string, cur *Ticket, next Ticket) (Ticket, error) {
-	form := s.Apps.Form(next.Type)
+	form := s.Apps.FormOf(next.Type, next.CatalogItem)
 	next, err := checkValues(form, cur, next)
 	if err != nil {
 		return next, err
@@ -198,7 +198,7 @@ func (s *Service) FieldStates(ctx context.Context, q *dbgen.Queries, a Actor, t 
 	if err != nil {
 		return nil
 	}
-	form := s.Apps.Form(t.Type)
+	form := s.Apps.FormOf(t.Type, t.CatalogItem)
 	states, err := form.States(ctx, in)
 	if err != nil {
 		slog.Error("form condition", "type", t.Type, "app", form.App, "ticket", t.Reference, "err", err)
@@ -212,7 +212,7 @@ func (s *Service) FieldStates(ctx context.Context, q *dbgen.Queries, a Actor, t 
 // the record the save would make, and Preview has the values the rules would give the form's fields (a priority
 // worked out from impact and urgency). The save checks everything again.
 func (s *Service) DraftStates(ctx context.Context, q *dbgen.Queries, a Actor, in CreateInput) (states map[string]apps.FieldState, preview map[string]any, err error) {
-	form := s.Apps.Form(in.Type)
+	form := s.Apps.FormOf(in.Type, in.CatalogItem)
 	lc := s.Apps.Lifecycle(in.Type)
 	category, _ := lc.Category(lc.Initial)
 	prio := int16(3)
@@ -220,7 +220,7 @@ func (s *Service) DraftStates(ctx context.Context, q *dbgen.Queries, a Actor, in
 		prio = *in.Priority
 	}
 	draft := Ticket{Type: in.Type, Title: in.Title, Description: in.Description, Priority: prio, RequesterID: a.ID,
-		Status: lc.Initial, StateCategory: string(category), Fields: form.Defaults()}
+		Status: lc.Initial, StateCategory: string(category), Fields: form.Defaults(), CatalogItem: in.CatalogItem}
 	if in.Type == "change" {
 		draft.Change = &Change{ChangeType: "normal"}
 		if !in.Change.empty() {

@@ -60,3 +60,14 @@ WHERE u.deactivated_at IS NULL AND u.app_name IS NULL
        OR EXISTS (SELECT 1 FROM role_grants g WHERE g.role = sqlc.arg('role')
                   AND (g.user_id = u.id OR g.group_id IN (SELECT m.group_id FROM group_members m WHERE m.user_id = u.id))))
 ORDER BY u.id;
+
+-- name: InAudience :one
+-- Whether a person holds any of the roles (as their base role, directly, or through a group) or is in any of the groups
+-- (names lowercased): who may see and order a catalog item.
+SELECT EXISTS (
+    SELECT 1 FROM users u WHERE u.id = sqlc.arg('user_id') AND (
+        u.role = ANY (sqlc.arg('roles')::text[])
+        OR EXISTS (SELECT 1 FROM role_grants g WHERE g.role = ANY (sqlc.arg('roles')::text[])
+                   AND (g.user_id = u.id OR g.group_id IN (SELECT m.group_id FROM group_members m WHERE m.user_id = u.id)))
+        OR EXISTS (SELECT 1 FROM group_members m JOIN groups gr ON gr.id = m.group_id
+                   WHERE m.user_id = u.id AND lower(gr.name) = ANY (sqlc.arg('groups')::text[]))));

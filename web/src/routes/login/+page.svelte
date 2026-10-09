@@ -14,7 +14,7 @@
 	// Only follow same-site paths, so a crafted ?next= can't bounce people to another origin.
 	function destination() {
 		const next = page.url.searchParams.get('next') ?? '';
-		return next.startsWith('/') && !next.startsWith('//') ? next : '/tickets';
+		return next.startsWith('/') && !next.startsWith('//') ? next : '/';
 	}
 
 	async function submit(e: SubmitEvent) {

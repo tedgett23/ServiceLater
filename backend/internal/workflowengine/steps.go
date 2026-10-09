@@ -89,6 +89,11 @@ func (e *Engine) run(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExe
 		return e.doComment(ctx, q, ex, st, in, out)
 	case apps.StepApproval:
 		return e.doApproval(ctx, q, ex, st, in, out)
+	case apps.StepTaskCreate:
+		if ticket == nil {
+			return out, failf("task.create needs a record to put the task under, and this execution has none")
+		}
+		return e.doTaskCreate(ctx, q, ex, st, in, *ticket, out)
 	case apps.StepEnd:
 		out.next = ""
 		return out, nil
@@ -385,6 +390,138 @@ func (e *Engine) doComment(ctx context.Context, q *dbgen.Queries, ex dbgen.Workf
 		return out, err
 	}
 	out.detail["internal"] = st.Internal
+	return out, nil
+}
+
+// doTaskCreate files a task under the record for a team, then (unless the step says not to) waits until it is done
+// or cancelled. The task's id is kept in vars as it is filed, in the same transaction, so a later visit (the task
+// changed, or the time limit came) finds it and a retry never files a second one.
+func (e *Engine) doTaskCreate(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExecution, st *apps.Step, in expr.Input, parent records.Ticket, out outcome) (outcome, error) {
+	idVar, refVar, outcomeVar := st.ID+"_task_id", st.ID+"_task", st.ID+"_outcome"
+	id, _ := in.Vars[idVar].(string)
+	now := time.Now()
+	if id == "" {
+		text := func(name string, v *apps.Value) (string, error) {
+			if v == nil {
+				return "", nil
+			}
+			x, err := value(ctx, v, in)
+			if err != nil {
+				return "", failf("%s could not be evaluated: %v", name, err)
+			}
+			s, ok := x.(string)
+			if !ok {
+				return "", failf("%s must be text, got %T", name, x)
+			}
+			return strings.TrimSpace(s), nil
+		}
+		title, err := text("title", st.Title)
+		if err != nil {
+			return out, err
+		}
+		desc, err := text("description", st.Description)
+		if err != nil {
+			return out, err
+		}
+		groupName, err := text("group", st.Group)
+		if err != nil {
+			return out, err
+		}
+		input := records.CreateInput{Type: "work_task", Title: title, Description: desc, RequesterID: &parent.RequesterID, ParentID: &parent.ID}
+		// A team that does not exist on this instance (a shipped workflow names one nobody has made yet) leaves the
+		// task unrouted, where the Unassigned queue shows it, rather than stopping the request.
+		if groupName != "" {
+			g, err := q.GetGroupByName(ctx, groupName)
+			switch {
+			case errors.Is(err, pgx.ErrNoRows):
+				out.detail["unrouted"] = fmt.Sprintf("there is no group named %q, so the task was filed without a team", groupName)
+			case err != nil:
+				return out, err
+			default:
+				input.AssignmentGroupID = &g.ID
+			}
+		}
+		var cause ruleruns.Cause
+		_ = json.Unmarshal(ex.Cause, &cause)
+		runner := ex.StartedBy
+		if ex.RunAs.Valid {
+			runner = ex.RunAs.UUID
+		}
+		actor, err := records.ActorIn(ctx, q, runner)
+		if err != nil {
+			return out, err
+		}
+		task, err := e.Svc.Create(ctx, q, actor, cause, input)
+		if err != nil {
+			var re *records.Error
+			if errors.As(err, &re) {
+				return out, failf("the task could not be filed: %s", re.Msg)
+			}
+			if isForbidden(err) {
+				return out, failf("the %s app is not allowed to file tasks: add records:create:work_task and records:update:work_task to its manifest", ex.App)
+			}
+			return out, err
+		}
+		next := make(map[string]any, len(in.Vars)+2)
+		for k, v := range in.Vars {
+			next[k] = v
+		}
+		next[idVar], next[refVar] = task.ID.String(), task.Reference
+		out.vars, in.Vars = next, next
+		out.detail["task"], out.detail["group"] = task.Reference, groupName
+		if !st.Waits() {
+			return out, nil
+		}
+		id = task.ID.String()
+	} else {
+		out.detail["task"] = in.Vars[refVar]
+	}
+	taskID, err := uuid.Parse(id)
+	if err != nil {
+		return out, failf("vars.%s is not a task id", idVar)
+	}
+	task, err := records.Load(ctx, q, taskID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return out, failf("the task %v no longer exists, or the %s app may not see it (its manifest needs records:read:work_task)", in.Vars[refVar], ex.App)
+	}
+	if err != nil {
+		return out, err
+	}
+	finish := func(result string) outcome {
+		next := make(map[string]any, len(out.vars)+1)
+		for k, v := range out.vars {
+			next[k] = v
+		}
+		next[outcomeVar] = result
+		out.vars, out.detail["outcome"] = next, result
+		return out
+	}
+	switch task.StateCategory {
+	case "done":
+		return finish("done"), nil
+	case "closed":
+		return finish("cancelled"), nil
+	}
+	started := ex.WaitStartedAt.Valid && ex.CurrentStep == st.ID
+	startedAt, deadline := now, now.Add(noTimeout)
+	if st.Timeout != "" {
+		deadline = now.Add(st.TimeoutDuration())
+	}
+	if started {
+		startedAt, deadline = ex.WaitStartedAt.Time, ex.WaitDeadline.Time
+	}
+	if st.Timeout != "" && !now.Before(deadline) {
+		out = finish("timeout")
+		out.kind, out.detail["timed_out_after"] = "timeout", st.Timeout
+		if st.OnTimeout == "" {
+			return out, failf("timed out after %s waiting for %v", st.Timeout, in.Vars[refVar])
+		}
+		out.next = st.OnTimeout
+		return out, nil
+	}
+	// The task changing wakes this (the record-change trigger also wakes a parent's waits); the deadline is the backstop.
+	out.kind = "waiting"
+	out.wait = &waiting{started: startedAt, deadline: deadline, wake: deadline, until: true}
 	return out, nil
 }
 

@@ -68,6 +68,8 @@ type Definition struct {
 	Class *Class
 	// Relationship is a way configuration items relate (relationships/).
 	Relationship *Relationship
+	// CatalogItem is something people may request (catalog/).
+	CatalogItem *CatalogItem
 }
 
 // Source is the layers joined for storage and display, for example "default+local".
@@ -90,7 +92,7 @@ var definitionDirs = map[string]struct{ kind, unsupported string }{
 	"forms":         {kind: "form"},
 	"classes":       {kind: "class"},
 	"relationships": {kind: "relationship"},
-	"catalog":       {unsupported: "catalog items are not supported yet"},
+	"catalog":       {kind: "catalog_item"},
 	"knowledge":     {unsupported: "knowledge articles are not supported yet"},
 	"notifications": {kind: "notification"},
 	"roles":         {kind: "role"},
@@ -339,8 +341,17 @@ func (b *Bundle) Compile() (*Compiled, error) {
 			files = append(files, merged{rel: rel, display: display, content: content, used: used})
 		}
 	}
-	isForm := func(rel string) bool { return strings.HasPrefix(rel, "forms/") }
-	sort.SliceStable(files, func(i, j int) bool { return isForm(files[i].rel) && !isForm(files[j].rel) })
+	// Forms first, then catalog items (whose questions are request fields too): everything else reads their fields.
+	rank := func(rel string) int {
+		switch {
+		case strings.HasPrefix(rel, "forms/"):
+			return 0
+		case strings.HasPrefix(rel, "catalog/"):
+			return 1
+		}
+		return 2
+	}
+	sort.SliceStable(files, func(i, j int) bool { return rank(files[i].rel) < rank(files[j].rel) })
 
 	var defs []Definition
 	seen := map[string]string{}
@@ -357,6 +368,9 @@ func (b *Bundle) Compile() (*Compiled, error) {
 			if d.Form != nil {
 				forms[d.Form.RecordType] = d.Form
 			}
+			if d.CatalogItem != nil {
+				forms.addItemFields(d.CatalogItem, f.display, &p)
+			}
 			defs = append(defs, *d)
 		}
 	}
@@ -364,6 +378,7 @@ func (b *Bundle) Compile() (*Compiled, error) {
 	checkNotifyTemplates(defs, &p)
 	checkTransitionTargets(defs, &p)
 	checkClasses(defs, &p)
+	checkCatalogWorkflows(defs, &p)
 	if err := p.orNil(); err != nil || m == nil {
 		return nil, p
 	}
@@ -415,6 +430,14 @@ func compileDefinition(kind, file string, data []byte, forms formSet, p *Problem
 		body, _ := json.Marshal(f)
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: f.RecordType, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Form: f}
+	case "catalog_item":
+		it := parseCatalogItem(file, data, p)
+		if it == nil {
+			return nil
+		}
+		body, _ := json.Marshal(it)
+		sum := sha256.Sum256(body)
+		return &Definition{Kind: kind, Name: it.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), CatalogItem: it}
 	case "lifecycle":
 		lc := parseLifecycle(file, data, forms, p)
 		if lc == nil {

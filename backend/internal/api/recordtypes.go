@@ -18,6 +18,9 @@ type recordTypeDTO struct {
 	CanFile bool `json:"can_file"`
 	// CanFileForOthers says whether they may also name someone else as the requester (records:update:<type> too).
 	CanFileForOthers bool `json:"can_file_for_others"`
+	// FromCatalog types (requests) are ordered from the service catalog; CanFile says whether the caller may also file
+	// one by hand, with no item.
+	FromCatalog bool `json:"from_catalog,omitempty"`
 }
 
 // GET /record-types: the record types in use, and which of them the caller may file, for the New ticket dialog.
@@ -29,9 +32,9 @@ func (h *handlers) listRecordTypes(w http.ResponseWriter, r *http.Request) {
 			if !h.apps.Provides(t.Type) {
 				continue
 			}
-			file := t.AnyoneMayFile || p.Perms.CanRecord(authz.Create, t.Type)
+			file := (t.AnyoneMayFile && !t.FromCatalog) || p.Perms.CanRecord(authz.Create, t.Type)
 			out = append(out, recordTypeDTO{Type: t.Type, Prefix: t.Prefix, Label: t.Label, CanFile: file,
-				CanFileForOthers: file && p.Perms.CanRecord(authz.Update, t.Type)})
+				CanFileForOthers: file && p.Perms.CanRecord(authz.Update, t.Type), FromCatalog: t.FromCatalog})
 		}
 		return err
 	}) {

@@ -78,6 +78,40 @@ type ticketDTO struct {
 	Attachments []attachmentDTO `json:"attachments,omitempty"`
 	// CanAttach says the reader may attach files to it (single-ticket responses).
 	CanAttach bool `json:"can_attach,omitempty"`
+	// Tasks are the records under it that the reader may see, oldest first: a request's tasks (single-ticket
+	// responses).
+	Tasks []childTaskDTO `json:"tasks,omitempty"`
+}
+
+// childTaskDTO is a record under another: one team's part of the work.
+type childTaskDTO struct {
+	ID                  uuid.UUID `json:"id"`
+	Type                string    `json:"type"`
+	Reference           string    `json:"reference"`
+	Title               string    `json:"title"`
+	Status              string    `json:"status"`
+	StateCategory       string    `json:"state_category"`
+	AssigneeName        *string   `json:"assignee_name"`
+	AssignmentGroupName *string   `json:"assignment_group_name"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+// childTasks are the records under a record that the reader may see.
+func childTasks(ctx context.Context, q *dbgen.Queries, id uuid.UUID) ([]childTaskDTO, error) {
+	rows, err := q.ListChildTasks(ctx, uuid.NullUUID{UUID: id, Valid: true})
+	out := make([]childTaskDTO, 0, len(rows))
+	for _, r := range rows {
+		c := childTaskDTO{ID: r.Task.ID, Type: r.Task.Type, Reference: fmt.Sprintf("%s%d", r.TypePrefix, r.Task.Number), Title: r.Task.Title,
+			Status: r.Task.Status, StateCategory: r.Task.StateCategory, UpdatedAt: r.Task.UpdatedAt.Time}
+		if r.AssigneeName.Valid {
+			c.AssigneeName = &r.AssigneeName.String
+		}
+		if r.AssignmentGroupName.Valid {
+			c.AssignmentGroupName = &r.AssignmentGroupName.String
+		}
+		out = append(out, c)
+	}
+	return out, err
 }
 
 // detail adds what a single-ticket response carries beyond the ticket: the moves, field states, linked items and the
@@ -94,6 +128,9 @@ func (h *handlers) detail(ctx context.Context, q *dbgen.Queries, p auth.Principa
 		return err
 	}
 	out.CanAttach = out.RequesterID == p.UserID || p.Perms.CanRecord(authz.Update, out.Type)
+	if out.Tasks, err = childTasks(ctx, q, out.ID); err != nil {
+		return err
+	}
 	out.SLAs, err = records.LoadSLAs(ctx, q, out.ID)
 	return err
 }
@@ -301,6 +338,10 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 		Fields map[string]any `json:"fields"`
 		// CIs links configuration items to it, by id (needs cmdb:read).
 		CIs []uuid.UUID `json:"cis"`
+		// ParentID files it under another record (a task under a request).
+		ParentID *uuid.UUID `json:"parent_id"`
+		// AssignmentGroupID routes it to a team as it is filed.
+		AssignmentGroupID *uuid.UUID `json:"assignment_group_id"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -312,7 +353,7 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		saved, err := h.svc.Create(r.Context(), q, actorOf(p), ruleruns.Cause{}, records.CreateInput{Type: req.Type,
 			Title: req.Title, Description: req.Description, Priority: req.Priority, RequesterID: req.RequesterID,
-			Change: req.Change.patch(), Fields: req.Fields, CIs: req.CIs})
+			Change: req.Change.patch(), Fields: req.Fields, CIs: req.CIs, ParentID: req.ParentID, AssignmentGroupID: req.AssignmentGroupID})
 		if err != nil {
 			return err
 		}

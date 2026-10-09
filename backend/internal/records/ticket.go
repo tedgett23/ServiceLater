@@ -60,6 +60,16 @@ type Ticket struct {
 	// Fields are the record's extra fields, the ones its type's form declares, by name: text, a whole number, true or
 	// false, a date as YYYY-MM-DD or a time as RFC 3339 text. A field that is not set is absent.
 	Fields map[string]any `json:"fields"`
+	// ParentID is the record this one is part of (a request, for its tasks), and ParentReference how people name it.
+	ParentID        *uuid.UUID `json:"parent_id"`
+	ParentReference *string    `json:"parent_reference,omitempty"`
+	// OpenTasks is how many of the tasks under it (that the reader may see) are still open or waiting (single
+	// tickets only).
+	OpenTasks int64 `json:"open_tasks"`
+	// CatalogItem is the catalog item a request was ordered from (empty for anything else): its form is the record's.
+	CatalogItem string `json:"catalog_item,omitempty"`
+	// RequesterManagerID is the requester's manager, for expressions (approval by the manager).
+	RequesterManagerID *uuid.UUID `json:"-"`
 	// CIs are the configuration items linked to it, by name, as the reader may see them (none without cmdb:read).
 	// The API sends them in its own shape, with class labels, on single tickets only.
 	CIs []CI `json:"-"`
@@ -163,6 +173,10 @@ func FromParts(t dbgen.Task, prefix, requesterName string, assigneeName, groupNa
 	if groupName.Valid {
 		d.AssignmentGroup = &groupName.String
 	}
+	if t.ParentID.Valid {
+		id := t.ParentID.UUID
+		d.ParentID = &id
+	}
 	return d
 }
 
@@ -259,6 +273,14 @@ func Load(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (Ticket, error) {
 			PlannedStart: timePtr(v.PlannedStart), PlannedEnd: timePtr(v.PlannedEnd),
 			ImplementationPlan: v.ImplementationPlan, BackoutPlan: v.BackoutPlan, TestPlan: v.TestPlan}
 	}
+	if v.ParentReference != "" {
+		t.ParentReference = &v.ParentReference
+	}
+	if v.RequesterManagerID.Valid {
+		id := v.RequesterManagerID.UUID
+		t.RequesterManagerID = &id
+	}
+	t.OpenTasks, t.CatalogItem = v.OpenTasks, v.CatalogItem
 	cis, err := q.ListTaskCIs(ctx, id)
 	for _, c := range cis {
 		t.CIs = append(t.CIs, ciFrom(dbgen.GetCIsByIDRow(c)))
@@ -274,7 +296,15 @@ func (d Ticket) ExprRecord() *expr.Record {
 		Resolution: d.Resolution, Status: d.Status,
 		StateCategory: d.StateCategory, Priority: int64(d.Priority), RequesterID: d.RequesterID.String(),
 		RequesterName: d.Requester, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt, AssigneeName: d.Assignee,
-		AssignmentGroup: d.AssignmentGroup, Fields: d.Fields,
+		AssignmentGroup: d.AssignmentGroup, Fields: d.Fields, OpenTasks: d.OpenTasks, CatalogItem: d.CatalogItem,
+	}
+	if d.ParentID != nil {
+		id := d.ParentID.String()
+		r.ParentID = &id
+	}
+	if d.RequesterManagerID != nil {
+		id := d.RequesterManagerID.String()
+		r.RequesterManagerID = &id
 	}
 	if d.AssigneeID != nil {
 		id := d.AssigneeID.String()

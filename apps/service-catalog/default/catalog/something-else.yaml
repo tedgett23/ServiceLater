@@ -1,0 +1,18 @@
+# For anything the catalog does not list. It has no workflow: the Service Desk works it as it is.
+kind: catalog_item
+name: something-else
+label: Something else
+category: General
+icon: question
+order: 90
+summary: Ask for anything that is not listed here.
+title: '="Request: " + record.fields.what'
+fields:
+  what:
+    type: text
+    label: What do you need?
+    required: true
+    max_length: 150
+  description:
+    label: Tell us more
+    required: true

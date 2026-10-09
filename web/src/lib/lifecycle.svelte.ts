@@ -34,9 +34,9 @@ class Lifecycle {
 		}
 	}
 
-	/** The types this person may file, for the New ticket dialog. */
+	/** The types this person may file, for the New ticket dialog. Requests are ordered from the catalog instead. */
 	get fileable() {
-		return this.types.filter((t) => t.can_file);
+		return this.types.filter((t) => t.can_file && !t.from_catalog);
 	}
 
 	label(id: string, type: string) {

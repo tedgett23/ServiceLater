@@ -1,0 +1,11 @@
+kind: rule
+name: notify-rejected
+record_type: request
+timing: after
+on: [update]
+when: record.status != old.status && record.status == "rejected"
+on_error: skip
+run:
+  - action: notify
+    template: request-rejected
+    to: [requester]

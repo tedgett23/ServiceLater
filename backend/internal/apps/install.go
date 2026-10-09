@@ -286,7 +286,7 @@ func buildPlan(ctx context.Context, q *dbgen.Queries, c *Compiled) (*Plan, error
 		// A record type has one lifecycle and one form, and a role, a CMDB class or a relationship type name means
 		// one thing, so two apps cannot both provide any of them. Rules do not compete: each is named within its own
 		// app, and every applicable rule runs.
-		if d.Kind == "lifecycle" || d.Kind == "role" || d.Kind == "form" || d.Kind == "class" || d.Kind == "relationship" {
+		if d.Kind == "lifecycle" || d.Kind == "role" || d.Kind == "form" || d.Kind == "class" || d.Kind == "relationship" || d.Kind == "catalog_item" {
 			if other, err := q.FindDefinitionProvider(ctx, dbgen.FindDefinitionProviderParams{Kind: d.Kind, Name: d.Name, AppName: m.Name}); err == nil {
 				problems = append(problems, fmt.Sprintf("the %s is already provided by %s: uninstall it first, or remove it from one of the apps", ref, other))
 				continue

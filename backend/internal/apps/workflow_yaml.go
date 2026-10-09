@@ -49,12 +49,21 @@ func WorkflowYAML(w *Workflow, replace bool) ([]byte, error) {
 			}
 			step.Content = append(step.Content, scalar(list.key), m)
 		}
-		if s.Body != nil {
-			v, err := valueNode(s.Body)
-			if err != nil {
-				return nil, fmt.Errorf("step %s: body: %w", s.ID, err)
+		for _, f := range []struct {
+			key string
+			val *Value
+		}{{"title", s.Title}, {"description", s.Description}, {"group", s.Group}, {"body", s.Body}} {
+			if f.val == nil {
+				continue
 			}
-			step.Content = append(step.Content, scalar("body"), v)
+			v, err := valueNode(f.val)
+			if err != nil {
+				return nil, fmt.Errorf("step %s: %s: %w", s.ID, f.key, err)
+			}
+			step.Content = append(step.Content, scalar(f.key), v)
+		}
+		if s.Wait != nil && !*s.Wait {
+			step.Content = append(step.Content, scalar("wait"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "false"})
 		}
 		if s.Internal {
 			step.Content = append(step.Content, scalar("internal"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})

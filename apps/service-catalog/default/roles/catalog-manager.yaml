@@ -1,0 +1,6 @@
+kind: role
+name: catalog-manager
+label: Catalog manager
+description: "Looks after the service catalog: changes, adds and resets its items in Admin > Catalog, and sees every item whoever it is for."
+permissions:
+  - catalog:manage

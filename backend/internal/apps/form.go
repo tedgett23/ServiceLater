@@ -125,6 +125,8 @@ type Form struct {
 	Version string `json:"-"`
 	// Builtin marks the form a record type has when no app gives it one.
 	Builtin bool `json:"-"`
+	// TitleGiven marks a form that does not ask for the summary: a catalog item's, which works it out itself.
+	TitleGiven bool `json:"title_given,omitempty"`
 
 	byName map[string]*FormField
 }
@@ -382,7 +384,7 @@ func (f *Form) validateStructure(file string, p *Problems) {
 			p.add(file, "%s: %s cannot be filled in when filing a record", at, name)
 		}
 	}
-	if !inCreate["title"] {
+	if !inCreate["title"] && !f.TitleGiven {
 		p.add(file, "layout: create must include title: every record needs a summary")
 	}
 	if len(f.Detail) > maxFormSections {

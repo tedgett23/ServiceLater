@@ -75,6 +75,15 @@ type Record struct {
 	// CIs are the configuration items linked to the record, by name, as the person saving may see them (none without
 	// cmdb:read). Rules read them; linking or unlinking one is an update.
 	CIs []CI `cel:"cis"`
+	// ParentID is the record this one is part of (a task's request); unset for a record that has none.
+	ParentID *string `cel:"parent_id"`
+	// OpenTasks is how many tasks under the record are still open or waiting: a workflow waits until it is 0, and a
+	// lifecycle can keep a request from being fulfilled before then.
+	OpenTasks int64 `cel:"open_tasks"`
+	// CatalogItem is the catalog item a request was ordered from (its name), empty otherwise.
+	CatalogItem string `cel:"catalog_item"`
+	// RequesterManagerID is the requester's manager (unset when they have none): the usual first approver.
+	RequesterManagerID *string `cel:"requester_manager_id"`
 }
 
 // CI is a configuration item linked to a record. The groups are unset when it has none, so test them with

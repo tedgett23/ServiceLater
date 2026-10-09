@@ -24,6 +24,7 @@ const (
 	WorkflowsReadAll = "workflows:read_all"
 	WorkflowsRun     = "workflows:run"     // start, cancel and advance workflow runs on any ticket
 	WorkflowsEdit    = "workflows:edit"    // change, add and reset workflows in the builder
+	CatalogManage    = "catalog:manage"    // change, add and reset service catalog items in the editor
 	UsersRead        = "users:read"        // the people directory and pickers
 	UsersManage      = "users:manage"      // add, edit, deactivate and delete people, and set passwords
 	GroupsManage     = "groups:manage"     // create and change groups and who is in them
@@ -114,6 +115,7 @@ var Catalog = []Permission{
 	{WorkflowsReadAll, "See every workflow run"},
 	{WorkflowsRun, "Start, cancel and advance workflow runs on any ticket"},
 	{WorkflowsEdit, "Change, add and reset workflows in the workflow builder"},
+	{CatalogManage, "Change, add and reset service catalog items, and see every item"},
 	{UsersRead, "Look people up in the directory and pickers"},
 	{UsersManage, "Add, edit, deactivate and delete people, and set their passwords"},
 	{GroupsManage, "Create and change groups and their members"},

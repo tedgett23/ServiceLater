@@ -1,0 +1,6 @@
+kind: role
+name: software-approver
+label: Software approver
+description: "Approves administrator access to applications (the software-access item asks everyone holding it). Grant it to your software team leads."
+permissions:
+  - records:read:request

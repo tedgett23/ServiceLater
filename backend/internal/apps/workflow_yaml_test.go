@@ -9,7 +9,7 @@ import (
 // The builder saves a workflow with WorkflowYAML: every shipped workflow written back must read as the same one.
 func TestWorkflowsWriteBackAsTheyRead(t *testing.T) {
 	n := 0
-	for _, name := range []string{"change-management", "core-itsm", "incident-management"} {
+	for _, name := range []string{"change-management", "core-itsm", "incident-management", "service-catalog"} {
 		b, err := LoadBundled(name)
 		if err != nil {
 			t.Fatal(err)
@@ -17,6 +17,17 @@ func TestWorkflowsWriteBackAsTheyRead(t *testing.T) {
 		c, err := b.Compile()
 		if err != nil {
 			t.Fatal(err)
+		}
+		// The app's fields, as compiling it gave its workflows (a form's, and catalog items' questions).
+		forms := formSet{}
+		var p Problems
+		for _, d := range c.Definitions {
+			if d.Form != nil {
+				forms[d.Form.RecordType] = d.Form
+			}
+			if d.CatalogItem != nil {
+				forms.addItemFields(d.CatalogItem, d.File, &p)
+			}
 		}
 		for _, d := range c.Definitions {
 			if d.Workflow == nil {
@@ -28,8 +39,7 @@ func TestWorkflowsWriteBackAsTheyRead(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: %v", d.Name, err)
 			}
-			var p Problems
-			again := parseWorkflow(d.Path, data, formSet{}, &p)
+			again := parseWorkflow(d.Path, data, forms, &p)
 			if again == nil {
 				t.Fatalf("%s does not read back: %v\n%s", d.Name, p, data)
 			}

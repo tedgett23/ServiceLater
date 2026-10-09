@@ -25,7 +25,7 @@ e2e: build
 	cd web && npm run test:e2e
 
 # First-party apps live in apps/ and are embedded in the binary; the server installs them at startup.
-FIRST_PARTY_APPS := core-itsm incident-management change-management cmdb knowledge-base
+FIRST_PARTY_APPS := core-itsm incident-management change-management cmdb knowledge-base service-catalog
 
 apps-validate:
 	cd backend && go run ./cmd/servicelater app validate $(addprefix ../apps/,$(FIRST_PARTY_APPS))

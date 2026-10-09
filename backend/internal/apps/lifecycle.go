@@ -29,7 +29,7 @@ func (c Category) valid() bool {
 // KnownRecordTypes are the record types a definition may name. `task` is the base every type extends: a lifecycle
 // for `task` is the default for any type without its own. The others mirror the registry in the task_types table
 // (migration 00009), which a test keeps in step.
-var KnownRecordTypes = []string{"task", "incident", "change", "request", "problem"}
+var KnownRecordTypes = []string{"task", "incident", "change", "request", "problem", "work_task"}
 
 type State struct {
 	ID          string   `json:"id"`

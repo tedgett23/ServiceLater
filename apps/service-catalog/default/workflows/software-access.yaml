@@ -1,0 +1,80 @@
+# Fulfils software access: the manager approves (when there is one); administrator access also needs a software
+# approver (anyone holding the software-approver role); then the Service Desk grants it.
+kind: workflow
+name: software-access
+record_type: request
+start: has_manager
+steps:
+  has_manager:
+    type: condition
+    if: has(record.requester_manager_id)
+    then: ask_approval
+    else: is_admin
+  ask_approval:
+    type: record.transition
+    to: approval
+    next: manager
+  manager:
+    type: approval
+    approvers: '[record.requester_manager_id]'
+    timeout: 7d
+    on_timeout: rejected
+    next: manager_said
+  manager_said:
+    type: condition
+    if: 'string(vars.manager_decision) == "approved"'
+    then: is_admin
+    else: rejected
+  is_admin:
+    type: condition
+    if: 'record.fields.access_level == "administrator"'
+    then: to_second
+    else: approved
+  to_second:
+    type: condition
+    if: 'record.status == "approval"'
+    then: lead
+    else: lead_wait
+  lead_wait:
+    type: record.transition
+    to: approval
+    next: lead
+  lead:
+    type: approval
+    approvers: "role('software-approver')"
+    timeout: 7d
+    on_timeout: rejected
+    next: lead_said
+  lead_said:
+    type: condition
+    if: 'string(vars.lead_decision) == "approved"'
+    then: approved
+    else: rejected
+  approved:
+    type: record.transition
+    to: in_progress
+    next: grant
+  grant:
+    type: task.create
+    title: '="Give " + record.requester_name + " " + record.fields.access_level + " access to " + record.fields.application'
+    group: Service Desk
+    next: granted
+  granted:
+    type: condition
+    if: 'string(vars.grant_outcome) == "done"'
+    then: fulfil
+    else: done
+  fulfil:
+    type: record.transition
+    to: fulfilled
+    next: done
+  rejected:
+    type: record.transition
+    to: rejected
+    next: say_rejected
+  say_rejected:
+    type: comment.add
+    body: This request was not approved, so the access was not given.
+    next: done
+  done:
+    type: end

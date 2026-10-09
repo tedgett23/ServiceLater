@@ -1,0 +1,34 @@
+# Someone joining. HR, IT and Facilities each get a task at once, and the request is fulfilled when all three are
+# done. Only staff and the People managers group may order it.
+kind: catalog_item
+name: new-starter
+label: New starter
+category: People
+icon: person
+order: 10
+summary: Get everything ready for someone joining your team.
+available_to:
+  roles: [admin, agent]
+  groups: [People managers]
+title: '="New starter: " + record.fields.starter_name'
+workflow: new-starter
+fields:
+  starter_name:
+    type: text
+    label: Their name
+    required: true
+    max_length: 100
+  job_title:
+    type: text
+    label: Job title
+    max_length: 100
+  start_date:
+    type: date
+    label: First day
+    required: true
+  needs_laptop:
+    type: boolean
+    label: They need a laptop
+    default: true
+  description:
+    label: Anything else we should know?

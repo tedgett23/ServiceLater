@@ -1,0 +1,32 @@
+# How a request moves. It is submitted, may wait for approval, is worked (usually as tasks for the teams involved,
+# filed by its fulfilment workflow), and is fulfilled once nothing is left to do. Approval and rejection are the
+# workflow's: nobody approves a request by moving it.
+#
+# Core code only understands each state's category, so states can be renamed or added in local/.
+kind: lifecycle
+record_type: request
+initial: submitted
+states:
+  submitted:   { label: Submitted,         category: open }
+  approval:    { label: Awaiting approval, category: waiting }
+  in_progress: { label: In progress,       category: open }
+  fulfilled:   { label: Fulfilled,         category: done }
+  closed:      { label: Closed,            category: closed }
+  rejected:    { label: Rejected,          category: closed }
+  cancelled:   { label: Cancelled,         category: closed }
+transitions:
+  - { from: submitted,   to: approval,    verb: Ask for approval, automatic: true }
+  - { from: submitted,   to: in_progress, verb: Start work,       primary: true }
+  - { from: submitted,   to: cancelled,   verb: Cancel }
+  - { from: approval,    to: in_progress, verb: Approve,          automatic: true }
+  - { from: approval,    to: rejected,    verb: Reject,           automatic: true }
+  - { from: approval,    to: cancelled,   verb: Cancel }
+  - from: in_progress
+    to: fulfilled
+    verb: Fulfil
+    primary: true
+    when: record.open_tasks == 0
+    error: Its tasks are not all finished yet.
+  - { from: in_progress, to: cancelled,   verb: Cancel }
+  - { from: fulfilled,   to: closed,      verb: Close,            primary: true }
+  - { from: fulfilled,   to: in_progress, verb: Reopen }

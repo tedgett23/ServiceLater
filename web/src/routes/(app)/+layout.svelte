@@ -66,6 +66,7 @@
 	{#if canRecord(session.user, 'read', 'change') && lifecycle.types.some((t) => t.type === 'change')}
 		<a href="/calendar" aria-current={page.url.pathname.startsWith('/calendar') ? 'page' : undefined}>Calendar</a>
 	{/if}
+	<a href="/catalog" aria-current={page.url.pathname.startsWith('/catalog') ? 'page' : undefined}>Request something</a>
 	<a href="/kb" aria-current={page.url.pathname.startsWith('/kb') ? 'page' : undefined}>Knowledge</a>
 	{#if can(session.user, P.cmdbRead)}
 		<a href="/cmdb" aria-current={page.url.pathname.startsWith('/cmdb') ? 'page' : undefined}>CMDB</a>
@@ -88,7 +89,7 @@
 
 <div class="shell">
 	<header>
-		<a class="mark" href="/tickets" aria-label="ServiceLater, ticket queue">ServiceLater</a>
+		<a class="mark" href="/" aria-label="ServiceLater, home">ServiceLater</a>
 		<nav class="wide" aria-label="Sections">
 			{@render sections()}
 		</nav>
