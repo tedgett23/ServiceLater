@@ -3,16 +3,24 @@
 # Put your own load balancer / ingress in front; route /api and /ws to `api`, everything else to `web`
 # (or leave `web` to proxy /api and /ws to SL_API_URL and point the LB at `web` only).
 x-image: &image
+  image: ${SL_IMAGE:-servicelater:latest}
   build: { context: ../.., dockerfile: Dockerfile }
+  restart: unless-stopped
 
 services:
   db:
-    image: postgres:17
+    image: docker.io/library/postgres:17
     environment:
       POSTGRES_USER: servicelater
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
       POSTGRES_DB: servicelater
     volumes: [pgdata:/var/lib/postgresql/data]
+    restart: unless-stopped
+    healthcheck:
+      # Over TCP: on its first start Postgres initialises behind a socket-only server that pg_isready alone calls ready.
+      test: ["CMD-SHELL", "pg_isready -U servicelater -d servicelater -h 127.0.0.1"]
+      interval: 5s
+      retries: 10
 
   api:
     <<: *image
@@ -29,7 +37,8 @@ services:
       SL_BOOTSTRAP_ADMIN_PASSWORD: ${SL_BOOTSTRAP_ADMIN_PASSWORD:-}
       SL_DATABASE_URL: postgres://servicelater:${POSTGRES_PASSWORD}@db:5432/servicelater?sslmode=disable
     volumes: [apps-local:/data/apps-local, attachments:/data/attachments]
-    depends_on: [db]
+    depends_on:
+      db: { condition: service_healthy }
 
   worker:
     <<: *image
@@ -37,7 +46,8 @@ services:
       <<: *db
       SL_ROLES: worker
     volumes: [apps-local:/data/apps-local, attachments:/data/attachments]
-    depends_on: [db]
+    depends_on:
+      db: { condition: service_healthy }
 
   web:
     <<: *image

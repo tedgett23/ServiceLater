@@ -4,6 +4,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -36,6 +38,25 @@ func ConnectMax(ctx context.Context, url string, maxConns int32) (*pgxpool.Pool,
 		return nil, fmt.Errorf("db: ping: %w", err)
 	}
 	return pool, nil
+}
+
+// ConnectWaiting is Connect for a server starting up, perhaps beside a database that is still starting too (a fresh
+// Compose or Kubernetes deployment): it tries again every two seconds until wait has passed, saying so, before it
+// gives up.
+func ConnectWaiting(ctx context.Context, url string, wait time.Duration) (*pgxpool.Pool, error) {
+	deadline := time.Now().Add(wait)
+	for {
+		pool, err := Connect(ctx, url)
+		if err == nil || time.Now().After(deadline) || ctx.Err() != nil {
+			return pool, err
+		}
+		slog.Info("waiting for the database", "err", err)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
 }
 
 // Migrate applies pending migrations. A Postgres session-level advisory lock ensures only one instance
