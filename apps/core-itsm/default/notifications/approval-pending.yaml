@@ -1,0 +1,7 @@
+# What a person asked to approve something is told (by a workflow's approval step). It may only use the record's
+# reference and title: an approver need not be someone who can open the record. Texted too, to those who turned SMS on.
+kind: notification
+name: approval-pending
+title: "Your approval is needed on {{record.reference}}"
+body: "{{record.title}}"
+channels: [in_app, email, sms]

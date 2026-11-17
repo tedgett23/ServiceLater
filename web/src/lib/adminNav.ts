@@ -33,6 +33,8 @@ export function adminGroups(user: User | null | undefined): { label: string; pag
 			pages: [
 				can(user, P.settingsManage) && { href: '/admin/sign-in', label: 'Sign-in' },
 				can(user, P.settingsManage) && { href: '/admin/email', label: 'Email' },
+				can(user, P.settingsManage) && { href: '/admin/incoming', label: 'Incoming email' },
+				can(user, P.settingsManage) && { href: '/admin/messaging', label: 'Messaging' },
 				can(user, P.settingsManage) && { href: '/admin/storage', label: 'Storage' },
 				can(user, P.settingsManage) && { href: '/admin/history', label: 'History' },
 				{ href: '/docs/api', label: 'API reference' }

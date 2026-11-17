@@ -128,8 +128,15 @@ func (m *Mailer) Handler() jobs.Handler {
 		if !visible {
 			return finish(StatusSkipped, "the recipient can no longer see the record")
 		}
-		err = m.Sender.Send(ctx, e, password, Email{To: d.ToAddress, ToName: d.UserName.String, Subject: msg.Title,
-			Body: Compose(msg, e.BaseURL), NotificationID: msg.ID.String()})
+		out := Email{To: d.ToAddress, ToName: d.UserName.String, Subject: msg.Title, Body: Compose(msg, e.BaseURL),
+			NotificationID: msg.ID.String()}
+		// While incoming mail is on, a reply to a notification about a record becomes a comment on it: the reply finds
+		// its way back by this Message-ID (inbound.NotificationMessageID).
+		if replyTo := m.replyAddress(ctx); replyTo != "" && msg.TaskID != nil {
+			out.MessageID, out.ReplyTo = "n."+msg.ID.String()+"@servicelater", replyTo
+			out.Body = "Reply to this email to comment on " + msg.Reference + ".\n\n" + out.Body
+		}
+		err = m.Sender.Send(ctx, e, password, out)
 		if err == nil {
 			return finish(StatusSent, "")
 		}
@@ -145,6 +152,23 @@ func (m *Mailer) Handler() jobs.Handler {
 		}
 		return err
 	}
+}
+
+// replyAddress is the incoming mailbox's address while incoming mail is on, else "".
+func (m *Mailer) replyAddress(ctx context.Context) string {
+	var addr string
+	_ = db.WithSystem(ctx, m.Pool, func(tx pgx.Tx) error {
+		rows, err := dbgen.New(tx).GetSystemSettings(ctx, settings.InboundPrefix)
+		stored := map[string][]byte{}
+		for _, r := range rows {
+			stored[r.Name] = r.Value
+		}
+		if in := settings.InboundFrom(stored); in.Enabled {
+			addr = in.Address
+		}
+		return err
+	})
+	return addr
 }
 
 func (m *Mailer) record(ctx context.Context, id uuid.UUID, status, detail string, attempts int) error {

@@ -709,6 +709,12 @@ export interface Account {
 	email_notifications: boolean;
 	email_enabled: boolean;
 	theme: Theme;
+	/** The server sends text messages; their mobile number (empty when none), whether they confirmed it with the code
+	 * texted to it, and whether notifications that ask for SMS are texted to them. */
+	sms_enabled: boolean;
+	phone: string;
+	phone_verified: boolean;
+	sms_notifications: boolean;
 }
 
 /** How the UI is drawn: following the device (auto), or always light or dark. */

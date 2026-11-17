@@ -24,6 +24,9 @@ export default async function globalSetup(config: FullConfig) {
 		// Files go to an empty folder, which the server claims afresh (its id is a setting).
 		await client.query(`DELETE FROM settings WHERE name LIKE 'storage.%'`);
 		fs.rmSync(ATTACHMENTS_DIR, { recursive: true, force: true });
+		// Incoming mail starts off, with an empty log (a run that died could have left it reading the fake mailbox).
+		await client.query(`DELETE FROM settings WHERE name LIKE 'inbound.%'`);
+		await client.query('TRUNCATE inbound_emails');
 		// Restart each type's numbering, so ticket numbers start at 1 on every run.
 		await client.query(`DO $$ DECLARE t text; BEGIN FOR t IN SELECT type FROM task_types LOOP EXECUTE format('ALTER SEQUENCE %I RESTART', 'task_number_' || t); END LOOP; END $$`);
 	} finally {

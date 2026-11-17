@@ -233,6 +233,13 @@ type accountDTO struct {
 	EmailEnabled bool `json:"email_enabled"`
 	// Theme is how the web UI is drawn for them: auto (follow the device), light or dark.
 	Theme string `json:"theme"`
+	// SMSEnabled says the instance sends text messages; Phone is their mobile number (empty when none), PhoneVerified
+	// that they confirmed it with the code texted to it, and SMSNotifications that notifications also reach them by
+	// SMS (only those whose template asks).
+	SMSEnabled       bool   `json:"sms_enabled"`
+	Phone            string `json:"phone"`
+	PhoneVerified    bool   `json:"phone_verified"`
+	SMSNotifications bool   `json:"sms_notifications"`
 }
 
 func (h *handlers) account(r *http.Request, q *dbgen.Queries, p auth.Principal) (accountDTO, error) {
@@ -242,10 +249,24 @@ func (h *handlers) account(r *http.Request, q *dbgen.Queries, p auth.Principal) 
 	}
 	out := accountDTO{Email: u.Email, EmailNotifications: u.EmailNotifications, Theme: u.Theme}
 	// Whether email is on is not a secret, but the settings are for those who manage them: ask as the system.
+	phone, err := q.GetMyPhone(r.Context())
+	if err == nil {
+		out.Phone, out.PhoneVerified, out.SMSNotifications = phone.Number, phone.VerifiedAt.Valid, phone.SmsNotifications
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return out, err
+	}
 	err = db.WithSystem(r.Context(), h.pool, func(tx pgx.Tx) error {
-		rows, err := dbgen.New(tx).GetSystemSettings(r.Context(), settings.EmailPrefix+"enabled")
+		q := dbgen.New(tx)
+		rows, err := q.GetSystemSettings(r.Context(), settings.EmailPrefix+"enabled")
 		for _, row := range rows {
 			out.EmailEnabled = string(row.Value) == "true"
+		}
+		if err != nil {
+			return err
+		}
+		rows, err = q.GetSystemSettings(r.Context(), settings.SMSPrefix+"enabled")
+		for _, row := range rows {
+			out.SMSEnabled = string(row.Value) == "true"
 		}
 		return err
 	})
@@ -268,6 +289,8 @@ func (h *handlers) getAccount(w http.ResponseWriter, r *http.Request) {
 // accountRequest changes the signed-in person's own preferences.
 type accountRequest struct {
 	EmailNotifications *bool `json:"email_notifications"`
+	// SMSNotifications turns text messages on or off (once the number is verified).
+	SMSNotifications *bool `json:"sms_notifications"`
 	// Theme is auto, light or dark.
 	Theme *string `json:"theme"`
 }
@@ -294,6 +317,15 @@ func (h *handlers) patchAccount(w http.ResponseWriter, r *http.Request) {
 					return fmt.Errorf("updating your own account: %w", err)
 				}
 				return err
+			}
+		}
+		if req.SMSNotifications != nil {
+			changed, err := q.SetMySMSNotifications(r.Context(), *req.SMSNotifications)
+			if err != nil {
+				return err
+			}
+			if !changed {
+				return invalid("add and verify a mobile number first")
 			}
 		}
 		if req.EmailNotifications != nil {

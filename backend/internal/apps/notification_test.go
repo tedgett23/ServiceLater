@@ -74,7 +74,7 @@ func TestTemplateMistakesFailTheInstall(t *testing.T) {
 		{"stray braces", "kind: notification\nname: a\ntitle: \"hi {{ there\"\n", "not a placeholder"},
 		{"no title", "kind: notification\nname: a\nbody: x\n", "title is required"},
 		{"email alone", "kind: notification\nname: a\ntitle: x\nchannels: [email]\n", "must include in_app"},
-		{"sms", "kind: notification\nname: a\ntitle: x\nchannels: [in_app, sms]\n", "sms is not supported yet"},
+		{"slack", "kind: notification\nname: a\ntitle: x\nchannels: [in_app, slack]\n", "slack is not supported yet"},
 		{"unknown channel", "kind: notification\nname: a\ntitle: x\nchannels: [pigeon]\n", `"pigeon" is not a channel`},
 		{"bad name", "kind: notification\nname: A\ntitle: x\n", "name \"A\""},
 		{"wrong kind", "kind: rule\nname: a\ntitle: x\n", "kind must be notification"},

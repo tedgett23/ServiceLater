@@ -42,6 +42,7 @@ export default defineConfig({
 				SL_APPS_LOCAL_DIR: APPS_LOCAL_DIR,
 				SL_ATTACHMENTS_DIR: ATTACHMENTS_DIR,
 				// Encrypts the mail server password (e2e/email.spec.ts). Any 32 bytes, base64; never a real key.
+				SL_MAIL_POLL: '1s',
 				SL_SECRETS_KEY: 'ZTJlLW9ubHktc2VjcmV0cy1rZXktMzItYnl0ZXMhISE='
 			}
 		},

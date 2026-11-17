@@ -4,6 +4,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"net/http"
 	"time"
 
@@ -14,10 +15,12 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/authz"
+	"github.com/servicelater/servicelater/backend/internal/inbound"
 	"github.com/servicelater/servicelater/backend/internal/notify"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/secrets"
+	"github.com/servicelater/servicelater/backend/internal/settings"
 	"github.com/servicelater/servicelater/backend/internal/sso"
 	"github.com/servicelater/servicelater/backend/internal/storage"
 )
@@ -41,6 +44,13 @@ type Deps struct {
 	// SSO runs single sign-on. Every api server must share its StateKey (derive it from the token secret); left out,
 	// a sign-in must come back to the server it started on.
 	SSO *sso.Manager
+	// SMS texts messages (tests and verification codes; notifications are sent by the worker). notify.Twilio when left
+	// out.
+	SMS SMSSender
+	// Teams posts to Teams channels (connecting a group posts a test). notify.TeamsPoster when left out.
+	Teams TeamsPoster
+	// OpenMailbox connects to the incoming mailbox, for the settings' test; inbound.Open when left out.
+	OpenMailbox func(ctx context.Context, cfg settings.Inbound, secret string, tlsConfig *tls.Config) (inbound.Mailbox, error)
 }
 
 type handlers struct {
@@ -54,6 +64,10 @@ type handlers struct {
 	files  *storage.Manager
 	signer *storage.Signer
 	sso    *sso.Manager
+	// smsSender and teamsPoster send straight away, for tests and verification codes.
+	smsSender   SMSSender
+	teamsPoster TeamsPoster
+	openMailbox func(ctx context.Context, cfg settings.Inbound, secret string, tlsConfig *tls.Config) (inbound.Mailbox, error)
 }
 
 // lifecycleFor is the status flow for a ticket type: the type's own, else the `task` default, else the built-in one.
@@ -82,11 +96,21 @@ func NewRouter(d Deps) http.Handler {
 	if d.Signer == nil {
 		d.Signer = storage.NewSigner(rand.Text())
 	}
+	if d.SMS == nil {
+		d.SMS = notify.Twilio{}
+	}
+	if d.Teams == nil {
+		d.Teams = notify.TeamsPoster{}
+	}
+	if d.OpenMailbox == nil {
+		d.OpenMailbox = inbound.Open
+	}
 	if d.SSO == nil {
 		d.SSO = &sso.Manager{Pool: d.Pool, Keys: d.Keys, StateKey: []byte(rand.Text())}
 	}
 	h := &handlers{pool: d.Pool, perms: auth.NewPermissionCache(d.Pool), auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool},
-		keys: d.Keys, sender: d.Sender, files: d.Files, signer: d.Signer, sso: d.SSO}
+		keys: d.Keys, sender: d.Sender, files: d.Files, signer: d.Signer, sso: d.SSO,
+		smsSender: d.SMS, teamsPoster: d.Teams, openMailbox: d.OpenMailbox}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer, finishWrites)
 
@@ -230,6 +254,24 @@ func NewRouter(d Deps) http.Handler {
 					r.Get("/versions/{version}", h.getArticleVersion)
 				})
 			})
+			r.Route("/settings/sms", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.SettingsManage))
+				r.Get("/", h.getSMSSettings)
+				r.Put("/", h.putSMSSettings)
+				r.Post("/test", h.testSMS)
+			})
+			r.Route("/settings/inbound", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.SettingsManage))
+				r.Get("/", h.getInboundSettings)
+				r.Put("/", h.putInboundSettings)
+				r.Post("/test", h.testInbound)
+				r.Get("/log", h.listInboundEmails)
+			})
+			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/teams", h.getTeamsSettings)
+			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/teams", h.putTeamsSettings)
+			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/messaging/deliveries", h.listChannelDeliveries)
+			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/groups/{id}/teams", h.putGroupTeams)
+			r.With(auth.RequirePermission(authz.SettingsManage)).Delete("/groups/{id}/teams", h.deleteGroupTeams)
 			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/sign-in", h.getSignInSettings)
 			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/sign-in", h.putSignInSettings)
 			r.Route("/sso-providers", func(r chi.Router) {
@@ -255,6 +297,9 @@ func NewRouter(d Deps) http.Handler {
 			})
 			r.Get("/account", h.getAccount)
 			r.Patch("/account", h.patchAccount)
+			r.Put("/account/phone", h.putMyPhone)
+			r.Post("/account/phone/verify", h.verifyMyPhone)
+			r.Delete("/account/phone", h.deleteMyPhone)
 			r.With(auth.RequirePermission(authz.CMDBRead)).Get("/cmdb/model", h.getCMDBModel)
 			r.Route("/cmdb/csv", func(r chi.Router) {
 				r.Use(auth.RequirePermission(authz.CMDBRead))

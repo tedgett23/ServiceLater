@@ -19,6 +19,9 @@ type Email struct {
 	Subject, Body string
 	// NotificationID, when set, is put in a header, so a reply or a bounce can be traced to it.
 	NotificationID string
+	// MessageID, when set, is the message's Message-ID (a reply names it, which is how the reply finds its record);
+	// otherwise one is made up. ReplyTo is where replies go (the incoming mailbox), when set.
+	MessageID, ReplyTo string
 }
 
 // Sender sends email with go-mail. The zero value verifies the server's certificate against the system's roots.
@@ -51,7 +54,16 @@ func (s Sender) Send(ctx context.Context, e settings.Email, password string, m E
 		return &SendError{Err: fmt.Errorf("recipient %s: %w", m.To, err), Permanent: true}
 	}
 	msg.Subject(oneLine(m.Subject))
-	msg.SetMessageID()
+	if m.MessageID != "" {
+		msg.SetMessageIDWithValue(m.MessageID)
+	} else {
+		msg.SetMessageID()
+	}
+	if m.ReplyTo != "" {
+		if err := msg.ReplyTo(m.ReplyTo); err != nil {
+			return &SendError{Err: fmt.Errorf("reply-to address: %w", err), Permanent: true}
+		}
+	}
 	msg.SetDate()
 	// Automatic mail: out-of-office replies and mailing lists leave it alone (RFC 3834).
 	msg.SetGenHeader(mail.Header("Auto-Submitted"), "auto-generated")

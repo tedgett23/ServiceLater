@@ -117,6 +117,26 @@ type Change struct {
 	ProblemType        pgtype.Text        `json:"problem_type"`
 }
 
+type ChannelDelivery struct {
+	ID             uuid.UUID          `json:"id"`
+	Channel        string             `json:"channel"`
+	NotificationID uuid.NullUUID      `json:"notification_id"`
+	UserID         uuid.NullUUID      `json:"user_id"`
+	GroupID        uuid.NullUUID      `json:"group_id"`
+	TaskID         uuid.NullUUID      `json:"task_id"`
+	App            pgtype.Text        `json:"app"`
+	Template       pgtype.Text        `json:"template"`
+	ActorID        uuid.NullUUID      `json:"actor_id"`
+	ToAddress      string             `json:"to_address"`
+	Kind           string             `json:"kind"`
+	What           string             `json:"what"`
+	Status         string             `json:"status"`
+	Detail         string             `json:"detail"`
+	Attempts       int32              `json:"attempts"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
 type Ci struct {
 	ID             uuid.UUID          `json:"id"`
 	Class          string             `json:"class"`
@@ -190,6 +210,20 @@ type HistoryExclusion struct {
 	Subject string `json:"subject"`
 	Kind    string `json:"kind"`
 	Field   string `json:"field"`
+}
+
+type InboundEmail struct {
+	ID             uuid.UUID          `json:"id"`
+	MessageID      string             `json:"message_id"`
+	FromAddress    string             `json:"from_address"`
+	Subject        string             `json:"subject"`
+	Action         string             `json:"action"`
+	Detail         string             `json:"detail"`
+	TaskID         uuid.NullUUID      `json:"task_id"`
+	UserID         uuid.NullUUID      `json:"user_id"`
+	Attachments    int32              `json:"attachments"`
+	Authentication string             `json:"authentication"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
 type Incident struct {
@@ -457,6 +491,17 @@ type UserIdentity struct {
 	Email        string             `json:"email"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	LastSignInAt pgtype.Timestamptz `json:"last_sign_in_at"`
+}
+
+type UserPhone struct {
+	UserID           uuid.UUID          `json:"user_id"`
+	Number           string             `json:"number"`
+	VerifiedAt       pgtype.Timestamptz `json:"verified_at"`
+	SmsNotifications bool               `json:"sms_notifications"`
+	CodeHash         []byte             `json:"code_hash"`
+	CodeExpiresAt    pgtype.Timestamptz `json:"code_expires_at"`
+	CodeAttempts     int32              `json:"code_attempts"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
 }
 
 type WorkflowApproval struct {

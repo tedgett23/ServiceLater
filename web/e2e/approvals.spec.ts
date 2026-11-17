@@ -67,7 +67,7 @@ test('an approval asks a named person, who sees it, decides it, and it leaves th
 		await lena.page.goto('/tickets');
 		await expect(lena.page.getByRole('link', { name: 'Approvals (1)' })).toBeVisible({ timeout: 15_000 });
 		await lena.page.getByRole('link', { name: 'Approvals (1)' }).click();
-		const row = lena.page.locator('li', { hasText: t.reference });
+		const row = lena.page.getByRole('list', { name: 'Waiting for your decision' }).locator('li', { hasText: t.reference });
 		await expect(row).toBeVisible();
 		await expect(row).toContainText('ask');
 		await row.getByRole('textbox').fill('looks fine to me');
@@ -111,11 +111,11 @@ test('a group decides once, by whichever member answers first', async ({ browser
 		await openTicket(agent.page, t.number);
 		await details(agent.page).getByLabel('Priority').selectOption('Critical');
 
-		const marcusRow = marcus.page.locator('li', { hasText: t.reference });
+		const marcusRow = marcus.page.getByRole('list', { name: 'Waiting for your decision' }).locator('li', { hasText: t.reference });
 		await expect(marcusRow).toContainText(`For ${group}:`, { timeout: 15_000 });
 
 		await lena.page.goto('/approvals');
-		const row = lena.page.locator('li', { hasText: t.reference });
+		const row = lena.page.getByRole('list', { name: 'Waiting for your decision' }).locator('li', { hasText: t.reference });
 		await expect(row).toContainText(`For ${group}:`);
 		await row.getByRole('textbox').fill('fine by the owners');
 		await row.getByRole('button', { name: 'Approve' }).click();
