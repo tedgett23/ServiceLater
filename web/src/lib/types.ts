@@ -19,7 +19,9 @@ export interface Ticket {
 	/** The kind of ticket (incident, change ...). Numbers count within a type. */
 	type: string;
 	number: number;
-	/** How people name it: the type's prefix and its number, such as INC42. */
+	/** The type's prefix (INC, TYL): the leading part of reference. */
+	prefix: string;
+	/** How people name it: the type's prefix and its number (INC42, TYL7). Always shown as the server sends it. */
 	reference: string;
 	title: string;
 	description: string;
@@ -220,6 +222,8 @@ export interface CalendarEntry {
 	id: string;
 	type: string;
 	number: number;
+	/** The leading part of reference, for styling. */
+	prefix: string;
 	reference: string;
 	title: string;
 	status: Status;
@@ -252,8 +256,8 @@ export interface Freeze {
 	items: CISummary[];
 }
 
-/** The type's prefix of a reference: INC for INC42. */
-export const prefixOf = (t: Pick<Ticket, 'reference' | 'number'>) => t.reference.slice(0, t.reference.length - String(t.number).length);
+/** The part of a reference after its prefix, as the server sent it: 42 for INC42. */
+export const refNumber = (t: Pick<Ticket, 'reference' | 'prefix'>) => t.reference.slice(t.prefix.length);
 
 export interface TicketPage {
 	items: Ticket[];
@@ -312,6 +316,11 @@ export interface RecordType {
 	type: string;
 	prefix: string;
 	label: string;
+	/** What a list of them is called: Incidents, Things. */
+	plural: string;
+	description?: string;
+	/** The app that defines the type; absent for a core type. */
+	app?: string;
 	can_file: boolean;
 	can_file_for_others: boolean;
 	/** Ordered from the service catalog (requests), not filed from the New ticket dialog. */

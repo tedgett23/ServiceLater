@@ -44,6 +44,10 @@ func Pool(t *testing.T) *pgxpool.Pool {
 	if _, err := pool.Exec(ctx, "TRUNCATE tasks, sessions, rate_limits, user_credentials, users, apps, jobs, action_runs, workflow_executions, groups CASCADE"); err != nil {
 		t.Fatal(err)
 	}
+	// Record types apps defined go with the apps, and their numbering with them.
+	if _, err := pool.Exec(ctx, DropAppTypes); err != nil {
+		t.Fatal(err)
+	}
 	// apps cascades to roles, built-in ones included.
 	if _, err := pool.Exec(ctx, "SELECT app_seed_builtin_roles()"); err != nil {
 		t.Fatal(err)
@@ -89,6 +93,16 @@ func InstallFirstParty(t *testing.T, pool *pgxpool.Pool) {
 		}
 	}
 }
+
+// DropAppTypes deletes the record types apps defined (once their records are gone) and their number sequences.
+const DropAppTypes = `DO $$
+DECLARE t text;
+BEGIN
+    FOR t IN DELETE FROM task_types WHERE owner_app IS NOT NULL RETURNING type LOOP
+        EXECUTE format('DROP SEQUENCE IF EXISTS %I', 'task_number_' || t);
+    END LOOP;
+END
+$$`
 
 // ResetNumbering restarts every task type's number sequence at 1.
 const ResetNumbering = `DO $$

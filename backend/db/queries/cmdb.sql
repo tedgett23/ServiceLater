@@ -92,11 +92,11 @@ DELETE FROM task_cis WHERE task_id = $1 AND ci_id = $2;
 
 -- name: ListCITasks :many
 -- The records an item is linked to that the reader may see: open ones first, then the most recently changed.
-SELECT t.id, t.type, tt.prefix, t.number, t.title, t.status, t.state_category, t.priority, t.updated_at
+SELECT t.id, t.type, (tt.prefix || t.number::text)::text AS reference, t.number, t.title, t.status, t.state_category, t.priority, t.updated_at
 FROM task_cis l
 JOIN tasks t ON t.id = l.task_id
 JOIN task_types tt ON tt.type = t.type
-WHERE l.ci_id = $1
+WHERE l.ci_id = $1 AND tt.retired_at IS NULL
 ORDER BY t.state_category IN ('open', 'waiting') DESC, t.updated_at DESC, t.id
 LIMIT 101;
 

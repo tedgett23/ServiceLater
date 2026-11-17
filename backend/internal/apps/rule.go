@@ -280,8 +280,8 @@ func (r *Rule) validateStructure(file string, p *Problems) {
 	if !ruleNameRE.MatchString(r.Name) {
 		p.add(file, "name %q must be 2-63 characters: lowercase letters, digits and hyphens, starting with a letter", r.Name)
 	}
-	if !slices.Contains(KnownRecordTypes, r.RecordType) {
-		p.add(file, "record_type %q is not a record type this version provides (available: %v)", r.RecordType, KnownRecordTypes)
+	if !validTypeName(r.RecordType) {
+		p.add(file, "record_type %q is not a record type's name", r.RecordType)
 	}
 	switch r.Timing {
 	case TimingBefore, TimingAfter, TimingAsync:

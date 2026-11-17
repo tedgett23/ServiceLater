@@ -83,9 +83,9 @@ func (r *Role) validate(file string, p *Problems) {
 // records of), or * for every type.
 func checkPermission(perm string) string {
 	if _, typ, ok := authz.ParseRecord(perm); ok {
-		if typ != authz.AllTypes && (typ == "task" || !slices.Contains(KnownRecordTypes, typ)) {
-			return fmt.Sprintf("%q names the record type %q, which this version does not provide (available: %s, or * for every type)",
-				perm, typ, strings.Join(slices.DeleteFunc(slices.Clone(KnownRecordTypes), func(s string) bool { return s == "task" }), ", "))
+		// Whether the type exists is checked with the rest of the app (checkRecordTypes): it may be the app's own.
+		if typ != authz.AllTypes && (typ == "task" || !validTypeName(typ)) {
+			return fmt.Sprintf("%q names %q, which is not a record type you can hold records of (task is the base of every type; use * for every type)", perm, typ)
 		}
 		return ""
 	}

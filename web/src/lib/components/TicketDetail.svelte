@@ -21,7 +21,7 @@
 	import { staff } from '$lib/staff.svelte';
 	import type { Attachment, Comment, FieldValue, FormField, HistoryEntry, Status as StatusT, Ticket } from '$lib/types';
 	import { long, what, who } from '$lib/history';
-	import { can, canRecord, P, prefixOf } from '$lib/types';
+	import { can, canRecord, P, refNumber } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let props: { ticket: Ticket; comments: Comment[]; loadedAt?: number } = $props();
@@ -296,7 +296,7 @@
 	</a>
 
 	<header class="head">
-		<div class="stub"><span class="sr-only">{lifecycle.typeLabel(ticket.type)} </span><span class="prefix" aria-hidden="true">{prefixOf(ticket)}</span>{ticket.number}</div>
+		<div class="stub"><span class="sr-only">{`${lifecycle.typeLabel(ticket.type)} `}</span><span class="prefix" aria-hidden="true">{ticket.prefix}</span>{refNumber(ticket)}</div>
 		<div class="headtext">
 			<h1>{ticket.title}</h1>
 			<p class="byline">

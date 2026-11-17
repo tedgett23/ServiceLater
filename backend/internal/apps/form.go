@@ -325,8 +325,8 @@ func (f *Form) validateStructure(file string, p *Problems) {
 	case f.RecordType == "task":
 		p.add(file, "record_type: a form is for one record type; forms for task are not supported yet")
 		return
-	case !slices.Contains(KnownRecordTypes, f.RecordType):
-		p.add(file, "record_type %q is not a record type this version provides (available: %v)", f.RecordType, KnownRecordTypes)
+	case !validTypeName(f.RecordType):
+		p.add(file, "record_type %q is not a record type's name", f.RecordType)
 		return
 	}
 	if len(f.Fields) > maxFormFields {

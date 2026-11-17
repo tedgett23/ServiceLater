@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/settings"
@@ -118,13 +117,7 @@ func (h *handlers) putHistorySettings(w http.ResponseWriter, r *http.Request) {
 	}
 	var out historySettingsDTO
 	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
-		known := []string{}
-		for _, t := range apps.KnownRecordTypes {
-			if t != "task" {
-				known = append(known, t)
-			}
-		}
-		if err := req.Check(known); err != nil {
+		if err := req.Check(h.apps.RecordTypes()); err != nil {
 			return invalid(err.Error())
 		}
 		for name, value := range req.Rows() {

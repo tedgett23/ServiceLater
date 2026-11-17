@@ -480,11 +480,11 @@ func (q *Queries) ListCIRelationshipsFrom(ctx context.Context, ids []uuid.UUID) 
 }
 
 const listCITasks = `-- name: ListCITasks :many
-SELECT t.id, t.type, tt.prefix, t.number, t.title, t.status, t.state_category, t.priority, t.updated_at
+SELECT t.id, t.type, (tt.prefix || t.number::text)::text AS reference, t.number, t.title, t.status, t.state_category, t.priority, t.updated_at
 FROM task_cis l
 JOIN tasks t ON t.id = l.task_id
 JOIN task_types tt ON tt.type = t.type
-WHERE l.ci_id = $1
+WHERE l.ci_id = $1 AND tt.retired_at IS NULL
 ORDER BY t.state_category IN ('open', 'waiting') DESC, t.updated_at DESC, t.id
 LIMIT 101
 `
@@ -492,7 +492,7 @@ LIMIT 101
 type ListCITasksRow struct {
 	ID            uuid.UUID          `json:"id"`
 	Type          string             `json:"type"`
-	Prefix        string             `json:"prefix"`
+	Reference     string             `json:"reference"`
 	Number        int64              `json:"number"`
 	Title         string             `json:"title"`
 	Status        string             `json:"status"`
@@ -514,7 +514,7 @@ func (q *Queries) ListCITasks(ctx context.Context, ciID uuid.UUID) ([]ListCITask
 		if err := rows.Scan(
 			&i.ID,
 			&i.Type,
-			&i.Prefix,
+			&i.Reference,
 			&i.Number,
 			&i.Title,
 			&i.Status,

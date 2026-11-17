@@ -956,6 +956,10 @@
             "format": "date-time",
             "type": "string"
           },
+          "prefix": {
+            "description": "The leading part of Reference (the type's prefix), for styling; show Reference as given.",
+            "type": "string"
+          },
           "priority": {
             "format": "int32",
             "type": "integer"
@@ -988,6 +992,7 @@
           "overlaps",
           "planned_end",
           "planned_start",
+          "prefix",
           "priority",
           "reference",
           "risk",
@@ -3287,6 +3292,10 @@
       "RecordType": {
         "description": "A record type in use: an installed app defines its lifecycle.",
         "properties": {
+          "app": {
+            "description": "The app that defines the type; empty for a core type.",
+            "type": "string"
+          },
           "can_file": {
             "description": "Says whether the caller may file one as themselves: the type is open to everyone, or they have records:create:\u003ctype\u003e.",
             "type": "boolean"
@@ -3295,11 +3304,19 @@
             "description": "Says whether they may also name someone else as the requester (records:update:\u003ctype\u003e too).",
             "type": "boolean"
           },
+          "description": {
+            "description": "Says what the type is for; empty for most core types.",
+            "type": "string"
+          },
           "from_catalog": {
             "description": "Types (requests) are ordered from the service catalog; CanFile says whether the caller may also file one by hand, with no item.",
             "type": "boolean"
           },
           "label": {
+            "type": "string"
+          },
+          "plural": {
+            "description": "What a list of them is called (Incidents, Things).",
             "type": "string"
           },
           "prefix": {
@@ -3313,6 +3330,7 @@
           "can_file",
           "can_file_for_others",
           "label",
+          "plural",
           "prefix",
           "type"
         ],
@@ -4095,6 +4113,9 @@
               "null"
             ]
           },
+          "prefix": {
+            "type": "string"
+          },
           "priority": {
             "format": "int32",
             "type": "integer"
@@ -4166,6 +4187,7 @@
           "number",
           "open_tasks",
           "parent_id",
+          "prefix",
           "priority",
           "reference",
           "requester_id",

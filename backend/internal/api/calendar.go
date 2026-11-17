@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
 	"slices"
 	"time"
@@ -21,15 +20,17 @@ const (
 
 // calendarEntryDTO is one record's planned window on the calendar.
 type calendarEntryDTO struct {
-	ID            uuid.UUID `json:"id"`
-	Type          string    `json:"type"`
-	Number        int64     `json:"number"`
-	Reference     string    `json:"reference"`
-	Title         string    `json:"title"`
-	Status        string    `json:"status"`
-	StateCategory string    `json:"state_category"`
-	Priority      int16     `json:"priority"`
-	AssigneeName  *string   `json:"assignee_name"`
+	ID     uuid.UUID `json:"id"`
+	Type   string    `json:"type"`
+	Number int64     `json:"number"`
+	// Prefix is the leading part of Reference (the type's prefix), for styling; show Reference as given.
+	Prefix        string  `json:"prefix"`
+	Reference     string  `json:"reference"`
+	Title         string  `json:"title"`
+	Status        string  `json:"status"`
+	StateCategory string  `json:"state_category"`
+	Priority      int16   `json:"priority"`
+	AssigneeName  *string `json:"assignee_name"`
 	// ChangeType and Risk are the change's own fields (standard, normal or emergency; low, medium, high or "").
 	ChangeType   string    `json:"change_type"`
 	Risk         string    `json:"risk"`
@@ -91,7 +92,7 @@ func (h *handlers) listCalendar(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]calendarEntryDTO, len(rows))
 	for i, x := range rows {
-		items[i] = calendarEntryDTO{ID: x.ID, Type: x.Type, Number: x.Number, Reference: fmt.Sprintf("%s%d", x.TypePrefix, x.Number),
+		items[i] = calendarEntryDTO{ID: x.ID, Type: x.Type, Number: x.Number, Prefix: x.TypePrefix, Reference: x.Reference,
 			Title: x.Title, Status: x.Status, StateCategory: x.StateCategory, Priority: x.Priority, ChangeType: x.ChangeType,
 			Risk: x.Risk, PlannedStart: x.PlannedStart.Time, PlannedEnd: x.PlannedEnd.Time, Overlaps: []string{}, Freezes: []uuid.UUID{}}
 		if x.AssigneeName.Valid {

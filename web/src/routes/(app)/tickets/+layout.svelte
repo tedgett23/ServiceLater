@@ -7,7 +7,7 @@
 	import { clock } from '$lib/clock.svelte';
 	import { age, span } from '$lib/format';
 	import { queue, type Filter } from '$lib/queue.svelte';
-	import { canRecordAny, prefixOf, type Ticket } from '$lib/types';
+	import { canRecordAny, refNumber, type Ticket } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let { data, children } = $props();
@@ -131,7 +131,7 @@
 					<li>
 						<a id="row-{t.id}" class="row" class:active={isActive(t)} href="/tickets/{t.reference}" aria-current={isActive(t) ? 'page' : undefined}>
 							<Signal priority={t.priority} />
-							<span class="num"><span class="prefix">{prefixOf(t)}</span>{t.number}</span>
+							<span class="num"><span class="prefix">{t.prefix}</span>{refNumber(t)}</span>
 							<span class="title">{t.title}</span>
 							<time class="age" datetime={t.updated_at}>{age(t.updated_at)}</time>
 							<span class="sub">

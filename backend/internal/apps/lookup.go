@@ -73,7 +73,7 @@ var LookupTargets = func() map[string]map[string]string {
 	out := map[string]map[string]string{
 		"freeze_window": {"starts_at": lookupTime, "ends_at": lookupTime, "applies_to": lookupScope},
 	}
-	for _, t := range KnownRecordTypes {
+	for _, t := range CoreRecordTypes {
 		if t == "task" {
 			continue
 		}
@@ -88,6 +88,19 @@ var LookupTargets = func() map[string]map[string]string {
 	}
 	return out
 }()
+
+// lookupFields are the fields a lookup target can be filtered by. A name that is not a core target may be a record
+// type an app defines: it is counted by the fields every record has, and the app's record types are checked to
+// include it (checkRecordTypes).
+func lookupFields(target string) (map[string]string, bool) {
+	if fields, ok := LookupTargets[target]; ok {
+		return fields, true
+	}
+	if validTypeName(target) && target != "task" {
+		return taskLookupFields, true
+	}
+	return nil, false
+}
 
 // LookupOps are the operators a filter may use. in takes an =expression giving a list of text.
 var LookupOps = []string{"eq", "ne", "lt", "lte", "gt", "gte", "in"}
@@ -121,7 +134,7 @@ func (ls Lookups) validate(env *expr.Env, envErr error) (out []string) {
 		}
 		before := len(out)
 		l.filters, l.err = nil, nil
-		fields, ok := LookupTargets[l.Count]
+		fields, ok := lookupFields(l.Count)
 		if !ok {
 			add("%s: count %q is not something a lookup can count (available: %s)", at, l.Count, strings.Join(sortedKeys(LookupTargets), ", "))
 		}

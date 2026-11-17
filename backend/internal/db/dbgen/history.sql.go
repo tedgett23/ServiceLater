@@ -242,14 +242,13 @@ func (q *Queries) ListSettingHistory(ctx context.Context, prefix string) ([]List
 }
 
 const taskRefsByID = `-- name: TaskRefsByID :many
-SELECT t.id, tt.prefix, t.number, t.title FROM tasks t JOIN task_types tt ON tt.type = t.type WHERE t.id = ANY ($1::uuid[])
+SELECT t.id, (tt.prefix || t.number::text)::text AS reference, t.title FROM tasks t JOIN task_types tt ON tt.type = t.type WHERE t.id = ANY ($1::uuid[])
 `
 
 type TaskRefsByIDRow struct {
-	ID     uuid.UUID `json:"id"`
-	Prefix string    `json:"prefix"`
-	Number int64     `json:"number"`
-	Title  string    `json:"title"`
+	ID        uuid.UUID `json:"id"`
+	Reference string    `json:"reference"`
+	Title     string    `json:"title"`
 }
 
 // The records the reader may see, by reference.
@@ -262,12 +261,7 @@ func (q *Queries) TaskRefsByID(ctx context.Context, ids []uuid.UUID) ([]TaskRefs
 	var items []TaskRefsByIDRow
 	for rows.Next() {
 		var i TaskRefsByIDRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Prefix,
-			&i.Number,
-			&i.Title,
-		); err != nil {
+		if err := rows.Scan(&i.ID, &i.Reference, &i.Title); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

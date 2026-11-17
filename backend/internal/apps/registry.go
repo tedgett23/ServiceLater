@@ -27,13 +27,16 @@ type snapshot struct {
 	classes    map[string]*Class        // CMDB classes by name
 	relations  map[string]*Relationship // CMDB relationship types by name
 	items      map[string]*CatalogItem  // catalog items by name
+	types      map[string]*RecordType   // record types apps define, by name
+	retired    map[string]bool          // record types whose app was removed
 	apps       []Installed
 }
 
 func emptySnapshot() *snapshot {
 	return &snapshot{lifecycles: map[string]*Lifecycle{}, rules: map[string][]*Rule{}, workflows: map[string]*Workflow{},
 		templates: map[string]*Notification{}, slas: map[string][]*SLA{}, forms: map[string]*Form{},
-		classes: map[string]*Class{}, relations: map[string]*Relationship{}, items: map[string]*CatalogItem{}}
+		classes: map[string]*Class{}, relations: map[string]*Relationship{}, items: map[string]*CatalogItem{},
+		types: map[string]*RecordType{}, retired: map[string]bool{}}
 }
 
 // Registry serves the current definitions from memory. Installs elsewhere reach it through NOTIFY, so every
@@ -66,6 +69,13 @@ func (r *Registry) Load(ctx context.Context) error {
 		apps, err := q.ListApps(ctx)
 		if err != nil {
 			return err
+		}
+		retired, err := q.ListRetiredTaskTypes(ctx)
+		if err != nil {
+			return err
+		}
+		for _, t := range retired {
+			next.retired[t] = true
 		}
 		versions := map[string]string{}
 		counts := map[string]int{}
@@ -183,6 +193,16 @@ func (r *Registry) Load(ctx context.Context) error {
 				it.App, it.Version = d.AppName, versions[d.AppName]
 				it.Form.App, it.Form.Version = d.AppName, versions[d.AppName]
 				next.items[it.Name] = &it
+				continue
+			}
+			if d.Kind == "record_type" {
+				var rt RecordType
+				if err := json.Unmarshal(d.Body, &rt); err != nil {
+					slog.Error("skipping unreadable record type", "app", d.AppName, "type", d.Name, "err", err)
+					continue
+				}
+				rt.App, rt.Version = d.AppName, versions[d.AppName]
+				next.types[rt.Name] = &rt
 				continue
 			}
 			if d.Kind == "relationship" {
@@ -429,11 +449,42 @@ func (r *Registry) Lifecycle(recordType string) *Lifecycle {
 	return FallbackLifecycle(recordType)
 }
 
-// Provides reports whether an installed app defines this record type's own lifecycle: the type is in use, so people
-// can file records of it. A type that only inherits the task lifecycle is registered but not offered.
+// Provides reports whether the record type is in use, so people can file records of it: an installed app defines its
+// own lifecycle, or, for a type an app defines, the type is installed and has a lifecycle through `task`. A core type
+// that only inherits the task lifecycle is registered but not offered.
 func (r *Registry) Provides(recordType string) bool {
-	_, ok := r.snap.Load().lifecycles[recordType]
-	return ok && recordType != "task"
+	s := r.snap.Load()
+	if recordType == "task" {
+		return false
+	}
+	if _, ok := s.lifecycles[recordType]; ok {
+		return IsCoreType(recordType) || s.types[recordType] != nil // a retired type is never in use
+	}
+	_, base := s.lifecycles["task"]
+	return base && s.types[recordType] != nil
+}
+
+// RecordType is the definition of a record type an installed app adds; nil for a core type or one no installed app
+// defines (its app was removed: the type is retired).
+func (r *Registry) RecordType(name string) *RecordType { return r.snap.Load().types[name] }
+
+// KnownType reports whether a type can be named today: a core type (task included) or one an installed app defines.
+// A retired type's records can still be opened by reference, but nothing lists, filters or files them.
+func (r *Registry) KnownType(t string) bool { return IsCoreType(t) || r.snap.Load().types[t] != nil }
+
+// Exists reports whether records of a type can exist: a known type, or a retired one (its app was removed), whose
+// records still open by reference and so still need their labels and form to be shown.
+func (r *Registry) Exists(t string) bool { return r.KnownType(t) || r.snap.Load().retired[t] }
+
+// RecordTypes are every type records can be held of (not task): the core types, then the installed apps' by name.
+func (r *Registry) RecordTypes() []string {
+	out := slices.DeleteFunc(slices.Clone(CoreRecordTypes), func(s string) bool { return s == "task" })
+	n := len(out)
+	for t := range r.snap.Load().types {
+		out = append(out, t)
+	}
+	slices.Sort(out[n:])
+	return out
 }
 
 // Apps lists the installed apps as of the last load.

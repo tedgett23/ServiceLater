@@ -286,7 +286,7 @@ func buildPlan(ctx context.Context, q *dbgen.Queries, c *Compiled) (*Plan, error
 		// A record type has one lifecycle and one form, and a role, a CMDB class or a relationship type name means
 		// one thing, so two apps cannot both provide any of them. Rules do not compete: each is named within its own
 		// app, and every applicable rule runs.
-		if d.Kind == "lifecycle" || d.Kind == "role" || d.Kind == "form" || d.Kind == "class" || d.Kind == "relationship" || d.Kind == "catalog_item" {
+		if d.Kind == "lifecycle" || d.Kind == "role" || d.Kind == "form" || d.Kind == "class" || d.Kind == "relationship" || d.Kind == "catalog_item" || d.Kind == "record_type" {
 			if other, err := q.FindDefinitionProvider(ctx, dbgen.FindDefinitionProviderParams{Kind: d.Kind, Name: d.Name, AppName: m.Name}); err == nil {
 				problems = append(problems, fmt.Sprintf("the %s is already provided by %s: uninstall it first, or remove it from one of the apps", ref, other))
 				continue
@@ -315,10 +315,17 @@ func buildPlan(ctx context.Context, q *dbgen.Queries, c *Compiled) (*Plan, error
 			}
 		}
 	}
+	bad, err := checkTypeOwnership(ctx, q, c)
+	if err != nil {
+		return nil, err
+	}
+	problems = append(problems, bad...)
 	for ref := range have {
 		if !seen[ref] {
 			plan.Removed = append(plan.Removed, ref)
 			switch ref.Kind {
+			case "record_type":
+				plan.Notes = append(plan.Notes, fmt.Sprintf("removing the record type %s retires it: its records are kept and open by reference, but nothing lists or files them until an app defines it again", ref.Name))
 			case "role":
 				plan.Notes = append(plan.Notes, fmt.Sprintf("removing the role %s takes it away from everyone it was granted to", ref.Name))
 			case "class":
@@ -443,6 +450,10 @@ func apply(ctx context.Context, tx pgx.Tx, q *dbgen.Queries, c *Compiled, plan *
 		}
 	}
 
+	if err := syncTaskTypes(ctx, q, c); err != nil {
+		return err
+	}
+
 	// Move records out of renamed statuses, then make every stored category match the lifecycle.
 	for i, r := range plan.Renames {
 		cat, _ := r.lifecycle.Category(r.To)
@@ -512,6 +523,10 @@ func Uninstall(ctx context.Context, pool *pgxpool.Pool, name string) (removed []
 		if err := q.DeleteApp(ctx, name); err != nil { // cascades to its definitions and roles
 			return err
 		}
+		// Its record types stay, retired, with every record of them (D10).
+		if _, err := q.RetireAppTaskTypes(ctx, dbgen.RetireAppTaskTypesParams{OwnerApp: pgtype.Text{String: name, Valid: true}, Keep: []string{}}); err != nil {
+			return err
+		}
 		// Its principal stays, deactivated, for the comments and runs it wrote.
 		if err := q.SetAppPrincipalActive(ctx, dbgen.SetAppPrincipalActiveParams{App: pgtype.Text{String: name, Valid: true}, Active: false}); err != nil {
 			return err
@@ -558,4 +573,82 @@ func List(ctx context.Context, pool *pgxpool.Pool) ([]Installed, error) {
 		return nil
 	})
 	return out, err
+}
+
+// checkTypeOwnership finds what would go wrong with the app's record types in this database: a name or prefix another
+// type has, a prefix change on a type that has records, and types it names from its dependencies that they do not
+// define.
+func checkTypeOwnership(ctx context.Context, q *dbgen.Queries, c *Compiled) (problems []string, err error) {
+	app := c.Manifest.Name
+	for _, d := range c.Definitions {
+		t := d.RecordType
+		if t == nil {
+			continue
+		}
+		cur, err := q.GetTaskType(ctx, t.Name)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+		case err != nil:
+			return nil, err
+		case !cur.OwnerApp.Valid:
+			problems = append(problems, fmt.Sprintf("the record type %s is a core type", t.Name))
+			continue
+		case cur.OwnerApp.String != app:
+			problems = append(problems, fmt.Sprintf("the record type %s belongs to %s (whose records keep it even when that app is removed): choose another name", t.Name, cur.OwnerApp.String))
+			continue
+		case cur.Prefix != t.Prefix:
+			n, err := q.CountTasksOfType(ctx, t.Name)
+			if err != nil {
+				return nil, err
+			}
+			if n > 0 {
+				problems = append(problems, fmt.Sprintf("the record type %s has %d records, so its prefix stays %s (it is part of their references): it cannot become %s", t.Name, n, cur.Prefix, t.Prefix))
+				continue
+			}
+		}
+		other, err := q.GetTaskTypeByPrefix(ctx, t.Prefix)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+		case err != nil:
+			return nil, err
+		case other.Type != t.Name:
+			problems = append(problems, fmt.Sprintf("the prefix %s of the record type %s is already the prefix of %s: choose another", t.Prefix, t.Name, other.Type))
+		}
+	}
+	deps := map[string]bool{}
+	for _, d := range c.Manifest.Deps {
+		deps[d.Name] = true
+	}
+	for _, name := range c.ForeignTypes {
+		cur, err := q.GetTaskType(ctx, name)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			problems = append(problems, fmt.Sprintf("%s names the record type %q, which is neither a core type, nor its own, nor one its dependencies define", app, name))
+		case err != nil:
+			return nil, err
+		case !cur.OwnerApp.Valid || !deps[cur.OwnerApp.String] || cur.RetiredAt.Valid:
+			problems = append(problems, fmt.Sprintf("%s names the record type %q, which none of its dependencies define: add the app that does to its dependencies", app, name))
+		}
+	}
+	return problems, nil
+}
+
+// syncTaskTypes writes the app's record types to task_types and retires those it no longer defines. A new row gets
+// its number sequence from the table's trigger; an existing one keeps its numbering.
+func syncTaskTypes(ctx context.Context, q *dbgen.Queries, c *Compiled) error {
+	owner := pgtype.Text{String: c.Manifest.Name, Valid: true}
+	keep := []string{}
+	for _, d := range c.Definitions {
+		t := d.RecordType
+		if t == nil {
+			continue
+		}
+		keep = append(keep, t.Name)
+		if err := q.UpsertAppTaskType(ctx, dbgen.UpsertAppTaskTypeParams{Type: t.Name, Prefix: t.Prefix, Label: t.Label, Plural: t.Plural,
+			AnyoneMayFile: t.AnyoneMayFile, Description: t.Description, OwnerApp: owner}); err != nil {
+			return err
+		}
+	}
+	_, err := q.RetireAppTaskTypes(ctx, dbgen.RetireAppTaskTypesParams{OwnerApp: owner, Keep: keep})
+	return err
 }

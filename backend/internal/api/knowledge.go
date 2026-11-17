@@ -350,7 +350,7 @@ func (h *handlers) getArticle(w http.ResponseWriter, r *http.Request) {
 		}
 		rows, err := q.ListArticleTasks(r.Context(), a.ID)
 		for _, t := range rows {
-			out.Tickets = append(out.Tickets, articleTicketDTO{ID: t.ID, Reference: fmt.Sprintf("%s%d", t.Prefix, t.Number),
+			out.Tickets = append(out.Tickets, articleTicketDTO{ID: t.ID, Reference: t.Reference,
 				Type: t.Type, Title: t.Title, Status: t.Status, StateCategory: t.StateCategory})
 		}
 		return err

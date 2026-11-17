@@ -34,16 +34,43 @@ SELECT * FROM tasks WHERE type = $1 AND number = $2;
 SELECT * FROM tasks WHERE id = $1 FOR UPDATE;
 
 -- Types open to everyone (incidents) first: the New ticket dialog starts on the first one the person may file.
+-- Retired types (their app was removed) are not listed: nothing offers, grants or files them.
 -- name: ListTaskTypes :many
-SELECT * FROM task_types ORDER BY anyone_may_file DESC, type;
+SELECT * FROM task_types WHERE retired_at IS NULL ORDER BY anyone_may_file DESC, type;
 
 -- name: GetTaskType :one
 SELECT * FROM task_types WHERE type = $1;
 
+-- The types whose apps were removed: their records still open by reference.
+-- name: ListRetiredTaskTypes :many
+SELECT type FROM task_types WHERE retired_at IS NOT NULL ORDER BY type;
+
+-- name: GetTaskTypeByPrefix :one
+SELECT * FROM task_types WHERE prefix = $1;
+
+-- An app's record type, written by its install (records keep their numbering across reinstalls). Bringing a type back
+-- clears its retirement. name and prefix of a type with records never change: the install refuses that first.
+-- name: UpsertAppTaskType :exec
+INSERT INTO task_types (type, prefix, label, plural, anyone_may_file, description, owner_app)
+VALUES (sqlc.arg('type'), sqlc.arg('prefix'), sqlc.arg('label'), sqlc.arg('plural'),
+        sqlc.arg('anyone_may_file'), sqlc.arg('description'), sqlc.arg('owner_app'))
+ON CONFLICT (type) DO UPDATE SET prefix = EXCLUDED.prefix, label = EXCLUDED.label, plural = EXCLUDED.plural,
+    anyone_may_file = EXCLUDED.anyone_may_file,
+    description = EXCLUDED.description, retired_at = NULL;
+
+-- The app's types it no longer defines (all of them, on uninstall) are retired; their records stay.
+-- name: RetireAppTaskTypes :many
+UPDATE task_types SET retired_at = now()
+WHERE owner_app = sqlc.arg('owner_app') AND retired_at IS NULL AND NOT (type = ANY (sqlc.arg('keep')::text[]))
+RETURNING type;
+
+-- name: CountTasksOfType :one
+SELECT count(*) FROM tasks WHERE type = $1;
+
 -- A ticket as clients see it: the task, display names, the type's prefix, and the type's own columns. Plain joins,
 -- not a view: views run with their owner's rights and skip RLS. Each type with an extension table adds one LEFT JOIN.
 -- name: GetTicketView :one
-SELECT sqlc.embed(t), tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
+SELECT sqlc.embed(t), tt.prefix AS type_prefix, (tt.prefix || t.number::text)::text AS reference, r.name AS requester_name, a.name AS assignee_name,
        g.name AS assignment_group_name, COALESCE(i.resolution, '')::text AS resolution,
        c.change_type, COALESCE(c.risk, '')::text AS risk, COALESCE(c.impact, '')::text AS impact,
        c.planned_start, c.planned_end, COALESCE(c.implementation_plan, '')::text AS implementation_plan,
@@ -66,7 +93,7 @@ WHERE t.id = $1;
 -- Each row carries its SLA summary: the soonest due time of its running clocks, and whether any clock in force has
 -- breached.
 -- name: ListTickets :many
-SELECT sqlc.embed(t), tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
+SELECT sqlc.embed(t), tt.prefix AS type_prefix, (tt.prefix || t.number::text)::text AS reference, r.name AS requester_name, a.name AS assignee_name,
        g.name AS assignment_group_name, sla.due_at::timestamptz AS sla_due_at, COALESCE(sla.breached, false)::bool AS sla_breached
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
@@ -78,7 +105,9 @@ LEFT JOIN LATERAL (
            bool_or(s.breached_at IS NOT NULL) AS breached
     FROM task_slas s WHERE s.task_id = t.id AND s.stage <> 'cancelled'
 ) sla ON true
-WHERE (sqlc.narg('type')::text IS NULL OR t.type = sqlc.narg('type'))
+-- A retired type's records (its app was removed) are left out of every list; they open only by reference.
+WHERE tt.retired_at IS NULL
+  AND (sqlc.narg('type')::text IS NULL OR t.type = sqlc.narg('type'))
   AND (sqlc.narg('status')::text IS NULL OR t.status = sqlc.narg('status'))
   AND (sqlc.narg('priority')::smallint IS NULL OR t.priority = sqlc.narg('priority'))
   AND (sqlc.narg('assignee_id')::uuid IS NULL OR t.assignee_id = sqlc.narg('assignee_id'))
@@ -142,7 +171,7 @@ ORDER BY c.created_at, c.id;
 -- The calendar: records whose planned window overlaps [from, to), as the caller may see them (RLS on tasks). Only
 -- changes have a window so far. Ordered by start, so overlaps are found in one pass.
 -- name: ListPlannedWindows :many
-SELECT t.id, t.type, t.number, tt.prefix AS type_prefix, t.title, t.status, t.state_category, t.priority,
+SELECT t.id, t.type, t.number, tt.prefix AS type_prefix, (tt.prefix || t.number::text)::text AS reference, t.title, t.status, t.state_category, t.priority,
        a.name AS assignee_name, c.change_type, c.risk,
        c.planned_start::timestamptz AS planned_start, c.planned_end::timestamptz AS planned_end
 FROM changes c
@@ -156,7 +185,7 @@ LIMIT 501;
 
 -- name: ListChildTasks :many
 -- The tasks under a record that the reader may see, oldest first.
-SELECT sqlc.embed(t), tt.prefix AS type_prefix, a.name AS assignee_name, g.name AS assignment_group_name
+SELECT sqlc.embed(t), tt.prefix AS type_prefix, (tt.prefix || t.number::text)::text AS reference, a.name AS assignee_name, g.name AS assignment_group_name
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 LEFT JOIN users a ON a.id = t.assignee_id

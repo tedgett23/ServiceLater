@@ -375,11 +375,15 @@ type TaskSla struct {
 }
 
 type TaskType struct {
-	Type          string `json:"type"`
-	Prefix        string `json:"prefix"`
-	Label         string `json:"label"`
-	AnyoneMayFile bool   `json:"anyone_may_file"`
-	FromCatalog   bool   `json:"from_catalog"`
+	Type          string             `json:"type"`
+	Prefix        string             `json:"prefix"`
+	Label         string             `json:"label"`
+	AnyoneMayFile bool               `json:"anyone_may_file"`
+	FromCatalog   bool               `json:"from_catalog"`
+	OwnerApp      pgtype.Text        `json:"owner_app"`
+	Plural        string             `json:"plural"`
+	Description   string             `json:"description"`
+	RetiredAt     pgtype.Timestamptz `json:"retired_at"`
 }
 
 type User struct {

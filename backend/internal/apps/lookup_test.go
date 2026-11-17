@@ -131,7 +131,7 @@ func TestLookupsAreCheckedAtInstall(t *testing.T) {
 	for name, tc := range map[string]struct{ src, want string }{
 		"undeclared":    {rule(ok, "lookups.g > 0"), "reads lookups.g, which is not declared under lookups"},
 		"dynamic name":  {rule(ok, "lookups[record.title] > 0"), "read a lookup as lookups.name"},
-		"unknown kind":  {rule("  f:\n    count: users\n    where:\n      id: { eq: x }\n", "true"), `count "users" is not something a lookup can count`},
+		"unknown kind":  {rule("  f:\n    count: Users\n    where:\n      id: { eq: x }\n", "true"), `count "Users" is not something a lookup can count`},
 		"unknown field": {rule("  f:\n    count: change\n    where:\n      title: { eq: x }\n", "true"), `change cannot be filtered by "title"`},
 		"unknown op":    {rule("  f:\n    count: change\n    where:\n      status: { like: x }\n", "true"), `"like" is not an operator`},
 		"no filter":     {rule("  f:\n    count: change\n    where: {}\n", "true"), "needs where: at least one filter"},

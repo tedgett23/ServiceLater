@@ -358,8 +358,8 @@ func (h *handlers) getWorkflowActivity(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, e := range flying {
 			run := inFlightRunDTO{ID: e.ID.String(), Status: e.Status, Step: e.CurrentStep, StartedAt: e.CreatedAt.Time}
-			if e.RecordNumber.Valid {
-				run.Reference, run.Title = fmt.Sprintf("%s%d", e.RecordPrefix.String, e.RecordNumber.Int64), e.RecordTitle.String
+			if e.RecordReference != "" {
+				run.Reference, run.Title = e.RecordReference, e.RecordTitle.String
 			}
 			if e.WakeAt.Valid {
 				run.WakeAt = &e.WakeAt.Time

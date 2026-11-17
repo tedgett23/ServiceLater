@@ -1,0 +1,20 @@
+kind: form
+record_type: tyler_thing
+fields:
+  size:
+    type: choice
+    label: Size
+    options:
+      - { value: small, label: Small }
+      - { value: large, label: Large }
+  serial:
+    type: text
+    label: Serial number
+  bought:
+    type: date
+    label: Bought on
+layout:
+  create: [title, description, size, serial]
+  detail:
+    - section: Thing
+      fields: [size, serial, bought]

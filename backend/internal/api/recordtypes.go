@@ -13,6 +13,12 @@ type recordTypeDTO struct {
 	Type   string `json:"type"`
 	Prefix string `json:"prefix"`
 	Label  string `json:"label"`
+	// Plural is what a list of them is called (Incidents, Things).
+	Plural string `json:"plural"`
+	// Description says what the type is for; empty for most core types.
+	Description string `json:"description,omitempty"`
+	// App is the app that defines the type; empty for a core type.
+	App string `json:"app,omitempty"`
 	// CanFile says whether the caller may file one as themselves: the type is open to everyone, or they have
 	// records:create:<type>.
 	CanFile bool `json:"can_file"`
@@ -33,7 +39,8 @@ func (h *handlers) listRecordTypes(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			file := (t.AnyoneMayFile && !t.FromCatalog) || p.Perms.CanRecord(authz.Create, t.Type)
-			out = append(out, recordTypeDTO{Type: t.Type, Prefix: t.Prefix, Label: t.Label, CanFile: file,
+			out = append(out, recordTypeDTO{Type: t.Type, Prefix: t.Prefix, Label: t.Label, Plural: t.Plural,
+				Description: t.Description, App: t.OwnerApp.String, CanFile: file,
 				CanFileForOthers: file && p.Perms.CanRecord(authz.Update, t.Type), FromCatalog: t.FromCatalog})
 		}
 		return err

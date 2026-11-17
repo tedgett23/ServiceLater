@@ -93,10 +93,10 @@ DELETE FROM task_articles WHERE task_id = $1 AND article_id = $2;
 
 -- name: ListArticleTasks :many
 -- The records an article is linked to that the reader may see, latest first.
-SELECT t.id, tt.prefix, t.number, t.type, t.title, t.status, t.state_category
+SELECT t.id, (tt.prefix || t.number::text)::text AS reference, t.number, t.type, t.title, t.status, t.state_category
 FROM task_articles l
 JOIN tasks t ON t.id = l.task_id
 JOIN task_types tt ON tt.type = t.type
-WHERE l.article_id = $1
+WHERE l.article_id = $1 AND tt.retired_at IS NULL
 ORDER BY l.created_at DESC
 LIMIT 50;

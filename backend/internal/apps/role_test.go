@@ -41,7 +41,7 @@ func TestRoleMistakesFailTheInstall(t *testing.T) {
 		{"built-in name", "kind: role\nname: admin\nlabel: A\npermissions: [users:read]\n", "built-in role"},
 		{"unknown permission", "kind: role\nname: odd\nlabel: Odd\npermissions: [tickets:fly]\n", `"tickets:fly" is not a permission`},
 		{"unknown record type", "kind: role\nname: odd\nlabel: Odd\npermissions: [records:read:spaceship]\n", `names the record type "spaceship"`},
-		{"the base type", "kind: role\nname: odd\nlabel: Odd\npermissions: [records:read:task]\n", `names the record type "task"`},
+		{"the base type", "kind: role\nname: odd\nlabel: Odd\npermissions: [records:read:task]\n", `names "task", which is not a record type you can hold records of`},
 		{"unknown verb", "kind: role\nname: odd\nlabel: Odd\npermissions: [records:fly:change]\n", "with the verbs read, create, update, delete"},
 		{"twice", "kind: role\nname: odd\nlabel: Odd\npermissions: [users:read, users:read]\n", "listed twice"},
 		{"no label", "kind: role\nname: odd\npermissions: [users:read]\n", "label is required"},
