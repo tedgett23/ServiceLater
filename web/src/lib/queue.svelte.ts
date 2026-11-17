@@ -40,6 +40,8 @@ class Queue {
 	loading = $state(false);
 	hasMore = $state(false);
 	error = $state('');
+	/** How many records each view holds (GET /tickets/counts); a view with no entry shows no number. */
+	counts = $state<Partial<Record<Filter, number>>>({});
 	private started = false;
 	private generation = 0;
 
@@ -86,7 +88,17 @@ class Queue {
 		return `/api/v1/tickets?${p}`;
 	}
 
+	/** The numbers beside the views. They follow the list: fetched whenever it loads or refreshes. */
+	async loadCounts() {
+		try {
+			this.counts = await api<Partial<Record<Filter, number>>>('/api/v1/tickets/counts');
+		} catch {
+			/* keep the last numbers: they are a convenience, not the list */
+		}
+	}
+
 	async load() {
+		void this.loadCounts();
 		const gen = ++this.generation;
 		this.loading = true;
 		this.error = '';
@@ -133,6 +145,7 @@ class Queue {
 	 */
 	async refresh() {
 		if (!this.started) return;
+		void this.loadCounts();
 		const gen = this.generation;
 		const want = Math.min(100, Math.max(30, this.items.length));
 		try {

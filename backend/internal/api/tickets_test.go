@@ -380,3 +380,53 @@ func TestStaffList(t *testing.T) {
 		t.Errorf("staff = %+v", got.Items)
 	}
 }
+
+// The queue's views say how many records each holds, counted as the person asking.
+func TestQueueViewCounts(t *testing.T) {
+	h, pool := setup(t)
+	admin := newActor(t, h, pool, "boss@x.test", "admin")
+	agent := newActor(t, h, pool, "agent@x.test", "agent")
+	other := newActor(t, h, pool, "other@x.test", "agent")
+	lena := newActor(t, h, pool, "lena@x.test", "end_user")
+	type counts struct{ Mine, Groups, Unassigned, Due, Open int64 }
+	get := func(a actor) counts {
+		t.Helper()
+		w := a.do(h, "GET", "/api/v1/tickets/counts", "")
+		expect(t, w, 200, "counting")
+		return decodeBody[counts](t, w)
+	}
+	if got := get(agent); got != (counts{}) {
+		t.Fatalf("an empty queue counts nothing: %+v", got)
+	}
+
+	g := decodeBody[struct{ ID string }](t, admin.do(h, "POST", "/api/v1/groups", `{"name":"Network"}`))
+	expect(t, admin.do(h, "PUT", "/api/v1/groups/"+g.ID+"/members/"+agent.id, ""), 204, "joining the group")
+	file := func(a actor, body string) string {
+		t.Helper()
+		w := a.do(h, "POST", "/api/v1/tickets", body)
+		expect(t, w, 201, "filing")
+		return decodeBody[struct{ ID string }](t, w).ID
+	}
+	mine := file(lena, `{"title":"One"}`)
+	routed := file(lena, `{"title":"Two"}`)
+	file(other, `{"title":"Three"}`)
+	done := file(other, `{"title":"Four"}`)
+	expect(t, agent.do(h, "PATCH", "/api/v1/tickets/"+mine, `{"assignee_id":"`+agent.id+`"}`), 200, "taking one")
+	expect(t, agent.do(h, "PATCH", "/api/v1/tickets/"+routed, `{"assignment_group_id":"`+g.ID+`"}`), 200, "routing one")
+	expect(t, other.do(h, "PATCH", "/api/v1/tickets/"+done, `{"assignee_id":"`+other.id+`"}`), 200, "taking the fourth")
+	expect(t, other.do(h, "POST", "/api/v1/tickets/"+done+"/transitions", `{"to":"in_progress"}`), 200, "starting it")
+	expect(t, other.do(h, "PATCH", "/api/v1/tickets/"+done, `{"resolution":"Fixed."}`), 200, "noting the fix")
+	expect(t, other.do(h, "POST", "/api/v1/tickets/"+done+"/transitions", `{"to":"resolved"}`), 200, "resolving it")
+
+	// Three are still open. Every incident has SLA clocks running, so all three are on a clock.
+	if got := get(agent); got != (counts{Mine: 1, Groups: 1, Unassigned: 2, Due: 3, Open: 3}) {
+		t.Errorf("the agent's views: %+v", got)
+	}
+	if got := get(other); got != (counts{Mine: 0, Groups: 0, Unassigned: 2, Due: 3, Open: 3}) {
+		t.Errorf("another agent's views: %+v", got)
+	}
+	// An end user counts only their own.
+	if got := get(lena); got.Open != 2 || got.Mine != 0 {
+		t.Errorf("an end user's views: %+v", got)
+	}
+}
