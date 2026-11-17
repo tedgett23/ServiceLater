@@ -16,6 +16,7 @@
 	import { setNavCollapsed, ui } from '$lib/ui.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import Icon, { type IconName } from '$lib/components/Icon.svelte';
+	import GlobalSearch from '$lib/components/GlobalSearch.svelte';
 	import NewTicket from '$lib/components/NewTicket.svelte';
 	import { can, canAdmin, canRecord, canRecordAny, P } from '$lib/types';
 
@@ -52,6 +53,8 @@
 			}
 		].filter((s) => s.show) as { href: string; label: string; icon: IconName }[]
 	);
+	// The shortcut as this person's keyboard shows it.
+	const searchKey = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K';
 	const views = $derived(queueViews(canRecordAny(session.user, 'read')));
 
 	function openNotification(id: string) {
@@ -127,6 +130,12 @@
 			<kbd aria-hidden="true">c</kbd>
 		</button>
 
+		<button class="find" onclick={() => (ui.searchOpen = true)} aria-label="Search everything" title={ui.navCollapsed ? `Search (${searchKey})` : undefined}>
+			<Icon name="search" size={15} />
+			<span class="lbl">Search</span>
+			<kbd aria-hidden="true">{searchKey}</kbd>
+		</button>
+
 		<nav class="wide" aria-label="Sections">
 			{@render links(true)}
 		</nav>
@@ -196,6 +205,7 @@
 </div>
 
 <NewTicket />
+<GlobalSearch />
 
 <style>
 	.shell {
@@ -292,6 +302,31 @@
 		border-color: transparent;
 		background: color-mix(in srgb, var(--on-primary) 18%, transparent);
 		color: inherit;
+	}
+
+	.find {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		height: 2rem;
+		margin-top: -0.25rem;
+		padding: 0 0.55rem;
+		border: 1px solid var(--rule);
+		border-radius: var(--radius);
+		background: var(--raised);
+		color: var(--ink-2);
+		font-size: 0.875rem;
+		text-align: left;
+		cursor: pointer;
+	}
+	.find:hover {
+		color: var(--ink);
+	}
+	.find kbd {
+		margin-left: auto;
+		border: 0;
+		background: none;
+		color: var(--ink-2);
 	}
 
 	nav.wide {
@@ -494,6 +529,7 @@
 		.collapsed .lbl,
 		.collapsed .word,
 		.collapsed .new kbd,
+		.collapsed .find kbd,
 		.collapsed .views {
 			position: absolute;
 			width: 1px;
@@ -511,6 +547,7 @@
 			gap: 0.5rem;
 		}
 		.collapsed .new,
+		.collapsed .find,
 		.collapsed nav.wide a {
 			width: 2.125rem;
 			padding: 0;
@@ -554,8 +591,24 @@
 		nav.wide,
 		.views,
 		.new kbd,
+		.find kbd,
+		.find .lbl,
+		.word,
 		.who .lbl {
 			display: none;
+		}
+		.find {
+			order: 1; /* after New ticket, beside the bell */
+			width: 1.875rem;
+			height: 1.875rem;
+			margin: 0;
+			padding: 0;
+			justify-content: center;
+			border: 0;
+			background: none;
+		}
+		.foot {
+			order: 2;
 		}
 		.new {
 			padding: 0 0.7rem;

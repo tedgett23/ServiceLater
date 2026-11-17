@@ -3668,6 +3668,67 @@
         ],
         "type": "object"
       },
+      "Search": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SearchResult"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "description": "Says how the query was read: reference when it began with a record type's prefix (INC, INC42) and that found something, else text (the words, typos allowed).",
+            "type": "string"
+          },
+          "prefix": {
+            "description": "The reference prefix the query began with, in reference mode.",
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "items",
+          "mode",
+          "query"
+        ],
+        "type": "object"
+      },
+      "SearchResult": {
+        "description": "One thing a search found, ready to show and to open.",
+        "properties": {
+          "detail": {
+            "description": "The small print beside it: a record's type and status, an item's class, a person's email.",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "Record, article, item or person.",
+            "type": "string"
+          },
+          "link": {
+            "description": "The page in the web UI that shows it.",
+            "type": "string"
+          },
+          "reference": {
+            "description": "How people name it (INC42, KB7); empty for items and people.",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "link",
+          "title"
+        ],
+        "type": "object"
+      },
       "Section": {
         "properties": {
           "fields": {
@@ -13014,6 +13075,112 @@
         ]
       }
     },
+    "/api/v1/search": {
+      "get": {
+        "description": "Jump to a record, a knowledge article, a configuration item or (for those who manage people) a person. q must be at least three characters. If it begins with a record type's prefix it is read as a reference first: INC lists the latest incidents, INC4 the incidents whose number starts with 4, exact match first. When that finds nothing, or q is not a reference, it is searched as text: titles and names that contain it, then those that look like it (typos, parts of words), and the text of articles. Everything is searched as the caller, so it finds only what they may see; at most eight of each kind.",
+        "operationId": "search",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Search"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Search",
+        "tags": [
+          "search"
+        ]
+      }
+    },
     "/api/v1/settings/email": {
       "get": {
         "description": "(settings:manage): how this instance sends email, without the password.\n\nRequires the `settings:manage` permission.",
@@ -17907,6 +18074,9 @@
     },
     {
       "name": "roles"
+    },
+    {
+      "name": "search"
     },
     {
       "name": "settings"

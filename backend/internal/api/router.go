@@ -130,6 +130,7 @@ func NewRouter(d Deps) http.Handler {
 			})
 			r.Get("/lifecycles/{recordType}", h.getLifecycle)
 			r.Get("/record-types", h.listRecordTypes)
+			r.Get("/search", h.search)
 			r.Get("/forms/{type}", h.getForm)
 			r.Post("/forms/{type}/states", h.formStates)
 			r.Get("/calendar", h.listCalendar)
