@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { as } from './helpers';
+import { as, expect, test } from './helpers';
 
 const background = (page: import('@playwright/test').Page) =>
 	page.locator('body').evaluate((el) => getComputedStyle(el).backgroundColor);

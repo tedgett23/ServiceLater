@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { as, createTicket, openTicket, uid } from './helpers';
+import { as, createTicket, expect, openTicket, test, uid } from './helpers';
 
 // Regressions found by looking at real screenshots.
 

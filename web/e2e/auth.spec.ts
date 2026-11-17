@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { freshLogin } from './helpers';
+import { expect, freshLogin, test } from './helpers';
 import { PASSWORD, USERS } from './users';
 
 // These tests sign in for themselves, so they start with no saved session.

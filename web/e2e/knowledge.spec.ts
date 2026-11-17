@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { as, createTicket, openTicket, uid } from './helpers';
+import { as, createTicket, expect, openTicket, test, uid } from './helpers';
 
 // The knowledge base: an agent writes an article and sends it for review, an admin publishes it, and a requester finds
 // it by searching, is offered it while filing a ticket, and reads it once an agent links it to their ticket.

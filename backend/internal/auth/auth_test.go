@@ -215,3 +215,10 @@ func TestLogoutAndExpiry(t *testing.T) {
 		t.Errorf("expired sessions not cleaned: %d", n)
 	}
 }
+
+// Tests hash passwords cheaply (dbtest.Pool calls UseFastHashing); production must not.
+func TestProductionHashesPasswordsAtCost12(t *testing.T) {
+	if auth.DefaultBcryptCost != 12 {
+		t.Fatalf("passwords are hashed at cost %d in production; lowering it weakens every stored password", auth.DefaultBcryptCost)
+	}
+}

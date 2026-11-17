@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { api, as, composer, createTicket, details, openTicket, row, uid } from './helpers';
+import { api, as, composer, createTicket, details, expect, openTicket, row, test, uid } from './helpers';
 
 test.describe('a requester', () => {
 	test('sees their ticket read-only, with staff replies but no internal notes', async ({ browser }) => {

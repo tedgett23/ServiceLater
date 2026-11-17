@@ -10,6 +10,9 @@ export type RealtimeEvent =
 	| { type: 'email.changed' } // an email was queued, sent or failed (to those who manage settings)
 	| { type: 'run.changed'; id: string; app: string; workflow: string } // a workflow run started, moved or ended
 	| { type: 'resync' }
+	// The first connection opened (at, by Date.now()): anything sent before it was never received, so a page that
+	// fetched its data before this refetches (see TicketDetail). Reconnects emit resync instead.
+	| { type: 'connected'; at: number }
 	| { type: 'definitions.changed' }; // an app was installed, updated or removed
 
 type Handler = (e: RealtimeEvent) => void;
@@ -86,7 +89,7 @@ class Realtime {
 		ws.onopen = () => {
 			this.attempt = 0;
 			this.down = false;
-			if (this.everOpened) this.emit({ type: 'resync' });
+			this.emit(this.everOpened ? { type: 'resync' } : { type: 'connected', at: Date.now() });
 			this.everOpened = true;
 		};
 		ws.onmessage = (m) => {

@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test as base, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { PASSWORD, stateFile, USERS, type Who } from './users';
 
 export type Ticket = { id: string; type: string; number: number; reference: string; title: string; status: string };
@@ -6,13 +6,23 @@ export type Ticket = { id: string; type: string; number: number; reference: stri
 /** Short unique text so tests can find their own data among everyone else's. */
 export const uid = () => Math.random().toString(36).slice(2, 8);
 
-// Contexts made by these helpers are not fixtures, so Playwright would keep them (and their live connections) open
-// until the whole run ends. The server allows a user ten WebSocket connections, and the agent user is in most tests, so
-// unclosed contexts eventually make a page's live connection be refused ("Reconnecting..."). Close them per test.
+// Contexts made by these helpers are not fixtures, so Playwright would keep them (and their pages and live
+// connections) open until the whole run ends. An automatic fixture closes them after every test. Every spec must take
+// `test` and `expect` from here, not from @playwright/test.
+// Regressed: this was a module-level test.afterEach, which Playwright attaches only to the first spec file that loads
+// the module, so every later file leaked its contexts. The run grew to ~70 open pages and was killed for memory.
 const opened: BrowserContext[] = [];
-test.afterEach(async () => {
-	await Promise.all(opened.splice(0).map((c) => c.close().catch(() => {})));
+export const test = base.extend<{ closeContexts: void }>({
+	closeContexts: [
+		// eslint-disable-next-line no-empty-pattern
+		async ({}, use) => {
+			await use();
+			await Promise.all(opened.splice(0).map((c) => c.close().catch(() => {})));
+		},
+		{ auto: true }
+	]
 });
+export { expect };
 
 /** A browser context that is already signed in as this user (shared saved session). */
 export async function as(browser: Browser, who: Who, options: Parameters<Browser['newContext']>[0] = {}) {

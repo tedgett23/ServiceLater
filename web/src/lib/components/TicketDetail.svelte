@@ -148,7 +148,9 @@
 
 	$effect(() =>
 		realtime.on((e) => {
-			if (e.type === 'resync') {
+			if (e.type === 'resync' || (e.type === 'connected' && (props.loadedAt ?? 0) <= e.at)) {
+				// Missed events: offline for a while, or the page loaded before its first connection opened (a
+				// workflow commenting right as the page is opened).
 				void reloadTicket();
 				void reloadComments();
 			} else if (e.type === 'definitions.changed') {

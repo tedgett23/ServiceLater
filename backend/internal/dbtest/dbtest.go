@@ -19,12 +19,15 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
+	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/db"
 )
 
 // Pool needs SL_TEST_DATABASE_URL pointing at a scratch database; its tables are truncated on every call.
 func Pool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
+	// Tests sign many people up and in; production-strength hashing made that most of the suite's time.
+	auth.UseFastHashing()
 	url := os.Getenv("SL_TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("SL_TEST_DATABASE_URL not set")

@@ -1,5 +1,5 @@
-import { expect, test, type WebSocketRoute } from '@playwright/test';
-import { api, as, composer, createTicket, details, openTicket, row, uid } from './helpers';
+import { type WebSocketRoute } from '@playwright/test';
+import { api, as, composer, createTicket, details, expect, openTicket, row, test, uid } from './helpers';
 
 test.describe('live updates', () => {
 	test('a requester sees an agent’s status change and replies without reloading', async ({ browser }) => {

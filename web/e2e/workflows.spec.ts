@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { as, createTicket, details, openTicket, uid } from './helpers';
+import { as, createTicket, details, expect, openTicket, test, uid } from './helpers';
 import { installApp, servicelater, tempApp } from './apps';
 
 // A rule that starts a workflow when this test's ticket is raised to Critical. Scoped to the ticket by its title tag,
