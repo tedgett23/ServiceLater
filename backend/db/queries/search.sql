@@ -26,13 +26,27 @@ LIMIT sqlc.arg('limit');
 
 -- name: SearchRecords :many
 -- Records whose title contains the text, then those whose title has a word that looks like it (a typo, a part of a
--- word), the closest first. Retired types are left out, as everywhere.
-SELECT t.id, t.type, tt.label AS type_label, (tt.prefix || t.number::text)::text AS reference, t.title, t.status, t.state_category
-FROM tasks t JOIN task_types tt ON tt.type = t.type
+-- word), then those whose form fields contain or look like it, then those whose description or fields have its words;
+-- the closest first within each. Retired types are left out, as everywhere. The description and fields come back so
+-- the caller can say where the match was.
+SELECT t.id, t.type, tt.label AS type_label, (tt.prefix || t.number::text)::text AS reference, t.title, t.status, t.state_category,
+       t.description, t.fields, r.catalog_item,
+       (CASE WHEN t.title ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\' THEN 0
+             WHEN sqlc.arg('q')::text <% t.title THEN 1
+             WHEN app_fields_text(t.fields) ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\'
+               OR sqlc.arg('q')::text <% app_fields_text(t.fields) THEN 2
+             ELSE 3 END)::int AS tier
+FROM tasks t
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN requests r ON r.task_id = t.id
 WHERE tt.retired_at IS NULL
-  AND (t.title ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\' OR sqlc.arg('q')::text <% t.title)
-ORDER BY (t.title ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\') DESC,
-         word_similarity(sqlc.arg('q')::text, t.title) DESC, t.updated_at DESC, t.id
+  AND (t.title ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\' OR sqlc.arg('q')::text <% t.title
+       OR app_fields_text(t.fields) ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\'
+       OR sqlc.arg('q')::text <% app_fields_text(t.fields)
+       OR app_record_words(t.description, t.fields) @@ websearch_to_tsquery('english', sqlc.arg('q')::text))
+ORDER BY tier, word_similarity(sqlc.arg('q')::text, t.title) DESC,
+         ts_rank(app_record_words(t.description, t.fields), websearch_to_tsquery('english', sqlc.arg('q')::text)) DESC,
+         t.updated_at DESC, t.id
 LIMIT sqlc.arg('limit');
 
 -- name: SearchArticlesByNumber :many

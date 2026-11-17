@@ -6,7 +6,7 @@
 	import Icon, { type IconName } from './Icon.svelte';
 
 	// What GET /search returns: each result comes ready to show and to open, so nothing is worked out here.
-	type Result = { kind: 'record' | 'article' | 'item' | 'person'; id: string; reference?: string; title: string; detail?: string; link: string };
+	type Result = { kind: 'record' | 'article' | 'item' | 'person'; id: string; reference?: string; title: string; detail?: string; link: string; match?: string };
 	type Found = { query: string; mode: 'reference' | 'text'; prefix?: string; items: Result[] };
 
 	/** The server searches from three characters: enough to be a reference prefix (INC) or the start of a word. */
@@ -149,6 +149,8 @@
 						{#if r.reference}<span class="ref">{r.reference}</span>{/if}
 						<span class="title">{r.title}</span>
 						{#if r.detail}<span class="detail">{r.detail}</span>{/if}
+						<!-- Where it matched, when it was not the title: the server says which field. -->
+						{#if r.match}<span class="match">{r.match}</span>{/if}
 					</li>
 				{/each}
 			</ul>
@@ -215,6 +217,7 @@
 	}
 	li {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.6rem;
 		min-height: 2.25rem;
@@ -238,6 +241,15 @@
 		white-space: nowrap;
 		color: var(--ink);
 		font-weight: 500;
+	}
+	.match {
+		flex: 1 0 100%;
+		margin-top: -0.2rem;
+		padding-left: calc(16px + 0.6rem);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.78rem;
 	}
 	.detail {
 		flex: none;

@@ -11,9 +11,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
+	"github.com/servicelater/servicelater/backend/internal/records"
 )
 
 const (
@@ -37,6 +39,9 @@ type searchResultDTO struct {
 	Title     string `json:"title"`
 	// Detail is the small print beside it: a record's type and status, an item's class, a person's email.
 	Detail string `json:"detail,omitempty"`
+	// Match says where a record matched when it was not its title: the field's label and the passage
+	// ("Serial number: SN-4412", "Description: …the VPN drops after…").
+	Match string `json:"match,omitempty"`
 	// Link is the page in the web UI that shows it.
 	Link string `json:"link"`
 }
@@ -81,12 +86,16 @@ func (h *handlers) search(w http.ResponseWriter, r *http.Request) {
 		}
 
 		contains := likeEscape(query)
-		records, err := q.SearchRecords(ctx, dbgen.SearchRecordsParams{Contains: contains, Q: query, Limit: searchPerKind})
+		hits, err := q.SearchRecords(ctx, dbgen.SearchRecordsParams{Contains: contains, Q: query, Limit: searchPerKind})
 		if err != nil {
 			return err
 		}
-		for _, t := range records {
-			out.Items = append(out.Items, h.recordResult(t.ID.String(), t.Type, t.TypeLabel, t.Reference, t.Title, t.Status))
+		for _, t := range hits {
+			res := h.recordResult(t.ID.String(), t.Type, t.TypeLabel, t.Reference, t.Title, t.Status)
+			if t.Tier >= 2 {
+				res.Match = matchedPassage(h.apps.FormOf(t.Type, t.CatalogItem.String), query, t.Description, records.DecodeFields(t.Fields))
+			}
+			out.Items = append(out.Items, res)
 		}
 		articles, err := q.SearchArticlesAnywhere(ctx, dbgen.SearchArticlesAnywhereParams{Contains: contains, Q: query, Limit: searchPerKind})
 		if err != nil {
@@ -170,6 +179,88 @@ func (h *handlers) searchReference(r *http.Request, q *dbgen.Queries, prefix, di
 		out = append(out, h.recordResult(t.ID.String(), t.Type, t.TypeLabel, t.Reference, t.Title, t.Status))
 	}
 	return out, nil
+}
+
+// passageAround is the text around the first place any of the needles is found (case-insensitive), on one line and
+// about 90 characters long, with ellipses where it was cut. ok is false when none is found.
+func passageAround(text string, needles []string) (string, bool) {
+	text = strings.Join(strings.Fields(text), " ")
+	lower := strings.ToLower(text)
+	at := -1
+	for _, n := range needles {
+		if i := strings.Index(lower, strings.ToLower(n)); n != "" && i >= 0 && (at < 0 || i < at) {
+			at = i
+		}
+	}
+	if at < 0 {
+		return "", false
+	}
+	runes := []rune(text)
+	if len(runes) <= 90 {
+		return text, true
+	}
+	start := utf8.RuneCountInString(text[:at])
+	from, to := max(0, start-30), min(len(runes), start+60)
+	out := string(runes[from:to])
+	if from > 0 {
+		out = "…" + strings.TrimLeft(out, " ")
+	}
+	if to < len(runes) {
+		out = strings.TrimRight(out, " ") + "…"
+	}
+	return out, true
+}
+
+// matchedPassage says where a record matched a search when it was not its title: the first of its form's text fields
+// (in the form's order), then its description, that holds the text, or failing that one of its words (the search also
+// finds words by their stem, and near spellings). Labels come from the record's form; a choice shows its option's label.
+func matchedPassage(form *apps.Form, query, description string, fields map[string]any) string {
+	words := strings.Fields(query)
+	stems := make([]string, 0, len(words))
+	for _, w := range words {
+		if r := []rune(w); len(r) > 5 {
+			w = string(r[:5]) // "dropping" finds "drops"
+		}
+		if utf8.RuneCountInString(w) >= 3 {
+			stems = append(stems, w)
+		}
+	}
+	type candidate struct{ label, text string }
+	var cands []candidate
+	for _, fd := range form.Fields {
+		v, ok := fields[fd.Name].(string)
+		if !ok || v == "" {
+			continue
+		}
+		for _, o := range fd.Options {
+			if o.Value == v && o.Label != "" {
+				v = o.Label
+			}
+		}
+		label := fd.Label
+		if label == "" {
+			label = humanField(fd.Name)
+		}
+		cands = append(cands, candidate{label, v})
+	}
+	for name, raw := range fields { // values the form no longer declares
+		if v, ok := raw.(string); ok && v != "" {
+			if _, declared := form.Extra(name); !declared {
+				cands = append(cands, candidate{humanField(name), v})
+			}
+		}
+	}
+	if description != "" {
+		cands = append(cands, candidate{"Description", description})
+	}
+	for _, needles := range [][]string{{query}, stems} {
+		for _, c := range cands {
+			if passage, ok := passageAround(c.text, needles); ok {
+				return c.label + ": " + passage
+			}
+		}
+	}
+	return ""
 }
 
 func (h *handlers) recordResult(id, recordType, typeLabel, reference, title, status string) searchResultDTO {

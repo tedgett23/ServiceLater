@@ -1,4 +1,4 @@
-import { as, createTicket, expect, test, uid } from './helpers';
+import { api, as, createTicket, expect, test, uid } from './helpers';
 
 // Global search: Ctrl+K or the Search button at the left. It waits for three characters, reads them as a reference
 // first (INC, INC42) and otherwise searches titles, typos allowed.
@@ -58,5 +58,20 @@ test.describe('global search', () => {
 		await expect(lena.page.getByText('Nothing matches')).toBeVisible();
 		await lena.page.keyboard.press('Escape');
 		await expect(lena.page.getByRole('dialog', { name: 'Search' })).toBeHidden();
+	});
+
+	test('a value inside a field finds its record, and says where it matched', async ({ browser }) => {
+		const { page, context } = await as(browser, 'agent');
+		const code = `BKP${uid().toUpperCase()}`;
+		const prb = await createTicket(context, { type: 'problem', title: `VPN drops for remote staff ${uid()}` });
+		await api(context, 'patch', `/api/v1/tickets/${prb.id}`, { fields: { workaround: `Connect with profile ${code} until the fix ships` } });
+
+		await page.goto('/tickets');
+		await page.getByRole('button', { name: 'Search everything' }).click();
+		await page.getByRole('combobox', { name: 'Search everything' }).fill(code.slice(3));
+		const hit = page.getByRole('option', { name: new RegExp(prb.title) });
+		await expect(hit).toContainText(`Workaround: Connect with profile ${code} until the fix ships`);
+		await hit.click();
+		await expect(page).toHaveURL(new RegExp(`/tickets/${prb.reference}$`));
 	});
 });

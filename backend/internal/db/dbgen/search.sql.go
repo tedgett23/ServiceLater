@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const latestRecordsOfType = `-- name: LatestRecordsOfType :many
@@ -208,12 +209,24 @@ func (q *Queries) SearchCIs(ctx context.Context, arg SearchCIsParams) ([]SearchC
 }
 
 const searchRecords = `-- name: SearchRecords :many
-SELECT t.id, t.type, tt.label AS type_label, (tt.prefix || t.number::text)::text AS reference, t.title, t.status, t.state_category
-FROM tasks t JOIN task_types tt ON tt.type = t.type
+SELECT t.id, t.type, tt.label AS type_label, (tt.prefix || t.number::text)::text AS reference, t.title, t.status, t.state_category,
+       t.description, t.fields, r.catalog_item,
+       (CASE WHEN t.title ILIKE '%' || $1::text || '%' ESCAPE '\' THEN 0
+             WHEN $2::text <% t.title THEN 1
+             WHEN app_fields_text(t.fields) ILIKE '%' || $1::text || '%' ESCAPE '\'
+               OR $2::text <% app_fields_text(t.fields) THEN 2
+             ELSE 3 END)::int AS tier
+FROM tasks t
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN requests r ON r.task_id = t.id
 WHERE tt.retired_at IS NULL
-  AND (t.title ILIKE '%' || $1::text || '%' ESCAPE '\' OR $2::text <% t.title)
-ORDER BY (t.title ILIKE '%' || $1::text || '%' ESCAPE '\') DESC,
-         word_similarity($2::text, t.title) DESC, t.updated_at DESC, t.id
+  AND (t.title ILIKE '%' || $1::text || '%' ESCAPE '\' OR $2::text <% t.title
+       OR app_fields_text(t.fields) ILIKE '%' || $1::text || '%' ESCAPE '\'
+       OR $2::text <% app_fields_text(t.fields)
+       OR app_record_words(t.description, t.fields) @@ websearch_to_tsquery('english', $2::text))
+ORDER BY tier, word_similarity($2::text, t.title) DESC,
+         ts_rank(app_record_words(t.description, t.fields), websearch_to_tsquery('english', $2::text)) DESC,
+         t.updated_at DESC, t.id
 LIMIT $3
 `
 
@@ -224,17 +237,23 @@ type SearchRecordsParams struct {
 }
 
 type SearchRecordsRow struct {
-	ID            uuid.UUID `json:"id"`
-	Type          string    `json:"type"`
-	TypeLabel     string    `json:"type_label"`
-	Reference     string    `json:"reference"`
-	Title         string    `json:"title"`
-	Status        string    `json:"status"`
-	StateCategory string    `json:"state_category"`
+	ID            uuid.UUID   `json:"id"`
+	Type          string      `json:"type"`
+	TypeLabel     string      `json:"type_label"`
+	Reference     string      `json:"reference"`
+	Title         string      `json:"title"`
+	Status        string      `json:"status"`
+	StateCategory string      `json:"state_category"`
+	Description   string      `json:"description"`
+	Fields        []byte      `json:"fields"`
+	CatalogItem   pgtype.Text `json:"catalog_item"`
+	Tier          int32       `json:"tier"`
 }
 
 // Records whose title contains the text, then those whose title has a word that looks like it (a typo, a part of a
-// word), the closest first. Retired types are left out, as everywhere.
+// word), then those whose form fields contain or look like it, then those whose description or fields have its words;
+// the closest first within each. Retired types are left out, as everywhere. The description and fields come back so
+// the caller can say where the match was.
 func (q *Queries) SearchRecords(ctx context.Context, arg SearchRecordsParams) ([]SearchRecordsRow, error) {
 	rows, err := q.db.Query(ctx, searchRecords, arg.Contains, arg.Q, arg.Limit)
 	if err != nil {
@@ -252,6 +271,10 @@ func (q *Queries) SearchRecords(ctx context.Context, arg SearchRecordsParams) ([
 			&i.Title,
 			&i.Status,
 			&i.StateCategory,
+			&i.Description,
+			&i.Fields,
+			&i.CatalogItem,
+			&i.Tier,
 		); err != nil {
 			return nil, err
 		}

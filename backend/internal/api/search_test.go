@@ -16,6 +16,7 @@ type searchItem struct {
 	Title     string `json:"title"`
 	Detail    string `json:"detail"`
 	Link      string `json:"link"`
+	Match     string `json:"match"`
 }
 
 type searchResult struct {
@@ -174,5 +175,41 @@ func TestSearchFindsOnlyWhatTheReaderMaySee(t *testing.T) {
 		if it.Reference == "TYL1" {
 			t.Errorf("a retired type's record is not found by text either: %+v", it)
 		}
+	}
+}
+
+// Search reads more than titles: a record's form fields (a problem's root cause, a code inside a value) and its
+// description, by word and by stem. Title matches come first, the result says where the rest matched, and nobody
+// finds what they may not see.
+func TestSearchFindsFieldsAndDescriptions(t *testing.T) {
+	h, pool, _ := setupApps(t)
+	agent := newActor(t, h, pool, "agent@x.test", "agent")
+	lena := newActor(t, h, pool, "lena@x.test", "end_user")
+	file := func(who actor, body string) string {
+		t.Helper()
+		w := who.do(h, "POST", "/api/v1/tickets", body)
+		expect(t, w, 201, "filing "+body)
+		return decodeBody[problemBody](t, w).Reference
+	}
+	prb := file(agent, `{"type":"problem","title":"VPN drops","fields":{"category":"network","root_cause":"Firmware 9.1 leaks memory on the concentrator","workaround":"Connect with profile BKP-4412 instead"}}`)
+	named := file(agent, `{"title":"Concentrator replacement"}`)
+	desc := file(lena, `{"title":"Office problem","description":"The printer on floor three jams every single morning."}`)
+
+	got := searchFor(t, h, agent, "concentrator")
+	if !sameRefs(got.Items, named, prb) || got.Items[0].Match != "" || got.Items[1].Match != "Root cause: Firmware 9.1 leaks memory on the concentrator" {
+		t.Errorf("a field after a title: %+v", got.Items)
+	}
+	if got := searchFor(t, h, agent, "4412"); !sameRefs(got.Items, prb) || got.Items[0].Match != "Workaround: Connect with profile BKP-4412 instead" {
+		t.Errorf("part of a code: %+v", got.Items)
+	}
+	got = searchFor(t, h, agent, "jammed printers")
+	if !sameRefs(got.Items, desc) || got.Items[0].Match != "Description: The printer on floor three jams every single morning." {
+		t.Errorf("words of a description, by their stem: %+v", got.Items)
+	}
+	if got := searchFor(t, h, lena, "concentrator"); len(got.Items) != 0 {
+		t.Errorf("an end user finds a problem by its fields: %+v", got.Items)
+	}
+	if got := searchFor(t, h, lena, "printer jams"); !sameRefs(got.Items, desc) {
+		t.Errorf("the requester does not find her own ticket by its description: %+v", got.Items)
 	}
 }
