@@ -1,0 +1,17 @@
+# When a problem is resolved, so are the incidents it caused that are still open: each gets the fix as its
+# resolution, a comment naming the problem, and the Resolve move, as this app acting for whoever resolved the problem.
+# An incident whose own rules or guards refuse is left open and the refusal is recorded (servicelater jobs runs).
+# To stop it, or to only tell the incidents, override this rule in local/.
+kind: rule
+name: resolve-linked-incidents
+record_type: problem
+timing: async
+on: [update]
+when: record.state_category == "done" && old.state_category != "done"
+run:
+  - action: linked.update
+    linked: incidents
+    set:
+      resolution: '="Fixed by " + record.reference + (has(record.fields.fix) ? ": " + record.fields.fix : ".")'
+    status: resolved
+    body: '="Resolved with problem " + record.reference + " (" + record.title + "), which found and fixed the cause."'

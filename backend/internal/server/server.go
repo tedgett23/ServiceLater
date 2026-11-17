@@ -120,6 +120,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 			}
 			go workerApps.Run(ctx, cfg.DatabaseURL)
 			worker.Register(ruleruns.Kind, ruleworker.Handler(workerPool, workerApps))
+			worker.Register(ruleworker.LinkedKind, ruleworker.LinkedHandler(workerPool, workerApps))
 			// Workflows: the handler moves an execution one step; the timer wakes sleeping ones when they are due.
 			engine := workflowengine.New(workerPool, &records.Service{Apps: workerApps, Pool: workerPool})
 			worker.Register(workflow.RunKind, engine.Handler())

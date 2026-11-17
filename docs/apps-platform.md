@@ -463,6 +463,7 @@ from a connection of their own: an aborted save rolls its transaction back, and 
 | `set` (field, value) on the record | yes | no | no |
 | `comment.add` | no | yes, in the transaction | yes (built) |
 | `record.update` (field, value) on the triggering record | no | no | yes (built) |
+| `linked.update` (linked, set, status, body) on the open records linked to it | no | no | yes (built, §9.7) |
 | `record.create` | no | yes, in the transaction | yes |
 | `record.delete` | no | yes, in the transaction | yes |
 | `workflow.start` | no | yes (queued) | yes |
@@ -524,6 +525,14 @@ now). The engine is `internal/rules`; it does no database work, so the API appli
   the rule reads it, and every before and after rule judges the change. A refusal (a before rule aborts, a value is
   not allowed) is recorded as failed and not retried, and undoes the run's comments too. It updates the triggering
   record only; other records arrive with `record.create` and friends.
+- **`linked.update`** (async only) changes the open and waiting records **linked** to the triggering one: `linked`
+  names the link (`apps.LinkedRecords`; today only `incidents`, from a problem), `set` takes `set` fields (not extra
+  fields yet) checked against the linked type, `status` a status of the linked type's lifecycle, `body` a comment on
+  each. Values are worked out once, against the triggering record. Each linked record is its **own job**
+  (`rule.linked`, `ruleworker.LinkedHandler`): comment, update and move as one save through `Service`, as the app for
+  the person, carrying the run's cause (so the linked records' saves cannot set off the same app's rules). A record
+  that refuses (a guard, a before rule) stays as it was and the refusal is audited against it; one that has settled
+  or been unlinked since is `skipped`. Adding a link is a core change (a typed column).
 - **Loop protection.** An update raises `update` events, which fire async rules, whose updates raise events. Two
   things cut that. Every queued run carries its **cause**: the chain of `app/rule` runs behind it and its depth. What a
   run saves is judged against it (`ruleruns.Cause.Blocks`): a rule may not be set off by a change made by **its own
@@ -1449,6 +1458,28 @@ figure).
 and `syncTaskTypes` in `install.go`, the registry's `types` and `retired`, migration 00042 (the columns). A sample app
 for tests only is `backend/internal/apps/testdata/tyler` (Things, TYL1).
 Tests: `internal/apps/recordtype_test.go`, `internal/api/app_record_types_test.go`, `web/e2e/record-types.spec.ts`.
+
+### 9.7 Problems and their incidents (built)
+
+The `problem-management` app (bundled, depends on core-itsm only) gives problems a lifecycle (New, Assess, Root cause
+analysis, Fix in progress, Resolved, Closed, Cancelled; Start the fix needs the root cause, Resolve the fix too), a form
+(category, root cause, workaround, **known error** as a flag that needs a workaround, fix) and a `problem-manager` role.
+
+Core keeps the link (decided with the user 2026-11-17: **one problem per incident**, as in ServiceNow):
+`incidents.problem_id` (00045; a generated `problem_type` column makes the foreign key prove the target is a problem;
+no ON DELETE, so a linked problem cannot be deleted). It goes through the save path (`Patch.SetProblem`,
+`CreateInput.ProblemID`, `problemFor`: incidents only, a problem the saver can see), is in history (`problem_id`,
+shown as the problem's reference) and in expressions (`record.problem_id`, and `record.open_incidents` on a problem).
+Linking, unlinking or a linked incident's status change notifies the problem's watchers. API: incidents carry
+`problem_id`, `problem_reference`, `problem_title` (empty when the reader cannot see the problem); problems carry
+`incidents` and `open_incidents`; `PATCH problem_id` (null unlinks); `POST /tickets` takes `problem_id` for a new
+incident and `incidents` (at most 100) for a new problem, each linked as an edit of that incident in the same
+transaction. Web: `ProblemLinks.svelte` (Problem section on incidents: link to an open problem, raise one, unlink;
+Incidents section on problems).
+
+What the link does is app content, decided with the user: **resolving a problem resolves its open incidents with a
+note** (`rules/resolve-linked-incidents.yaml`: the fix as each resolution, a comment, the Resolve move) and marking a
+known error comments the workaround on them (`rules/share-workaround.yaml`), both through `linked.update` (§6.4).
 
 ### 9.6 App sections in the navigation (decided, not built)
 

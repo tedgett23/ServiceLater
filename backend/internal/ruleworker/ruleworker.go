@@ -132,6 +132,11 @@ func Run(ctx context.Context, pool *pgxpool.Pool, svc *records.Service, rule *ap
 				return err
 			}
 		}
+		for _, l := range fx.Linked {
+			if err := queueLinked(ctx, q, t, l, person, cause); err != nil {
+				return err
+			}
+		}
 		patch, err := patchFrom(ctx, q, t, res)
 		if err != nil || patch.Empty() {
 			return err

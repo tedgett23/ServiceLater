@@ -83,6 +83,9 @@ type ticketDTO struct {
 	// Tasks are the records under it that the reader may see, oldest first: a request's tasks (single-ticket
 	// responses).
 	Tasks []childTaskDTO `json:"tasks,omitempty"`
+	// Incidents are the incidents linked to a problem that the reader may see, oldest first (single-ticket
+	// responses, problems only).
+	Incidents []childTaskDTO `json:"incidents,omitempty"`
 }
 
 // childTaskDTO is a record under another: one team's part of the work.
@@ -103,17 +106,31 @@ func childTasks(ctx context.Context, q *dbgen.Queries, id uuid.UUID) ([]childTas
 	rows, err := q.ListChildTasks(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	out := make([]childTaskDTO, 0, len(rows))
 	for _, r := range rows {
-		c := childTaskDTO{ID: r.Task.ID, Type: r.Task.Type, Reference: r.Reference, Title: r.Task.Title,
-			Status: r.Task.Status, StateCategory: r.Task.StateCategory, UpdatedAt: r.Task.UpdatedAt.Time}
-		if r.AssigneeName.Valid {
-			c.AssigneeName = &r.AssigneeName.String
-		}
-		if r.AssignmentGroupName.Valid {
-			c.AssignmentGroupName = &r.AssignmentGroupName.String
-		}
-		out = append(out, c)
+		out = append(out, summaryOf(r.Task, r.Reference, r.AssigneeName, r.AssignmentGroupName))
 	}
 	return out, err
+}
+
+// problemIncidents are the incidents linked to a problem that the reader may see.
+func problemIncidents(ctx context.Context, q *dbgen.Queries, id uuid.UUID) ([]childTaskDTO, error) {
+	rows, err := q.ListProblemIncidents(ctx, uuid.NullUUID{UUID: id, Valid: true})
+	out := make([]childTaskDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, summaryOf(r.Task, r.Reference, r.AssigneeName, r.AssignmentGroupName))
+	}
+	return out, err
+}
+
+func summaryOf(t dbgen.Task, reference string, assignee, group pgtype.Text) childTaskDTO {
+	c := childTaskDTO{ID: t.ID, Type: t.Type, Reference: reference, Title: t.Title,
+		Status: t.Status, StateCategory: t.StateCategory, UpdatedAt: t.UpdatedAt.Time}
+	if assignee.Valid {
+		c.AssigneeName = &assignee.String
+	}
+	if group.Valid {
+		c.AssignmentGroupName = &group.String
+	}
+	return c
 }
 
 // detail adds what a single-ticket response carries beyond the ticket: the moves, field states, linked items and the
@@ -132,6 +149,11 @@ func (h *handlers) detail(ctx context.Context, q *dbgen.Queries, p auth.Principa
 	out.CanAttach = out.RequesterID == p.UserID || p.Perms.CanRecord(authz.Update, out.Type)
 	if out.Tasks, err = childTasks(ctx, q, out.ID); err != nil {
 		return err
+	}
+	if out.Type == "problem" {
+		if out.Incidents, err = problemIncidents(ctx, q, out.ID); err != nil {
+			return err
+		}
 	}
 	if out.SLAs, err = records.LoadSLAs(ctx, q, out.ID); err != nil {
 		return err
@@ -376,8 +398,21 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 		ParentID *uuid.UUID `json:"parent_id"`
 		// AssignmentGroupID routes it to a team as it is filed.
 		AssignmentGroupID *uuid.UUID `json:"assignment_group_id"`
+		// ProblemID links a new incident to the problem behind it.
+		ProblemID *uuid.UUID `json:"problem_id"`
+		// Incidents links these incidents to a new problem, each an edit of that incident (as PATCH problem_id
+		// would be), in the same transaction: a problem raised from an incident starts out linked to it.
+		Incidents []uuid.UUID `json:"incidents"`
 	}
 	if !decode(w, r, &req) {
+		return
+	}
+	if len(req.Incidents) > 0 && req.Type != "problem" {
+		writeError(w, http.StatusUnprocessableEntity, "only a problem has incidents linked to it")
+		return
+	}
+	if len(req.Incidents) > maxLinkedOnCreate {
+		writeError(w, http.StatusUnprocessableEntity, "link at most 100 incidents as a problem is filed")
 		return
 	}
 	if req.Type == "" {
@@ -387,9 +422,20 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		saved, err := h.svc.Create(r.Context(), q, actorOf(p), ruleruns.Cause{}, records.CreateInput{Type: req.Type,
 			Title: req.Title, Description: req.Description, Priority: req.Priority, RequesterID: req.RequesterID,
-			Change: req.Change.patch(), Fields: req.Fields, CIs: req.CIs, ParentID: req.ParentID, AssignmentGroupID: req.AssignmentGroupID})
+			Change: req.Change.patch(), Fields: req.Fields, CIs: req.CIs, ParentID: req.ParentID, AssignmentGroupID: req.AssignmentGroupID,
+			ProblemID: req.ProblemID})
 		if err != nil {
 			return err
+		}
+		if len(req.Incidents) > 0 {
+			for _, id := range req.Incidents {
+				if _, err := h.svc.Update(r.Context(), q, actorOf(p), ruleruns.Cause{}, id, records.Patch{SetProblem: true, ProblemID: &saved.ID}); err != nil {
+					return err
+				}
+			}
+			if saved, err = records.Load(r.Context(), q, saved.ID); err != nil {
+				return err
+			}
 		}
 		out = ticketDTO{Ticket: saved}
 		return h.detail(r.Context(), q, p, &out)
@@ -399,6 +445,9 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Location", "/api/v1/tickets/"+out.ID.String())
 	writeJSON(w, http.StatusCreated, out)
 }
+
+// maxLinkedOnCreate is how many incidents a new problem may be linked to as it is filed.
+const maxLinkedOnCreate = 100
 
 func actorOf(p auth.Principal) records.Actor { return records.Actor{ID: p.UserID, Perms: p.Perms} }
 
@@ -432,11 +481,13 @@ func (h *handlers) updateTicket(w http.ResponseWriter, r *http.Request) {
 		Change *changeFields `json:"change"`
 		// Fields sets extra fields by name; null clears one. Fields not named are left alone.
 		Fields map[string]any `json:"fields"`
+		// ProblemID links an incident to the problem behind it; null unlinks it.
+		ProblemID nullable[uuid.UUID] `json:"problem_id"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
-	patch := records.Patch{Title: req.Title, Description: req.Description, Priority: req.Priority, Resolution: req.Resolution,
+	patch := records.Patch{SetProblem: req.ProblemID.Set, ProblemID: req.ProblemID.Value, Title: req.Title, Description: req.Description, Priority: req.Priority, Resolution: req.Resolution,
 		Change: req.Change.patch(), Fields: req.Fields,
 		SetAssignee: req.AssigneeID.Set, AssigneeID: req.AssigneeID.Value,
 		SetAssignmentGroup: req.AssignmentGroupID.Set, AssignmentGroupID: req.AssignmentGroupID.Value}

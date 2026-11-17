@@ -7,6 +7,7 @@
 	import TicketArticles from '$lib/components/TicketArticles.svelte';
 	import TicketAttachments from '$lib/components/TicketAttachments.svelte';
 	import RequestTasks from '$lib/components/RequestTasks.svelte';
+	import ProblemLinks from '$lib/components/ProblemLinks.svelte';
 	import Signal from '$lib/components/Signal.svelte';
 	import RecordFields from '$lib/components/RecordFields.svelte';
 	import SlaClocks from '$lib/components/SlaClocks.svelte';
@@ -338,6 +339,9 @@
 
 			<!-- A request's tasks: each team's part of the work, and where it stands. -->
 			<RequestTasks {ticket} onadded={() => void reloadTicket()} />
+
+			<!-- Incidents and the problem behind them: an incident's problem, or a problem's incidents. -->
+			<ProblemLinks {ticket} {canEdit} onchange={(saved) => (ticket = saved)} />
 
 			<!-- Files: everyone who sees the record downloads them; its requester and staff attach more. -->
 			<TicketAttachments {ticket} onchange={(attachments) => (ticket = { ...ticket, attachments })} />

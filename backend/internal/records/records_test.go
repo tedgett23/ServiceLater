@@ -22,7 +22,7 @@ func TestExprRecordSetsEveryField(t *testing.T) {
 		Fields: map[string]any{"category": "network"},
 		CIs: []records.CI{{ID: id, Class: "server", Name: "db-1", Status: "active", SupportGroupID: &other, SupportGroup: &name,
 			OwnerGroupID: &other, OwnerGroup: &name}},
-		ParentID: &other, OpenTasks: 2, RequesterManagerID: &other, CatalogItem: "new-laptop",
+		ParentID: &other, OpenTasks: 2, RequesterManagerID: &other, CatalogItem: "new-laptop", ProblemID: &other, OpenIncidents: 3,
 	}.ExprRecord()
 	v := reflect.ValueOf(*r)
 	for i := 0; i < v.NumField(); i++ {

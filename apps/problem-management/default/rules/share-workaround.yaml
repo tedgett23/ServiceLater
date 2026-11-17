@@ -1,0 +1,13 @@
+# When a problem becomes a known error, its open incidents are told the workaround in a comment their requesters see.
+kind: rule
+name: share-workaround
+record_type: problem
+timing: async
+on: [update]
+when: >-
+  has(record.fields.known_error) && record.fields.known_error && has(record.fields.workaround) &&
+  !(has(old.fields.known_error) && old.fields.known_error)
+run:
+  - action: linked.update
+    linked: incidents
+    body: '="This is a known problem (" + record.reference + "). Until it is fixed, here is a workaround: " + record.fields.workaround'

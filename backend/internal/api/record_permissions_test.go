@@ -111,7 +111,8 @@ func TestRecordPermissionsAreScopedByType(t *testing.T) {
 
 // Only types in use can be filed: registered, and given a lifecycle by an installed app.
 func TestOnlyTypesInUseCanBeFiled(t *testing.T) {
-	h, pool := setup(t)
+	h, pool, reg := setupApps(t)
+	withoutProblemManagement(t, pool, reg)
 	agent := newActor(t, h, pool, "agent@x.test", "agent")
 	refusal(t, agent.do(h, "POST", "/api/v1/tickets", `{"type":"problem","title":"Recurring outage"}`), 422,
 		"is not a record type in use", "a registered type no app provides")
@@ -123,7 +124,8 @@ func TestOnlyTypesInUseCanBeFiled(t *testing.T) {
 
 // GET /record-types tells the New ticket dialog what each person may file.
 func TestRecordTypesSayWhoMayFileWhat(t *testing.T) {
-	h, pool := setup(t)
+	h, pool, reg := setupApps(t)
+	withoutProblemManagement(t, pool, reg)
 	admin := newActor(t, h, pool, "boss@x.test", "admin")
 	lena := newActor(t, h, pool, "lena@x.test", "end_user")
 	chris := newActor(t, h, pool, "chris@x.test", "end_user")

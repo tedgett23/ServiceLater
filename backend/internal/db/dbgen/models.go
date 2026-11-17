@@ -177,9 +177,11 @@ type HistoryExclusion struct {
 }
 
 type Incident struct {
-	TaskID     uuid.UUID `json:"task_id"`
-	Type       string    `json:"type"`
-	Resolution string    `json:"resolution"`
+	TaskID      uuid.UUID     `json:"task_id"`
+	Type        string        `json:"type"`
+	Resolution  string        `json:"resolution"`
+	ProblemID   uuid.NullUUID `json:"problem_id"`
+	ProblemType pgtype.Text   `json:"problem_type"`
 }
 
 type Job struct {

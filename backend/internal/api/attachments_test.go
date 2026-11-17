@@ -171,6 +171,12 @@ func (e filesEnv) fetch(t *testing.T, a actor, id string, inline bool) (http.Hea
 // runJobs runs the queued jobs of a kind with a handler, as the worker would.
 func runJobs(t *testing.T, pool *pgxpool.Pool, kind string, h jobs.Handler) int {
 	t.Helper()
+	return runJobsWith(t, pool, kind, h, false)
+}
+
+// runJobsWith runs them too, and with failuresOK lets a job fail (as a permanent failure would be dead-lettered).
+func runJobsWith(t *testing.T, pool *pgxpool.Pool, kind string, h jobs.Handler, failuresOK bool) int {
+	t.Helper()
 	ctx := context.Background()
 	rows, err := pool.Query(ctx, "DELETE FROM jobs WHERE kind = $1 RETURNING id, payload", kind)
 	if err != nil {
@@ -189,7 +195,7 @@ func runJobs(t *testing.T, pool *pgxpool.Pool, kind string, h jobs.Handler) int 
 		t.Fatal(err)
 	}
 	for _, j := range todo {
-		if err := h(ctx, j); err != nil {
+		if err := h(ctx, j); err != nil && !failuresOK {
 			t.Fatalf("%s job: %v", kind, err)
 		}
 	}

@@ -96,6 +96,8 @@ type CreateInput struct {
 	ParentID *uuid.UUID
 	// AssignmentGroupID routes it to a team as it is filed.
 	AssignmentGroupID *uuid.UUID
+	// ProblemID links a new incident to the problem behind it.
+	ProblemID *uuid.UUID
 	// CatalogItem orders a request from the catalog: the item's form asks the questions (Fields), its title is the
 	// request's, and its workflow starts once the request is filed. Title is then ignored.
 	CatalogItem string
@@ -178,12 +180,15 @@ type Patch struct {
 	// is an update like any other, so rules run on it.
 	SetCIs bool
 	CIs    []uuid.UUID
+	// SetProblem links an incident to ProblemID, or unlinks it when ProblemID is nil.
+	SetProblem bool
+	ProblemID  *uuid.UUID
 }
 
 // Empty reports whether the patch changes nothing.
 func (p Patch) Empty() bool {
 	return p.Title == nil && p.Description == nil && p.Priority == nil && !p.SetAssignee && !p.SetAssignmentGroup &&
-		p.Resolution == nil && p.Change.empty() && len(p.Fields) == 0 && !p.SetCIs
+		p.Resolution == nil && p.Change.empty() && len(p.Fields) == 0 && !p.SetCIs && !p.SetProblem
 }
 
 // touched lists the fields a person's patch writes, by form field name, for the read-only check.
@@ -198,6 +203,7 @@ func (p Patch) touched() []string {
 	add("description", p.Description != nil)
 	add("priority", p.Priority != nil)
 	add("resolution", p.Resolution != nil)
+	add("problem", p.SetProblem)
 	if c := p.Change; c != nil {
 		add("change_type", c.ChangeType != nil)
 		add("risk", c.Risk != nil)
@@ -234,6 +240,9 @@ func PatchBetween(t, want Ticket) Patch {
 	}
 	if want.Resolution != t.Resolution {
 		p.Resolution = &want.Resolution
+	}
+	if !sameUUID(want.ProblemID, t.ProblemID) {
+		p.SetProblem, p.ProblemID = true, want.ProblemID
 	}
 	p.Change = changeBetween(t.Change, want.Change)
 	for k, v := range want.Fields {
@@ -341,6 +350,11 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 			return Ticket{}, Invalid("a record under another cannot have records of its own")
 		}
 		next.ParentID = &parent.ID
+	}
+	if in.ProblemID != nil {
+		if next.ProblemID, err = problemFor(ctx, q, tt.Type, *in.ProblemID); err != nil {
+			return Ticket{}, err
+		}
 	}
 	if in.AssignmentGroupID != nil {
 		g, err := q.GetGroup(ctx, *in.AssignmentGroupID)
@@ -525,6 +539,16 @@ func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	if p.SetCIs {
 		if next.CIs, err = resolveCIs(ctx, q, a, p.CIs); err != nil {
 			return Ticket{}, err
+		}
+	}
+	if p.SetProblem {
+		next.ProblemID = nil
+		if p.ProblemID != nil {
+			if next.ProblemID, err = problemFor(ctx, q, cur.Type, *p.ProblemID); err != nil {
+				return Ticket{}, err
+			}
+		} else if cur.Type != "incident" {
+			return Ticket{}, Invalid("only an incident is linked to a problem")
 		}
 	}
 	if err := s.checkReadOnly(ctx, q, a, apps.EventUpdate, &cur, next, p.touched()); err != nil {
@@ -908,6 +932,11 @@ func writeChanges(ctx context.Context, q *dbgen.Queries, cur, final Ticket) erro
 			return err
 		}
 	}
+	if !sameUUID(final.ProblemID, cur.ProblemID) {
+		if err := q.SetIncidentProblem(ctx, dbgen.SetIncidentProblemParams{TaskID: cur.ID, ProblemID: nullUUID(final.ProblemID)}); err != nil {
+			return err
+		}
+	}
 	if final.Resolution != cur.Resolution {
 		if err := q.UpdateIncident(ctx, dbgen.UpdateIncidentParams{TaskID: cur.ID, Resolution: final.Resolution}); err != nil {
 			return err
@@ -983,8 +1012,23 @@ func withRuleFields(base, from Ticket) Ticket {
 	base.Title, base.Description, base.Priority = strings.TrimSpace(from.Title), from.Description, from.Priority
 	base.AssigneeID, base.Resolution, base.Change = from.AssigneeID, from.Resolution, from.Change.clone()
 	base.AssignmentGroupID, base.AssignmentGroup = from.AssignmentGroupID, from.AssignmentGroup
-	base.Fields = from.Fields
+	base.Fields, base.ProblemID = from.Fields, from.ProblemID
 	return base
+}
+
+// problemFor checks that a record of recordType may be linked to the problem id: only incidents are, and the problem
+// must be one the person saving can see.
+func problemFor(ctx context.Context, q *dbgen.Queries, recordType string, id uuid.UUID) (*uuid.UUID, error) {
+	if recordType != "incident" {
+		return nil, Invalid("only an incident is linked to a problem")
+	}
+	p, err := q.GetTask(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && p.Type != "problem") {
+		return nil, Invalid("there is no problem with that id")
+	} else if err != nil {
+		return nil, err
+	}
+	return &p.ID, nil
 }
 
 // runAfter runs the after rules against the saved ticket, then queues the async ones. An abort undoes the whole

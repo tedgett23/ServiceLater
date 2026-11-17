@@ -94,7 +94,10 @@ SELECT sqlc.embed(t), tt.prefix AS type_prefix, (tt.prefix || t.number::text)::t
        c.planned_start, c.planned_end, COALESCE(c.implementation_plan, '')::text AS implementation_plan,
        COALESCE(c.backout_plan, '')::text AS backout_plan, COALESCE(c.test_plan, '')::text AS test_plan,
        COALESCE(rq.catalog_item, '')::text AS catalog_item, r.manager_id AS requester_manager_id, COALESCE(pt.prefix || p.number, '')::text AS parent_reference,
-       (SELECT count(*) FROM tasks k WHERE k.parent_id = t.id AND k.state_category IN ('open', 'waiting')) AS open_tasks
+       (SELECT count(*) FROM tasks k WHERE k.parent_id = t.id AND k.state_category IN ('open', 'waiting')) AS open_tasks,
+       i.problem_id, COALESCE(prt.prefix || pr.number, '')::text AS problem_reference, COALESCE(pr.title, '')::text AS problem_title,
+       (SELECT count(*) FROM incidents x JOIN tasks y ON y.id = x.task_id
+         WHERE x.problem_id = t.id AND y.state_category IN ('open', 'waiting')) AS open_incidents
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 JOIN users r ON r.id = t.requester_id
@@ -105,6 +108,8 @@ LEFT JOIN changes c ON c.task_id = t.id
 LEFT JOIN requests rq ON rq.task_id = t.id
 LEFT JOIN tasks p ON p.id = t.parent_id
 LEFT JOIN task_types pt ON pt.type = p.type
+LEFT JOIN tasks pr ON pr.id = i.problem_id
+LEFT JOIN task_types prt ON prt.type = pr.type
 WHERE t.id = $1;
 
 -- The queue works on tasks alone, whatever their type, so it never needs the extension tables.
@@ -158,6 +163,29 @@ RETURNING *;
 
 -- name: UpdateIncident :exec
 UPDATE incidents SET resolution = sqlc.arg('resolution') WHERE task_id = sqlc.arg('task_id');
+
+-- name: SetIncidentProblem :exec
+UPDATE incidents SET problem_id = sqlc.narg('problem_id') WHERE task_id = sqlc.arg('task_id');
+
+-- The incidents linked to a problem, as the reader may see them, oldest first.
+-- name: ListProblemIncidents :many
+SELECT sqlc.embed(t), (tt.prefix || t.number::text)::text AS reference, a.name AS assignee_name, g.name AS assignment_group_name
+FROM incidents i
+JOIN tasks t ON t.id = i.task_id
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN users a ON a.id = t.assignee_id
+LEFT JOIN groups g ON g.id = t.assignment_group_id
+WHERE i.problem_id = $1
+ORDER BY t.created_at, t.number
+LIMIT 500;
+
+-- The open and waiting incidents linked to a problem, as the reader may see them: what resolving it acts on.
+-- name: ListOpenProblemIncidentIDs :many
+SELECT t.id
+FROM incidents i
+JOIN tasks t ON t.id = i.task_id
+WHERE i.problem_id = $1 AND t.state_category IN ('open', 'waiting')
+ORDER BY t.number;
 
 -- The whole change row: the save works out what changed and writes the result.
 -- name: UpdateChange :exec

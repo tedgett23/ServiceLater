@@ -68,6 +68,13 @@ export interface Ticket {
 	/** Single-ticket responses: how many tasks under it are still open or waiting, and the tasks themselves. */
 	open_tasks?: number;
 	tasks?: ChildTask[];
+	/** An incident's problem: its id, and how people name it and its title when the reader may see it. */
+	problem_id?: string;
+	problem_reference?: string;
+	problem_title?: string;
+	/** Single-ticket responses, problems: how many linked incidents are still open or waiting, and the incidents. */
+	open_incidents?: number;
+	incidents?: ChildTask[];
 	/** On the response to a save that routed it to a restricted group the saver is not in: the last they see of it. */
 	routed_away?: boolean;
 }
