@@ -28,16 +28,17 @@ func (q *Queries) AddGroupMember(ctx context.Context, arg AddGroupMemberParams) 
 }
 
 const createGroup = `-- name: CreateGroup :one
-INSERT INTO groups (name, description) VALUES ($1, $2) RETURNING id, name, description, created_at, updated_at
+INSERT INTO groups (name, description, restricted) VALUES ($1, $2, $3) RETURNING id, name, description, created_at, updated_at, restricted
 `
 
 type CreateGroupParams struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Restricted  bool   `json:"restricted"`
 }
 
 func (q *Queries) CreateGroup(ctx context.Context, arg CreateGroupParams) (Group, error) {
-	row := q.db.QueryRow(ctx, createGroup, arg.Name, arg.Description)
+	row := q.db.QueryRow(ctx, createGroup, arg.Name, arg.Description, arg.Restricted)
 	var i Group
 	err := row.Scan(
 		&i.ID,
@@ -45,6 +46,7 @@ func (q *Queries) CreateGroup(ctx context.Context, arg CreateGroupParams) (Group
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Restricted,
 	)
 	return i, err
 }
@@ -62,7 +64,7 @@ func (q *Queries) DeleteGroup(ctx context.Context, id uuid.UUID) (int64, error) 
 }
 
 const getGroup = `-- name: GetGroup :one
-SELECT g.id, g.name, g.description, g.created_at, g.updated_at, (SELECT count(*) FROM group_members m WHERE m.group_id = g.id) AS member_count
+SELECT g.id, g.name, g.description, g.created_at, g.updated_at, g.restricted, (SELECT count(*) FROM group_members m WHERE m.group_id = g.id) AS member_count
 FROM groups g WHERE g.id = $1
 `
 
@@ -72,6 +74,7 @@ type GetGroupRow struct {
 	Description string             `json:"description"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Restricted  bool               `json:"restricted"`
 	MemberCount int64              `json:"member_count"`
 }
 
@@ -84,13 +87,14 @@ func (q *Queries) GetGroup(ctx context.Context, id uuid.UUID) (GetGroupRow, erro
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Restricted,
 		&i.MemberCount,
 	)
 	return i, err
 }
 
 const getGroupByName = `-- name: GetGroupByName :one
-SELECT id, name, description, created_at, updated_at FROM groups WHERE lower(name) = lower($1::text)
+SELECT id, name, description, created_at, updated_at, restricted FROM groups WHERE lower(name) = lower($1::text)
 `
 
 func (q *Queries) GetGroupByName(ctx context.Context, name string) (Group, error) {
@@ -102,6 +106,7 @@ func (q *Queries) GetGroupByName(ctx context.Context, name string) (Group, error
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Restricted,
 	)
 	return i, err
 }
@@ -221,7 +226,7 @@ func (q *Queries) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]Li
 
 const listGroups = `-- name: ListGroups :many
 
-SELECT g.id, g.name, g.description, g.created_at, g.updated_at, (SELECT count(*) FROM group_members m WHERE m.group_id = g.id) AS member_count
+SELECT g.id, g.name, g.description, g.created_at, g.updated_at, g.restricted, (SELECT count(*) FROM group_members m WHERE m.group_id = g.id) AS member_count
 FROM groups g
 ORDER BY lower(g.name)
 `
@@ -232,6 +237,7 @@ type ListGroupsRow struct {
 	Description string             `json:"description"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Restricted  bool               `json:"restricted"`
 	MemberCount int64              `json:"member_count"`
 }
 
@@ -251,6 +257,7 @@ func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
 			&i.Description,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Restricted,
 			&i.MemberCount,
 		); err != nil {
 			return nil, err
@@ -264,7 +271,7 @@ func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
 }
 
 const listUserGroups = `-- name: ListUserGroups :many
-SELECT g.id, g.name, g.description, g.created_at, g.updated_at FROM groups g JOIN group_members m ON m.group_id = g.id
+SELECT g.id, g.name, g.description, g.created_at, g.updated_at, g.restricted FROM groups g JOIN group_members m ON m.group_id = g.id
 WHERE m.user_id = $1
 ORDER BY lower(g.name)
 `
@@ -284,6 +291,7 @@ func (q *Queries) ListUserGroups(ctx context.Context, userID uuid.UUID) ([]Group
 			&i.Description,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Restricted,
 		); err != nil {
 			return nil, err
 		}
@@ -315,19 +323,26 @@ func (q *Queries) RemoveGroupMember(ctx context.Context, arg RemoveGroupMemberPa
 const updateGroup = `-- name: UpdateGroup :one
 UPDATE groups SET
     name        = COALESCE($1, name),
-    description = COALESCE($2, description)
-WHERE id = $3
-RETURNING id, name, description, created_at, updated_at
+    description = COALESCE($2, description),
+    restricted  = COALESCE($3, restricted)
+WHERE id = $4
+RETURNING id, name, description, created_at, updated_at, restricted
 `
 
 type UpdateGroupParams struct {
 	Name        pgtype.Text `json:"name"`
 	Description pgtype.Text `json:"description"`
+	Restricted  pgtype.Bool `json:"restricted"`
 	ID          uuid.UUID   `json:"id"`
 }
 
 func (q *Queries) UpdateGroup(ctx context.Context, arg UpdateGroupParams) (Group, error) {
-	row := q.db.QueryRow(ctx, updateGroup, arg.Name, arg.Description, arg.ID)
+	row := q.db.QueryRow(ctx, updateGroup,
+		arg.Name,
+		arg.Description,
+		arg.Restricted,
+		arg.ID,
+	)
 	var i Group
 	err := row.Scan(
 		&i.ID,
@@ -335,6 +350,7 @@ func (q *Queries) UpdateGroup(ctx context.Context, arg UpdateGroupParams) (Group
 		&i.Description,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Restricted,
 	)
 	return i, err
 }

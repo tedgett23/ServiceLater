@@ -2488,6 +2488,10 @@
             "description": "Unique whatever its case; expressions refer to a group by it.",
             "type": "string"
           },
+          "restricted": {
+            "description": "Keeps the records routed to it to its members (and their requesters, assignees and those who hold restricted:read): other staff do not see them.",
+            "type": "boolean"
+          },
           "updated_at": {
             "format": "date-time",
             "type": "string"
@@ -2499,6 +2503,7 @@
           "id",
           "member_count",
           "name",
+          "restricted",
           "updated_at"
         ],
         "type": "object"
@@ -2531,6 +2536,10 @@
             "description": "Unique whatever its case; expressions refer to a group by it.",
             "type": "string"
           },
+          "restricted": {
+            "description": "Keeps the records routed to it to its members (and their requesters, assignees and those who hold restricted:read): other staff do not see them.",
+            "type": "boolean"
+          },
           "roles": {
             "items": {
               "$ref": "#/components/schemas/HeldRole"
@@ -2549,6 +2558,7 @@
           "member_count",
           "members",
           "name",
+          "restricted",
           "roles",
           "updated_at"
         ],
@@ -4231,6 +4241,10 @@
           },
           "resolution": {
             "type": "string"
+          },
+          "routed_away": {
+            "description": "Set on the response to a save that took the record out of the caller's sight: it now belongs to a restricted group they are not in. This response is the last they see of it.",
+            "type": "boolean"
           },
           "sla_breached": {
             "type": "boolean"
@@ -10042,7 +10056,7 @@
         ]
       },
       "post": {
-        "description": "With {\"name\": \"...\", \"description\": \"...\"}.\n\nRequires the `groups:manage` permission.",
+        "description": "With {\"name\": \"...\", \"description\": \"...\", \"restricted\": false}. Making it restricted needs roles:manage.\n\nRequires the `groups:manage` permission.",
         "operationId": "createGroup",
         "requestBody": {
           "content": {
@@ -10054,6 +10068,10 @@
                   },
                   "name": {
                     "type": "string"
+                  },
+                  "restricted": {
+                    "description": "Keeps the records routed to the group to its members.",
+                    "type": "boolean"
                   }
                 },
                 "type": "object"
@@ -10368,7 +10386,7 @@
         ]
       },
       "patch": {
-        "description": "With {\"name\"?, \"description\"?}. Renaming a group breaks any expression that names it.\n\nRequires the `groups:manage` permission.",
+        "description": "With {\"name\"?, \"description\"?, \"restricted\"?}. Renaming a group breaks any expression that names it. Changing restricted needs roles:manage.\n\nRequires the `groups:manage` permission.",
         "operationId": "updateGroup",
         "parameters": [
           {
@@ -10395,6 +10413,13 @@
                   "name": {
                     "type": [
                       "string",
+                      "null"
+                    ]
+                  },
+                  "restricted": {
+                    "description": "Keeps the records routed to the group to its members.",
+                    "type": [
+                      "boolean",
                       "null"
                     ]
                   }

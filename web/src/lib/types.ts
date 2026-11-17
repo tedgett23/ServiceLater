@@ -68,6 +68,8 @@ export interface Ticket {
 	/** Single-ticket responses: how many tasks under it are still open or waiting, and the tasks themselves. */
 	open_tasks?: number;
 	tasks?: ChildTask[];
+	/** On the response to a save that routed it to a restricted group the saver is not in: the last they see of it. */
+	routed_away?: boolean;
 }
 
 /** A record under another: one team's part of the work on a request. */
@@ -285,6 +287,7 @@ export const P = {
 	workflowsReadAll: 'workflows:read_all',
 	usersManage: 'users:manage',
 	groupsManage: 'groups:manage',
+	restrictedRead: 'restricted:read',
 	rolesManage: 'roles:manage',
 	freezesManage: 'freezes:manage',
 	calendarsManage: 'calendars:manage',
@@ -464,6 +467,8 @@ export interface Group {
 	id: string;
 	name: string;
 	description: string;
+	/** Records routed to it are seen only by its members (and their requesters, assignees and restricted:read). */
+	restricted: boolean;
 	member_count: number;
 	created_at: string;
 	updated_at: string;

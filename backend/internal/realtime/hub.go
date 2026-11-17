@@ -7,13 +7,18 @@ package realtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db"
+	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 )
 
 const (
@@ -88,6 +93,10 @@ type notificationNote struct {
 type Hub struct {
 	// MaxPerUser is how many live connections one person may hold (open tabs and devices). Zero means the default.
 	MaxPerUser int
+	// Audience says whether a record is routed to a restricted group and, if so, who besides those holding
+	// restricted:read may hear about it (the group's members and the assignee). Nil treats every record as
+	// unrestricted (tests that do not need it).
+	Audience func(ctx context.Context, taskID uuid.UUID) (Audience, error)
 
 	mu      sync.Mutex
 	clients map[*client]struct{}
@@ -200,14 +209,43 @@ func visibleTo(c *client, recordType string, requester uuid.UUID) bool {
 	return c.perms.CanRecord(authz.Read, recordType) || c.userID == requester
 }
 
+// Audience is who may hear about a record routed to a restricted group.
+type Audience struct {
+	Restricted bool
+	Allowed    map[uuid.UUID]bool // the group's members and the assignee
+}
+
+// recordAudience is visibleTo plus restricted groups, mirroring tasks_select (app_sees_task): a record routed to a
+// restricted group is heard of only by its requester and, among those who may read its type, the group's members,
+// its assignee and those who hold restricted:read. If the audience cannot be looked up, only the requester hears.
+func (h *Hub) recordAudience(taskID uuid.UUID, recordType string, requester uuid.UUID) func(*client) bool {
+	base := func(c *client) bool { return visibleTo(c, recordType, requester) }
+	if h.Audience == nil {
+		return base
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	a, err := h.Audience(ctx, taskID)
+	if err != nil {
+		slog.Error("realtime: cannot tell who may hear about a record; telling only its requester", "record", taskID, "err", err)
+		return func(c *client) bool { return c.userID == requester }
+	}
+	if !a.Restricted {
+		return base
+	}
+	return func(c *client) bool {
+		return c.userID == requester ||
+			(c.perms.CanRecord(authz.Read, recordType) && (a.Allowed[c.userID] || c.perms.Has(authz.RestrictedRead)))
+	}
+}
+
 func (h *Hub) onTicket(payload string) {
 	var n ticketNote
 	if err := json.Unmarshal([]byte(payload), &n); err != nil {
 		slog.Error("realtime: bad ticket notification", "err", err)
 		return
 	}
-	h.broadcast(mustJSON(ticketEvent{Type: "ticket.changed", ID: n.ID, Number: n.Number}),
-		func(c *client) bool { return visibleTo(c, n.Type, n.RequesterID) })
+	h.broadcast(mustJSON(ticketEvent{Type: "ticket.changed", ID: n.ID, Number: n.Number}), h.recordAudience(n.ID, n.Type, n.RequesterID))
 }
 
 func (h *Hub) onComment(payload string) {
@@ -216,11 +254,12 @@ func (h *Hub) onComment(payload string) {
 		slog.Error("realtime: bad comment notification", "err", err)
 		return
 	}
+	sees := h.recordAudience(n.TicketID, n.Type, *n.RequesterID)
 	h.broadcast(mustJSON(commentEvent{Type: "comment.added", TicketID: n.TicketID}), func(c *client) bool {
 		if n.Internal && !c.internal {
 			return false // even the existence of an internal note is for those who may read them
 		}
-		return visibleTo(c, n.Type, *n.RequesterID)
+		return sees(c)
 	})
 }
 
@@ -266,4 +305,31 @@ func mustJSON(v any) []byte {
 		panic(err) // the event types above cannot fail to marshal
 	}
 	return b
+}
+
+// AudienceFrom looks a record's audience up in the database, as the system: the hub routes hints, and what the
+// client then fetches is still checked by RLS.
+func AudienceFrom(pool *pgxpool.Pool) func(context.Context, uuid.UUID) (Audience, error) {
+	return func(ctx context.Context, taskID uuid.UUID) (Audience, error) {
+		var out Audience
+		err := db.WithSystem(ctx, pool, func(tx pgx.Tx) error {
+			row, err := dbgen.New(tx).TaskAudience(ctx, taskID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil // gone (deleted): nothing to hide
+			}
+			if err != nil || !row.Restricted {
+				return err
+			}
+			out.Restricted = true
+			out.Allowed = map[uuid.UUID]bool{}
+			for _, m := range row.Members {
+				out.Allowed[m] = true
+			}
+			if row.AssigneeID.Valid {
+				out.Allowed[row.AssigneeID.UUID] = true
+			}
+			return nil
+		})
+		return out, err
+	}
 }

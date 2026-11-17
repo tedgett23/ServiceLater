@@ -26,8 +26,11 @@ const (
 type groupDTO struct {
 	ID uuid.UUID `json:"id"`
 	// Name is unique whatever its case; expressions refer to a group by it.
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// Restricted keeps the records routed to it to its members (and their requesters, assignees and those who hold
+	// restricted:read): other staff do not see them.
+	Restricted  bool      `json:"restricted"`
 	MemberCount int64     `json:"member_count"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -52,7 +55,7 @@ type groupDetailDTO struct {
 }
 
 func toGroup(g dbgen.Group, members int64) groupDTO {
-	return groupDTO{ID: g.ID, Name: g.Name, Description: g.Description, MemberCount: members, CreatedAt: g.CreatedAt.Time, UpdatedAt: g.UpdatedAt.Time}
+	return groupDTO{ID: g.ID, Name: g.Name, Description: g.Description, Restricted: g.Restricted, MemberCount: members, CreatedAt: g.CreatedAt.Time, UpdatedAt: g.UpdatedAt.Time}
 }
 
 func validGroupName(s string) error {
@@ -87,7 +90,7 @@ func (h *handlers) listGroups(w http.ResponseWriter, r *http.Request) {
 	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
 		rows, err := q.ListGroups(r.Context())
 		for _, g := range rows {
-			out = append(out, toGroup(dbgen.Group{ID: g.ID, Name: g.Name, Description: g.Description, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt}, g.MemberCount))
+			out = append(out, toGroup(dbgen.Group{ID: g.ID, Name: g.Name, Description: g.Description, Restricted: g.Restricted, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt}, g.MemberCount))
 		}
 		return err
 	}) {
@@ -96,17 +99,28 @@ func (h *handlers) listGroups(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": out})
 }
 
-// POST /groups (admin) with {"name": "...", "description": "..."}.
+// restrictGuard explains why someone may not restrict a group, or lift it: who sees its records would change.
+func restrictGuard(p auth.Principal) error {
+	if !p.Can(authz.RolesManage) {
+		return forbidden("restricting a group, or lifting it, changes who sees its records, so it needs the roles:manage permission")
+	}
+	return nil
+}
+
+// POST /groups (admin) with {"name": "...", "description": "...", "restricted": false}. Making it restricted needs
+// roles:manage.
 func (h *handlers) createGroup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		// Restricted keeps the records routed to the group to its members.
+		Restricted bool `json:"restricted"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
 	var out groupDTO
-	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		name := strings.TrimSpace(req.Name)
 		if err := validGroupName(name); err != nil {
 			return err
@@ -114,7 +128,12 @@ func (h *handlers) createGroup(w http.ResponseWriter, r *http.Request) {
 		if len(req.Description) > maxGroupDescription {
 			return invalid("description must be at most 1000 characters")
 		}
-		g, err := q.CreateGroup(r.Context(), dbgen.CreateGroupParams{Name: name, Description: req.Description})
+		if req.Restricted {
+			if err := restrictGuard(p); err != nil {
+				return err
+			}
+		}
+		g, err := q.CreateGroup(r.Context(), dbgen.CreateGroupParams{Name: name, Description: req.Description, Restricted: req.Restricted})
 		out = toGroup(g, 0)
 		return groupConflict(err)
 	}) {
@@ -136,7 +155,7 @@ func (h *handlers) getGroup(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		out.groupDTO = toGroup(dbgen.Group{ID: g.ID, Name: g.Name, Description: g.Description, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt}, g.MemberCount)
+		out.groupDTO = toGroup(dbgen.Group{ID: g.ID, Name: g.Name, Description: g.Description, Restricted: g.Restricted, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt}, g.MemberCount)
 		if out.Members, err = groupMembers(r, q, id); err != nil {
 			return err
 		}
@@ -160,7 +179,8 @@ func groupMembers(r *http.Request, q *dbgen.Queries, id uuid.UUID) ([]memberDTO,
 	return out, err
 }
 
-// PATCH /groups/{id} (admin) with {"name"?, "description"?}. Renaming a group breaks any expression that names it.
+// PATCH /groups/{id} (admin) with {"name"?, "description"?, "restricted"?}. Renaming a group breaks any expression that
+// names it. Changing restricted needs roles:manage.
 func (h *handlers) updateGroup(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlUUID(w, r, "id")
 	if !ok {
@@ -169,13 +189,27 @@ func (h *handlers) updateGroup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name        *string `json:"name"`
 		Description *string `json:"description"`
+		// Restricted keeps the records routed to the group to its members.
+		Restricted *bool `json:"restricted"`
 	}
 	if !decode(w, r, &req) {
 		return
 	}
 	var out groupDTO
-	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		args := dbgen.UpdateGroupParams{ID: id}
+		if req.Restricted != nil {
+			cur, err := q.GetGroup(r.Context(), id)
+			if err != nil {
+				return err
+			}
+			if cur.Restricted != *req.Restricted {
+				if err := restrictGuard(p); err != nil {
+					return err
+				}
+			}
+			args.Restricted = pgtype.Bool{Bool: *req.Restricted, Valid: true}
+		}
 		if req.Name != nil {
 			name := strings.TrimSpace(*req.Name)
 			if err := validGroupName(name); err != nil {
@@ -316,6 +350,13 @@ func membershipGuard(r *http.Request, q *dbgen.Queries, p auth.Principal, groupI
 	}
 	if len(roles) > 0 {
 		return forbidden("this group holds roles, so changing who is in it needs the roles:manage permission")
+	}
+	g, err := q.GetGroup(r.Context(), groupID)
+	if err != nil {
+		return err
+	}
+	if g.Restricted {
+		return forbidden("this group is restricted, so changing who is in it (and so who sees its records) needs the roles:manage permission")
 	}
 	return nil
 }

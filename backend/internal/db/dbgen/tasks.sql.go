@@ -131,12 +131,15 @@ func (q *Queries) CreateRequest(ctx context.Context, arg CreateRequestParams) er
 
 const createTask = `-- name: CreateTask :one
 
-INSERT INTO tasks (type, title, description, priority, requester_id, status, state_category, assignment_group_id, fields, parent_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::jsonb, '{}'::jsonb), $10)
+INSERT INTO tasks (id, type, title, description, priority, requester_id, status, state_category, assignment_group_id, fields, parent_id)
+VALUES (COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6,
+        $7, $8, $9,
+        COALESCE($10::jsonb, '{}'::jsonb), $11)
 RETURNING id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields, parent_id
 `
 
 type CreateTaskParams struct {
+	ID                uuid.NullUUID `json:"id"`
 	Type              string        `json:"type"`
 	Title             string        `json:"title"`
 	Description       string        `json:"description"`
@@ -154,8 +157,11 @@ type CreateTaskParams struct {
 // on tasks (and, through it, on the extension tables and comments) decides what is visible.
 // The assignment group is written with the row, not after it: a before rule routes an end user's ticket as it is
 // filed, and only staff may update a task.
+// The id is chosen by the save path, which marks it as being saved first (app_mark_saving): a record filed into a
+// restricted group the filer is not in must still come back to them.
 func (q *Queries) CreateTask(ctx context.Context, arg CreateTaskParams) (Task, error) {
 	row := q.db.QueryRow(ctx, createTask,
+		arg.ID,
 		arg.Type,
 		arg.Title,
 		arg.Description,
@@ -847,6 +853,16 @@ func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]Lis
 	return items, nil
 }
 
+const markSaving = `-- name: MarkSaving :exec
+SELECT app_mark_saving($1::uuid)
+`
+
+// A record the caller is saving stays visible to them for the rest of the transaction (migration 00044).
+func (q *Queries) MarkSaving(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, markSaving, id)
+	return err
+}
+
 const retireAppTaskTypes = `-- name: RetireAppTaskTypes :many
 UPDATE task_types SET retired_at = now()
 WHERE owner_app = $1 AND retired_at IS NULL AND NOT (type = ANY ($2::text[]))
@@ -877,6 +893,43 @@ func (q *Queries) RetireAppTaskTypes(ctx context.Context, arg RetireAppTaskTypes
 		return nil, err
 	}
 	return items, nil
+}
+
+const stillSees = `-- name: StillSees :one
+SELECT EXISTS (SELECT 1 FROM tasks t WHERE t.id = $1
+               AND app_sees_task(t.id, t.type, t.requester_id, t.assignee_id, t.assignment_group_id, false))::bool
+`
+
+// Whether the caller sees a record now, leaving out the one-transaction allowance for records they are saving: after
+// a save that routed it to a restricted group they are not in, false.
+func (q *Queries) StillSees(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, stillSees, id)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const taskAudience = `-- name: TaskAudience :one
+SELECT COALESCE(g.restricted, false)::bool AS restricted, t.assignee_id,
+       COALESCE(ARRAY(SELECT m.user_id FROM group_members m WHERE m.group_id = g.id), '{}')::uuid[] AS members
+FROM tasks t LEFT JOIN groups g ON g.id = t.assignment_group_id
+WHERE t.id = $1
+`
+
+type TaskAudienceRow struct {
+	Restricted bool          `json:"restricted"`
+	AssigneeID uuid.NullUUID `json:"assignee_id"`
+	Members    []uuid.UUID   `json:"members"`
+}
+
+// Who may hear that a record changed, when it is routed to a restricted group (read by the realtime hub as the
+// system): the group's members and the assignee. restricted is false for every other record, and nothing more is
+// needed then.
+func (q *Queries) TaskAudience(ctx context.Context, id uuid.UUID) (TaskAudienceRow, error) {
+	row := q.db.QueryRow(ctx, taskAudience, id)
+	var i TaskAudienceRow
+	err := row.Scan(&i.Restricted, &i.AssigneeID, &i.Members)
+	return i, err
 }
 
 const updateChange = `-- name: UpdateChange :exec

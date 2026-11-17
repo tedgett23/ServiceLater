@@ -42,6 +42,9 @@ func build(t *testing.T, accessTTL time.Duration, hub *realtime.Hub) (http.Handl
 	if err := reg.Load(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	if hub != nil {
+		hub.Audience = realtime.AudienceFrom(pool) // as server.Run wires it
+	}
 	tk, _ := auth.NewTokens("0123456789abcdef0123456789abcdef", accessTTL)
 	svc := auth.NewService(pool, tk, time.Hour)
 	if _, err := svc.Bootstrap(context.Background(), "admin@example.com", "Admin", "hunter2hunter2"); err != nil {

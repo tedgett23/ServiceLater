@@ -160,6 +160,7 @@ type Group struct {
 	Description string             `json:"description"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Restricted  bool               `json:"restricted"`
 }
 
 type GroupMember struct {

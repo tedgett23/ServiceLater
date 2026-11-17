@@ -208,3 +208,34 @@ func TestATaskStepSaysWhatHappened(t *testing.T) {
 		t.Errorf("%d unrouted tasks", n)
 	}
 }
+
+// A workflow acts as its app, which restricted groups do not hold back: it files a task into HR, a restricted group
+// its app is not in, keeps track of it, and carries on when HR finishes it.
+func TestATaskStepFilesIntoARestrictedGroup(t *testing.T) {
+	w := setup(t)
+	w.group(t, "HR", w.agent) // the agent who later finishes the task works in HR; the workflow's app is in no group
+	if _, err := w.pool.Exec(context.Background(), `UPDATE groups SET restricted = true WHERE name = 'HR'`); err != nil {
+		t.Fatal(err)
+	}
+	req := w.request(t)
+	w.installWith(t, "house", taskPerms, map[string]string{"hire": "kind: workflow\nname: hire\nrecord_type: request\nstart: contract\nsteps:\n" +
+		"  contract:\n    type: task.create\n    title: Prepare the contract\n    group: HR\n    next: say\n" +
+		"  say:\n    type: comment.add\n    body: '=\"contract: \" + vars.contract_outcome'\n    next: done\n" +
+		"  done:\n    type: end\n"}, nil)
+	id := w.start(t, "house", "hire", w.agent)
+	if err := w.run(id); err != nil {
+		t.Fatal(err)
+	}
+	if ex := w.execution(t, id); ex.Status != workflow.Waiting || vars(t, ex)["contract_task"] != "TASK1" {
+		t.Fatalf("should file TASK1 into HR and wait: %+v", ex)
+	}
+	var task uuid.UUID
+	if err := w.pool.QueryRow(context.Background(), `SELECT id FROM tasks WHERE parent_id = $1`, req).Scan(&task); err != nil {
+		t.Fatal(err)
+	}
+	w.move(t, task, "done")
+	w.wake(t, id)
+	if ex := w.execution(t, id); ex.Status != workflow.Done {
+		t.Fatalf("should finish once HR is done: %+v", ex)
+	}
+}

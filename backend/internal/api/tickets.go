@@ -71,6 +71,9 @@ type ticketDTO struct {
 	FieldStates map[string]apps.FieldState `json:"field_states,omitempty"`
 	// CIs are the configuration items linked to it (single-ticket responses, for those who may read the CMDB).
 	CIs []ciSummaryDTO `json:"cis,omitempty"`
+	// RoutedAway is set on the response to a save that took the record out of the caller's sight: it now belongs to
+	// a restricted group they are not in. This response is the last they see of it.
+	RoutedAway bool `json:"routed_away,omitempty"`
 	// Articles are the knowledge articles linked to it that the reader may read (single-ticket responses).
 	Articles []articleRefDTO `json:"articles,omitempty"`
 	// Attachments are the files attached to it (single-ticket responses).
@@ -130,7 +133,11 @@ func (h *handlers) detail(ctx context.Context, q *dbgen.Queries, p auth.Principa
 	if out.Tasks, err = childTasks(ctx, q, out.ID); err != nil {
 		return err
 	}
-	out.SLAs, err = records.LoadSLAs(ctx, q, out.ID)
+	if out.SLAs, err = records.LoadSLAs(ctx, q, out.ID); err != nil {
+		return err
+	}
+	still, err := q.StillSees(ctx, out.ID)
+	out.RoutedAway = !still
 	return err
 }
 

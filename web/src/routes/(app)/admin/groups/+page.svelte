@@ -60,7 +60,7 @@
 			<li>
 				<a href="/admin/groups/{g.id}">
 					<span class="name">{g.name}</span>
-					<span class="count">{people(g.member_count)}</span>
+					<span class="count">{people(g.member_count)}{g.restricted ? ' · Restricted' : ''}</span>
 					{#if g.description}<span class="desc">{g.description}</span>{/if}
 				</a>
 			</li>

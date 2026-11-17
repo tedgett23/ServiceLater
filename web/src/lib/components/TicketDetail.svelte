@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
 	import { openAttachment, preview, previews } from '$lib/attachments.svelte';
 	import AffectedItems from '$lib/components/AffectedItems.svelte';
@@ -90,7 +91,15 @@
 		ticket = { ...ticket, ...optimistic };
 		queue.patch(ticket.id, optimistic);
 		try {
-			ticket = await request();
+			const saved = await request();
+			if (saved.routed_away) {
+				// Routed to a restricted group this person is not in: it is no longer theirs to see.
+				queue.remove(saved.id);
+				ui.announce = `${done}. ${saved.reference} is now visible only to that group.`;
+				void goto('/tickets');
+				return;
+			}
+			ticket = saved;
 			queue.upsert(ticket);
 			ui.announce = done;
 		} catch (e) {
@@ -487,7 +496,7 @@
 									{#if ticket.assignment_group_id && !groups.list.some((g) => g.id === ticket.assignment_group_id)}
 										<option value={ticket.assignment_group_id}>{ticket.assignment_group_name}</option>
 									{/if}
-									{#each groups.list as g (g.id)}<option value={g.id}>{g.name}</option>{/each}
+									{#each groups.list as g (g.id)}<option value={g.id}>{g.restricted ? `${g.name} (restricted)` : g.name}</option>{/each}
 								</select>
 							{:else}
 								{ticket.assignment_group_name}

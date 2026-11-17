@@ -13,12 +13,13 @@ FROM groups g WHERE g.id = $1;
 SELECT * FROM groups WHERE lower(name) = lower(sqlc.arg('name')::text);
 
 -- name: CreateGroup :one
-INSERT INTO groups (name, description) VALUES ($1, $2) RETURNING *;
+INSERT INTO groups (name, description, restricted) VALUES ($1, $2, $3) RETURNING *;
 
 -- name: UpdateGroup :one
 UPDATE groups SET
     name        = COALESCE(sqlc.narg('name'), name),
-    description = COALESCE(sqlc.narg('description'), description)
+    description = COALESCE(sqlc.narg('description'), description),
+    restricted  = COALESCE(sqlc.narg('restricted'), restricted)
 WHERE id = sqlc.arg('id')
 RETURNING *;
 

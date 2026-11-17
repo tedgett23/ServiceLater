@@ -4,10 +4,24 @@
 
 -- The assignment group is written with the row, not after it: a before rule routes an end user's ticket as it is
 -- filed, and only staff may update a task.
+-- The id is chosen by the save path, which marks it as being saved first (app_mark_saving): a record filed into a
+-- restricted group the filer is not in must still come back to them.
 -- name: CreateTask :one
-INSERT INTO tasks (type, title, description, priority, requester_id, status, state_category, assignment_group_id, fields, parent_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE(sqlc.narg('fields')::jsonb, '{}'::jsonb), sqlc.narg('parent_id'))
+INSERT INTO tasks (id, type, title, description, priority, requester_id, status, state_category, assignment_group_id, fields, parent_id)
+VALUES (COALESCE(sqlc.narg('id')::uuid, gen_random_uuid()), sqlc.arg('type'), sqlc.arg('title'), sqlc.arg('description'), sqlc.arg('priority'), sqlc.arg('requester_id'),
+        sqlc.arg('status'), sqlc.arg('state_category'), sqlc.narg('assignment_group_id'),
+        COALESCE(sqlc.narg('fields')::jsonb, '{}'::jsonb), sqlc.narg('parent_id'))
 RETURNING *;
+
+-- A record the caller is saving stays visible to them for the rest of the transaction (migration 00044).
+-- name: MarkSaving :exec
+SELECT app_mark_saving(sqlc.arg('id')::uuid);
+
+-- Whether the caller sees a record now, leaving out the one-transaction allowance for records they are saving: after
+-- a save that routed it to a restricted group they are not in, false.
+-- name: StillSees :one
+SELECT EXISTS (SELECT 1 FROM tasks t WHERE t.id = sqlc.arg('id')
+               AND app_sees_task(t.id, t.type, t.requester_id, t.assignee_id, t.assignment_group_id, false))::bool;
 
 -- The extension row for an incident. Every incident has one; the composite key guarantees the task really is one.
 -- name: CreateIncident :exec
@@ -213,3 +227,12 @@ SELECT count(*) AS open,
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 WHERE tt.retired_at IS NULL AND t.state_category IN ('open', 'waiting');
+
+-- Who may hear that a record changed, when it is routed to a restricted group (read by the realtime hub as the
+-- system): the group's members and the assignee. restricted is false for every other record, and nothing more is
+-- needed then.
+-- name: TaskAudience :one
+SELECT COALESCE(g.restricted, false)::bool AS restricted, t.assignee_id,
+       COALESCE(ARRAY(SELECT m.user_id FROM group_members m WHERE m.group_id = g.id), '{}')::uuid[] AS members
+FROM tasks t LEFT JOIN groups g ON g.id = t.assignment_group_id
+WHERE t.id = $1;

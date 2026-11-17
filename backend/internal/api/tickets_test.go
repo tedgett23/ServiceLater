@@ -430,3 +430,28 @@ func TestQueueViewCounts(t *testing.T) {
 		t.Errorf("an end user's views: %+v", got)
 	}
 }
+
+// A change is carried through even when the client has gone (the tab reloaded right after a field was left).
+// Regressed: a save cut off half done lost resolution notes in the e2e suite about one run in three.
+func TestAChangeFinishesWhenTheClientGoesAway(t *testing.T) {
+	h, pool := setup(t)
+	agent := newActor(t, h, pool, "agent@x.test", "agent")
+	tk := decodeBody[struct{ ID string }](t, agent.do(h, "POST", "/api/v1/tickets", `{"title":"Gone before the answer"}`))
+
+	gone, cancel := context.WithCancel(context.Background())
+	cancel()
+	send := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequestWithContext(gone, method, path, strings.NewReader(body))
+		req.Host = "sl.test"
+		for _, c := range agent.cookies {
+			req.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w
+	}
+	send("PATCH", "/api/v1/tickets/"+tk.ID, `{"priority":1}`)
+	if got := decodeBody[struct{ Priority int }](t, agent.do(h, "GET", "/api/v1/tickets/"+tk.ID, "")); got.Priority != 1 {
+		t.Errorf("the change was lost when its client went away: priority %d", got.Priority)
+	}
+}
