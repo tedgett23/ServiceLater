@@ -2,8 +2,10 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -78,7 +80,7 @@ func NewRouter(d Deps) http.Handler {
 	h := &handlers{pool: d.Pool, perms: auth.NewPermissionCache(d.Pool), auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool},
 		keys: d.Keys, sender: d.Sender, files: d.Files, signer: d.Signer}
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.Recoverer)
+	r.Use(middleware.RequestID, middleware.Recoverer, finishWrites)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(sameOrigin)
@@ -273,4 +275,23 @@ func NewRouter(d Deps) http.Handler {
 		})
 	}
 	return r
+}
+
+// writeTimeout bounds a change the client is no longer waiting for. It is long because file parts are uploads too:
+// a slow link still sending one is not a client that has gone.
+const writeTimeout = 5 * time.Minute
+
+// finishWrites lets a change finish when the client goes away. A read stops with the client. A change does not: once
+// someone has sent it (a field saved as they leave it, then the tab reloaded or closed), it is carried through or
+// fails on its own within writeTimeout, instead of being cut off half done and silently lost.
+func finishWrites(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), writeTimeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }

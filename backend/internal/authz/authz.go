@@ -38,6 +38,8 @@ const (
 	KnowledgePublish = "knowledge:publish" // publish, change, retire and delete articles
 	// KnowledgeReadInternal reads published articles meant for staff (audience internal).
 	KnowledgeReadInternal = "knowledge:read_internal"
+	// RestrictedRead sees records routed to restricted groups the person is not in (still only types they may read).
+	RestrictedRead = "restricted:read"
 )
 
 // Record verbs: what records:<verb>:<type> allows on records of that type. A requester always sees, and comments on,
@@ -128,6 +130,7 @@ var Catalog = []Permission{
 	{KnowledgeWrite, "Draft knowledge articles and send them for review"},
 	{KnowledgePublish, "Publish, change, retire and delete knowledge articles"},
 	{KnowledgeReadInternal, "Read knowledge articles meant for staff"},
+	{RestrictedRead, "See records routed to restricted groups they are not in"},
 }
 
 // Known reports whether name is a permission the platform checks: one of the Catalog, or a well-formed record

@@ -385,9 +385,14 @@ func (s *Service) Create(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 	if next, err = s.checkForm(ctx, q, a, apps.EventCreate, nil, next); err != nil {
 		return Ticket{}, err
 	}
-	// A ticket is a task plus its type's own row. Both are written in this transaction, or neither is.
+	// A ticket is a task plus its type's own row. Both are written in this transaction, or neither is. Its id is
+	// marked as being saved first, so a record filed straight into a restricted group still comes back to its filer.
+	newID := uuid.New()
+	if err := q.MarkSaving(ctx, newID); err != nil {
+		return Ticket{}, err
+	}
 	t, err := q.CreateTask(ctx, dbgen.CreateTaskParams{
-		Type: next.Type, Title: strings.TrimSpace(next.Title), Description: next.Description, Priority: next.Priority, RequesterID: requester,
+		ID: uuid.NullUUID{UUID: newID, Valid: true}, Type: next.Type, Title: strings.TrimSpace(next.Title), Description: next.Description, Priority: next.Priority, RequesterID: requester,
 		Status: lc.Initial, StateCategory: string(category), AssignmentGroupID: nullUUID(next.AssignmentGroupID),
 		Fields: EncodeFields(next.Fields), ParentID: nullUUID(next.ParentID)})
 	if err != nil {
@@ -442,6 +447,11 @@ func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 		return Ticket{}, Invalid("resolution notes are too long")
 	}
 	if _, err := q.GetTaskForUpdate(ctx, id); err != nil {
+		return Ticket{}, err
+	}
+	// Read under RLS just now, so the caller sees it: it stays in view for the rest of this save even if the save
+	// routes it to a restricted group they are not in.
+	if err := q.MarkSaving(ctx, id); err != nil {
 		return Ticket{}, err
 	}
 	cur, err := Load(ctx, q, id)
@@ -545,6 +555,9 @@ func (s *Service) Transition(ctx context.Context, q *dbgen.Queries, a Actor, cau
 	// Lock the row so two concurrent transitions can't both pass the check against the same state.
 	t, err := q.GetTaskForUpdate(ctx, id)
 	if err != nil {
+		return Ticket{}, err
+	}
+	if err := q.MarkSaving(ctx, id); err != nil {
 		return Ticket{}, err
 	}
 	// Which lifecycle applies depends on the ticket's type, so it is known only once the ticket is loaded.

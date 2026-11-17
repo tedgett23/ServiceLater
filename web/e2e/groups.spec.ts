@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { as, createTicket, details, expect, openTicket, row, test, uid } from './helpers';
+import { api, as, createTicket, details, expect, openTicket, row, test, uid } from './helpers';
 import { USERS } from './users';
 
 const assignee = (page: Page) => details(page).getByLabel('Assignee');
@@ -123,4 +123,45 @@ test('on a phone the admin header and the groups pages fit', async ({ browser })
 	await admin.page.goto('/tickets');
 	const box = await admin.page.getByRole('button', { name: 'My groups' }).boundingBox();
 	expect(box!.height).toBeLessThan(40);
+});
+
+// A restricted group (HR) keeps its tickets to its members. The service desk routes a misfiled ticket there, is told
+// it has gone, and can no longer open it; a member of HR works it as usual.
+test('a ticket routed to a restricted group leaves everyone else', async ({ browser }) => {
+	const admin = await as(browser, 'admin');
+	const desk = await as(browser, 'agent');
+	const tomas = await as(browser, 'agent2');
+	const lena = await as(browser, 'lena');
+	const tag = uid();
+	const name = `HR ${tag}`;
+	const idOf = async (who: typeof lena) => ((await (await who.context.request.get('/api/v1/auth/me')).json()) as { id: string }).id;
+
+	// An admin makes the group and restricts it on its page.
+	const g = await api(admin.context, 'post', '/api/v1/groups', { name });
+	expect((await admin.context.request.put(`/api/v1/groups/${g.id}/members/${await idOf(tomas)}`)).status()).toBe(204);
+	await admin.page.goto(`/admin/groups/${g.id}`);
+	await admin.page.getByRole('checkbox', { name: /Restricted/ }).check();
+	await admin.page.getByRole('button', { name: 'Save' }).click();
+	await expect(admin.page.getByRole('heading', { level: 1 })).toContainText('Restricted');
+
+	try {
+		const t = await createTicket(lena.context, { title: `My payslip is missing ${tag}` });
+		await openTicket(desk.page, t.reference);
+		await details(desk.page).getByLabel('Assignment group').selectOption({ label: `${name} (restricted)` });
+
+		// Back on the queue, told why, and the ticket is gone for them.
+		await expect(desk.page).toHaveURL(/\/tickets$/);
+		await expect(desk.page.locator('[aria-live="polite"]').first()).toContainText('visible only to that group');
+		await expect(row(desk.page, t.title)).toHaveCount(0);
+		const res = await desk.context.request.get(`/api/v1/tickets/${t.reference}`);
+		expect(res.status()).toBe(404);
+
+		// HR sees it and works it; so does the person who asked.
+		await openTicket(tomas.page, t.reference);
+		await expect(tomas.page.getByRole('heading', { level: 1 })).toHaveText(t.title);
+		await openTicket(lena.page, t.reference);
+		await expect(lena.page.getByRole('heading', { level: 1 })).toHaveText(t.title);
+	} finally {
+		await admin.context.request.patch(`/api/v1/groups/${g.id}`, { data: { restricted: false } });
+	}
 });

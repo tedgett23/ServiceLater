@@ -99,6 +99,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 			go deps.Apps.Run(ctx, cfg.DatabaseURL)
 			deps.Hub = realtime.NewHub()
 			deps.Hub.MaxPerUser = cfg.MaxLiveConns
+			deps.Hub.Audience = realtime.AudienceFrom(pool)
 			deps.Apps.OnChange(deps.Hub.DefinitionsChanged)
 			go deps.Hub.Run(ctx, cfg.DatabaseURL)
 		}

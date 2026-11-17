@@ -171,6 +171,12 @@ class Queue {
 		if (i >= 0) this.items[i] = { ...this.items[i], ...changes };
 	}
 
+	/** Drop a ticket the person can no longer see (routed to a restricted group they are not in). */
+	remove(id: string) {
+		this.items = this.items.filter((x) => x.id !== id);
+		void this.loadCounts();
+	}
+
 	prepend(t: Ticket) {
 		this.items = [withSlaSummary(t), ...this.items.filter((x) => x.id !== t.id)];
 	}

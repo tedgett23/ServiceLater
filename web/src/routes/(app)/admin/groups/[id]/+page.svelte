@@ -15,7 +15,10 @@
 	// Editing the name and description.
 	let name = $state('');
 	let description = $state('');
-	const dirty = $derived(!!group && (name.trim() !== group.name || description !== group.description));
+	let restricted = $state(false);
+	const dirty = $derived(
+		!!group && (name.trim() !== group.name || description !== group.description || restricted !== group.restricted)
+	);
 
 	// Finding someone to add.
 	let search = $state('');
@@ -38,6 +41,7 @@
 			group = await api<GroupDetail>(`/api/v1/groups/${page.params.id}`);
 			name = group.name;
 			description = group.description;
+			restricted = group.restricted;
 			loadError = '';
 		} catch (e) {
 			loadError = e instanceof ApiError && e.status === 404 ? 'That group does not exist.' : 'Could not load this group.';
@@ -81,7 +85,7 @@
 		e.preventDefault();
 		if (!dirty) return;
 		void act(
-			() => api(`/api/v1/groups/${page.params.id}`, { method: 'PATCH', body: { name: name.trim(), description } }),
+			() => api(`/api/v1/groups/${page.params.id}`, { method: 'PATCH', body: { name: name.trim(), description, restricted } }),
 			'Group saved'
 		);
 	}
@@ -136,8 +140,11 @@
 	{#if loadError}
 		<p class="msg" role="alert">{loadError}</p>
 	{:else if group}
-		<h1>{group.name}</h1>
+		<h1>{group.name}{#if group.restricted}{' '}<span class="restricted">Restricted</span>{/if}</h1>
 		{#if group.description}<p class="lede">{group.description}</p>{/if}
+		{#if group.restricted}
+			<p class="hint">Records routed to this group are seen only by its members, their requesters and assignees, and people allowed to see restricted records.</p>
+		{/if}
 
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
 
@@ -229,6 +236,15 @@
 			<label class="field">
 				<span>Description</span>
 				<input bind:value={description} maxlength="1000" />
+			</label>
+			<!-- Who sees the group's records changes with this, so only those who manage roles may change it. -->
+			<label class="check">
+				<input type="checkbox" bind:checked={restricted} disabled={!manageRoles} />
+				<span>
+					Restricted
+					<small>Only members see the records routed to this group, as HR or Security need. Other staff stop seeing them.{#if !manageRoles}
+							Changing this needs permission to manage roles.{/if}</small>
+				</span>
 			</label>
 			<div><button class="btn primary" disabled={!dirty || !name.trim() || busy}>Save</button></div>
 		</form>
@@ -371,5 +387,31 @@
 		color: var(--red);
 		font-weight: 600;
 		font-size: 0.9rem;
+	}
+	.restricted {
+		vertical-align: middle;
+		margin-left: 0.4rem;
+		padding: 0.1rem 0.45rem;
+		border-radius: 5px;
+		background: var(--marker-soft);
+		color: var(--marker-ink);
+		font-size: 0.75rem;
+		font-weight: 600;
+		letter-spacing: 0;
+	}
+	.check {
+		display: flex;
+		align-items: flex-start;
+		gap: 0.55rem;
+		font-weight: 550;
+	}
+	.check input {
+		margin-top: 0.2rem;
+	}
+	.check small {
+		display: block;
+		font-weight: 400;
+		color: var(--ink-2);
+		font-size: 0.8125rem;
 	}
 </style>
