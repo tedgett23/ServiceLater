@@ -234,9 +234,10 @@
 		overflow-y: auto;
 		padding: 0;
 		border: 1px solid var(--rule);
-		border-radius: var(--radius);
-		background: var(--surface);
+		border-radius: 12px;
+		background: var(--raised);
 		color: var(--ink);
+		box-shadow: var(--shadow-pop);
 	}
 	.suggest {
 		padding: 0.6rem 0.75rem;
@@ -253,7 +254,7 @@
 		padding-left: 1.1rem;
 	}
 	dialog::backdrop {
-		background: color-mix(in srgb, var(--ink) 55%, transparent);
+		background: color-mix(in srgb, #0b0d13 45%, transparent);
 	}
 	form {
 		display: grid;
@@ -261,7 +262,7 @@
 		padding: 1.5rem;
 	}
 	h2 {
-		font: 650 1.5rem/1.3 var(--font-display);
+		font: 650 1.125rem/1.3 var(--font-display);
 	}
 	.kinds {
 		display: flex;

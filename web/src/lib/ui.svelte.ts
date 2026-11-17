@@ -11,6 +11,8 @@ function storedCollapsed() {
 /** App-wide UI state that more than one component needs. */
 export const ui = $state({
 	newTicketOpen: false,
+	/** The global search palette is open (Ctrl or Cmd + K). */
+	searchOpen: false,
 	announce: '',
 	/** The navigation at the left shows only its icons. Remembered on this device. */
 	navCollapsed: typeof window === 'undefined' ? false : storedCollapsed()

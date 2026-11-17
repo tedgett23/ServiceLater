@@ -178,6 +178,28 @@ func (q *Queries) GetCommentView(ctx context.Context, id uuid.UUID) (GetCommentV
 	return i, err
 }
 
+const getLiveTaskTypeByPrefix = `-- name: GetLiveTaskTypeByPrefix :one
+SELECT type, prefix, label, anyone_may_file, from_catalog, owner_app, plural, description, retired_at FROM task_types WHERE prefix = $1 AND retired_at IS NULL
+`
+
+// A prefix someone may type to find a record: a type that is not retired.
+func (q *Queries) GetLiveTaskTypeByPrefix(ctx context.Context, prefix string) (TaskType, error) {
+	row := q.db.QueryRow(ctx, getLiveTaskTypeByPrefix, prefix)
+	var i TaskType
+	err := row.Scan(
+		&i.Type,
+		&i.Prefix,
+		&i.Label,
+		&i.AnyoneMayFile,
+		&i.FromCatalog,
+		&i.OwnerApp,
+		&i.Plural,
+		&i.Description,
+		&i.RetiredAt,
+	)
+	return i, err
+}
+
 const getTask = `-- name: GetTask :one
 SELECT id, number, title, description, status, priority, requester_id, assignee_id, created_at, updated_at, state_category, type, assignment_group_id, fields, parent_id FROM tasks WHERE id = $1
 `

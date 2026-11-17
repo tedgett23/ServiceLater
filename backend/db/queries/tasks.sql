@@ -48,6 +48,10 @@ SELECT type FROM task_types WHERE retired_at IS NOT NULL ORDER BY type;
 -- name: GetTaskTypeByPrefix :one
 SELECT * FROM task_types WHERE prefix = $1;
 
+-- A prefix someone may type to find a record: a type that is not retired.
+-- name: GetLiveTaskTypeByPrefix :one
+SELECT * FROM task_types WHERE prefix = $1 AND retired_at IS NULL;
+
 -- An app's record type, written by its install (records keep their numbering across reinstalls). Bringing a type back
 -- clears its retirement. name and prefix of a type with records never change: the install refuses that first.
 -- name: UpsertAppTaskType :exec

@@ -46,7 +46,7 @@ test.describe('Knowledge', () => {
 		await lena.page.goto('/tickets');
 		await lena.page.getByRole('navigation', { name: 'Sections' }).first().getByRole('link', { name: 'Knowledge' }).click();
 		await lena.page.getByLabel('Search articles').fill(`${id} paper`);
-		await lena.page.getByRole('button', { name: 'Search' }).click();
+		await lena.page.getByRole('button', { name: 'Search', exact: true }).click();
 		const hit = lena.page.getByRole('list', { name: 'Articles' }).locator('li', { hasText: title });
 		await expect(hit.locator('mark').first()).toBeVisible();
 		// Regressed: snippets once showed the Markdown marks (**tray 2**) as typed.
