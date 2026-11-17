@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { as, createTicket, details, openTicket, row, uid } from './helpers';
+import { type Page } from '@playwright/test';
+import { as, createTicket, details, expect, openTicket, row, test, uid } from './helpers';
 import { USERS } from './users';
 
 const assignee = (page: Page) => details(page).getByLabel('Assignee');

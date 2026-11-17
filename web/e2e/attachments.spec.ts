@@ -1,6 +1,6 @@
 import fs from 'node:fs';
-import { expect, test, type Page } from '@playwright/test';
-import { as, createTicket, openTicket, uid } from './helpers';
+import { type Page } from '@playwright/test';
+import { as, createTicket, expect, openTicket, test, uid } from './helpers';
 import { USERS } from './users';
 
 const section = (page: Page) => page.getByRole('region', { name: 'Attachments' });

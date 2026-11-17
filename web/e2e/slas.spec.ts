@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { as, createTicket, details, openTicket, row, uid } from './helpers';
+import { as, createTicket, details, expect, openTicket, row, test, uid } from './helpers';
 
 // incident-management ships respond and resolve SLAs, counted by the business-hours calendar. These tests never
 // change that calendar: the server and database are shared, and every other test's incidents count by it.

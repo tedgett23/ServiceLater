@@ -1,7 +1,6 @@
-import { expect, test } from '@playwright/test';
 import path from 'node:path';
 import { installApp, servicelater } from './apps';
-import { as, createTicket, details, row, uid } from './helpers';
+import { as, createTicket, details, expect, row, test, uid } from './helpers';
 
 // The tyler sample app (tests only) defines its own record type: Things, numbered TYL1, TYL2 ...
 const TYLER = path.resolve(import.meta.dirname, '../../backend/internal/apps/testdata/tyler');

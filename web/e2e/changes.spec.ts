@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { as, createTicket, details, openTicket, row, uid } from './helpers';
+import { as, createTicket, details, expect, openTicket, row, test, uid } from './helpers';
 
 // change-management is installed at startup: changes are a second record type, filed from the same dialog.
 test.describe('changes', () => {

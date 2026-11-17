@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { api, as, composer, createTicket, details, openTicket, row, uid } from './helpers';
+import { api, as, composer, createTicket, details, expect, openTicket, row, test, uid } from './helpers';
 import { USERS } from './users';
 
 test.describe('an agent working the queue', () => {

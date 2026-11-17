@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { api, as, createTicket, details, openTicket, uid } from './helpers';
+import { api, as, createTicket, details, expect, openTicket, test, uid } from './helpers';
 import { USERS } from './users';
 import fs from 'node:fs';
 import os from 'node:os';

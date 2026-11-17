@@ -1,6 +1,5 @@
-import { expect, test } from '@playwright/test';
 import { installFirstParty, writeLocalOverride } from './apps';
-import { as, details, uid } from './helpers';
+import { as, details, expect, test, uid } from './helpers';
 
 // incident-management's form: category and subcategory sort an incident, and impact and urgency work out its
 // priority (a before rule), which people then cannot set by hand. The server decides all of it; the page only shows

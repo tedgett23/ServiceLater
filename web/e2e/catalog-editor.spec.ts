@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { as, uid } from './helpers';
+import { as, expect, test, uid } from './helpers';
 
 // Admins change the catalog in the UI: an edit to a shipped item is live at once and can be undone; a new item joins
 // the catalog. Edits go into the app's studio layer, so every test undoes its own in finally: the database is shared.

@@ -1,5 +1,4 @@
-import { expect, test } from '@playwright/test';
-import { as, createTicket, details, openTicket, uid } from './helpers';
+import { as, createTicket, details, expect, openTicket, test, uid } from './helpers';
 import { installApp, servicelater, tempApp } from './apps';
 
 const startRule = (tag: string, workflow: string) => `kind: rule
@@ -124,6 +123,8 @@ test('a group decides once, by whichever member answers first', async ({ browser
 		// Lena answered for the group: Marcus no longer has anything to answer, without reloading.
 		await expect(marcusRow).toHaveCount(0);
 		await expect(marcus.page.getByText('Nothing is waiting on you.')).toBeVisible();
+		// Regressed (about 1 run in 4): the workflow's comment landed between the page fetching the ticket and its live
+		// connection opening, and the page never showed it. The first connection now makes the page refetch.
 		await openTicket(agent.page, t.number);
 		await expect(agent.page.locator('.activity li', { hasText: 'Approved: fine by the owners' })).toBeVisible({ timeout: 15_000 });
 	} finally {
