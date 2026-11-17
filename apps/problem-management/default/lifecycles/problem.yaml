@@ -1,0 +1,39 @@
+# How a problem is worked: assessed, its root cause found, a fix made, then resolved. Core code only understands each
+# state's category (open, waiting, done, closed), so states can be renamed or added, and guards changed, in local/.
+kind: lifecycle
+record_type: problem
+initial: new
+states:
+  new:                 { label: New,                 category: open }
+  assess:              { label: Assess,              category: open }
+  root_cause_analysis: { label: Root cause analysis, category: open }
+  fix_in_progress:     { label: Fix in progress,     category: open }
+  resolved:            { label: Resolved,            category: done }
+  closed:              { label: Closed,              category: closed }
+  cancelled:           { label: Cancelled,           category: closed }
+transitions:
+  - { from: new, to: assess, verb: Assess, primary: true }
+  - { from: new, to: cancelled, verb: Cancel }
+
+  - { from: assess, to: root_cause_analysis, verb: Find the root cause, primary: true }
+  - { from: assess, to: cancelled, verb: Cancel }
+
+  - from: root_cause_analysis
+    to: fix_in_progress
+    verb: Start the fix
+    primary: true
+    when: has(record.fields.root_cause)
+    error: Write down the root cause first.
+  - { from: root_cause_analysis, to: cancelled, verb: Cancel }
+
+  - from: fix_in_progress
+    to: resolved
+    verb: Resolve
+    primary: true
+    when: has(record.fields.root_cause) && has(record.fields.fix)
+    error: Say what the fix was before resolving. Resolving also resolves the open incidents linked to this problem.
+  - { from: fix_in_progress, to: root_cause_analysis, verb: Back to analysis }
+  - { from: fix_in_progress, to: cancelled, verb: Cancel }
+
+  - { from: resolved, to: closed, verb: Close, primary: true }
+  - { from: resolved, to: fix_in_progress, verb: Reopen }

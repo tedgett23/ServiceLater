@@ -69,6 +69,13 @@ type Ticket struct {
 	OpenTasks int64 `json:"open_tasks"`
 	// CatalogItem is the catalog item a request was ordered from (empty for anything else): its form is the record's.
 	CatalogItem string `json:"catalog_item,omitempty"`
+	// ProblemID is the problem an incident is linked to (incidents only), with how people name it and its title as the
+	// reader may see them (empty when they may not).
+	ProblemID        *uuid.UUID `json:"problem_id,omitempty"`
+	ProblemReference string     `json:"problem_reference,omitempty"`
+	ProblemTitle     string     `json:"problem_title,omitempty"`
+	// OpenIncidents is how many incidents linked to a problem are still open or waiting (single tickets only).
+	OpenIncidents int64 `json:"open_incidents"`
 	// RequesterManagerID is the requester's manager, for expressions (approval by the manager).
 	RequesterManagerID *uuid.UUID `json:"-"`
 	// CIs are the configuration items linked to it, by name, as the reader may see them (none without cmdb:read).
@@ -283,6 +290,11 @@ func Load(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (Ticket, error) {
 		t.RequesterManagerID = &id
 	}
 	t.OpenTasks, t.CatalogItem = v.OpenTasks, v.CatalogItem
+	if v.ProblemID.Valid {
+		id := v.ProblemID.UUID
+		t.ProblemID, t.ProblemReference, t.ProblemTitle = &id, v.ProblemReference, v.ProblemTitle
+	}
+	t.OpenIncidents = v.OpenIncidents
 	cis, err := q.ListTaskCIs(ctx, id)
 	for _, c := range cis {
 		t.CIs = append(t.CIs, ciFrom(dbgen.GetCIsByIDRow(c)))
@@ -299,6 +311,11 @@ func (d Ticket) ExprRecord() *expr.Record {
 		StateCategory: d.StateCategory, Priority: int64(d.Priority), RequesterID: d.RequesterID.String(),
 		RequesterName: d.Requester, CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt, AssigneeName: d.Assignee,
 		AssignmentGroup: d.AssignmentGroup, Fields: d.Fields, OpenTasks: d.OpenTasks, CatalogItem: d.CatalogItem,
+		OpenIncidents: d.OpenIncidents,
+	}
+	if d.ProblemID != nil {
+		id := d.ProblemID.String()
+		r.ProblemID = &id
 	}
 	if d.ParentID != nil {
 		id := d.ParentID.String()

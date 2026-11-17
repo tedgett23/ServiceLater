@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -138,6 +139,12 @@ type Action struct {
 	// a list of user ids. The engine still drops the person who made the change, anyone deactivated, and anyone
 	// who cannot see the record.
 	To []string `json:"to,omitempty"`
+	// Linked is which records linked to this one linked.update changes (a name in LinkedRecords), Status the status
+	// it moves each to, and Set the fields it sets on each first. Body, if given, is a comment on each. Every value
+	// is worked out once, against the record the rule runs on.
+	Linked string            `json:"linked,omitempty"`
+	Status string            `json:"status,omitempty"`
+	Set    map[string]*Value `json:"set,omitempty"`
 
 	when    *expr.Program
 	whenErr error
@@ -188,16 +195,19 @@ type ruleFile struct {
 }
 
 type actionFile struct {
-	Action   string   `yaml:"action"`
-	When     string   `yaml:"when"`
-	Field    string   `yaml:"field"`
-	Value    *Value   `yaml:"value"`
-	Message  *Value   `yaml:"message"`
-	Body     *Value   `yaml:"body"`
-	Internal bool     `yaml:"internal"`
-	Workflow string   `yaml:"workflow"`
-	Template string   `yaml:"template"`
-	To       []string `yaml:"to"`
+	Action   string            `yaml:"action"`
+	When     string            `yaml:"when"`
+	Field    string            `yaml:"field"`
+	Value    *Value            `yaml:"value"`
+	Message  *Value            `yaml:"message"`
+	Body     *Value            `yaml:"body"`
+	Internal bool              `yaml:"internal"`
+	Workflow string            `yaml:"workflow"`
+	Template string            `yaml:"template"`
+	To       []string          `yaml:"to"`
+	Linked   string            `yaml:"linked"`
+	Status   string            `yaml:"status"`
+	Set      map[string]*Value `yaml:"set"`
 }
 
 func parseRule(file string, data []byte, forms formSet, p *Problems) *Rule {
@@ -219,7 +229,8 @@ func parseRule(file string, data []byte, forms formSet, p *Problems) *Rule {
 		r.OnError = OnErrorBlock
 	}
 	for _, a := range f.Run {
-		r.Run = append(r.Run, Action{Action: a.Action, When: a.When, Field: a.Field, Value: a.Value, Message: a.Message, Body: a.Body, Internal: a.Internal, Workflow: a.Workflow, Template: a.Template, To: a.To})
+		r.Run = append(r.Run, Action{Action: a.Action, When: a.When, Field: a.Field, Value: a.Value, Message: a.Message, Body: a.Body, Internal: a.Internal, Workflow: a.Workflow, Template: a.Template, To: a.To,
+			Linked: a.Linked, Status: a.Status, Set: a.Set})
 	}
 	before := len(*p)
 	r.validate(file, p)
@@ -271,6 +282,13 @@ func (r *Rule) validate(file string, p *Problems) {
 			}
 			if v.v != nil {
 				declared(fmt.Sprintf("run[%d]: %s", i, v.name), v.v.program)
+			}
+		}
+		for _, field := range slices.Sorted(maps.Keys(a.Set)) {
+			if v := a.Set[field]; v != nil && v.err != nil {
+				p.add(file, "run[%d]: set: %s: %v", i, field, v.err)
+			} else if v != nil {
+				declared(fmt.Sprintf("run[%d]: set: %s", i, field), v.program)
 			}
 		}
 	}
@@ -433,16 +451,96 @@ func (a *Action) structureProblems(r *Rule, _ int) (out []string) {
 		extra("message", a.Message != nil)
 		extra("body", a.Body != nil)
 		extra("workflow", a.Workflow != "")
+	case "linked.update":
+		out = append(out, a.linkedProblems(r)...)
+		extra("field", a.Field != "")
+		extra("value", a.Value != nil)
+		extra("message", a.Message != nil)
+		extra("workflow", a.Workflow != "")
 	case "":
-		add("an action needs a name: abort, set, comment.add, record.update, workflow.start or notify")
+		add("an action needs a name: abort, set, comment.add, record.update, linked.update, workflow.start or notify")
 	default:
-		add("unknown action %q (available: abort, set, comment.add, record.update, workflow.start, notify)", a.Action)
+		add("unknown action %q (available: abort, set, comment.add, record.update, linked.update, workflow.start, notify)", a.Action)
 	}
 	if a.Action != "notify" {
 		extra("template", a.Template != "")
 		extra("to", len(a.To) > 0)
 	}
+	if a.Action != "linked.update" {
+		extra("linked", a.Linked != "")
+		extra("status", a.Status != "")
+		extra("set", len(a.Set) > 0)
+	}
 	return out
+}
+
+// Linked is a kind of record linked to another that linked.update can reach: from a record of type From, the
+// records of type Type that point at it.
+type Linked struct {
+	From, Type string
+}
+
+// LinkedRecords are the links linked.update follows, by the name a rule gives. Each is a typed column in core, so
+// adding one is a core change: incidents point at the problem behind them (incidents.problem_id).
+var LinkedRecords = map[string]Linked{"incidents": {From: "problem", Type: "incident"}}
+
+// maxLinkedSet is how many fields one linked.update may set.
+const maxLinkedSet = 10
+
+var statusNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+
+// linkedProblems checks a linked.update: an async rule (it saves other records), on the record type the link starts
+// from, with something to do. The status is checked against the linked type's lifecycle when it runs, since that
+// lifecycle may come from another app.
+func (a *Action) linkedProblems(r *Rule) (out []string) {
+	add := func(format string, args ...any) { out = append(out, fmt.Sprintf(format, args...)) }
+	if r.Timing != TimingAsync {
+		add("linked.update saves other records, so it is only allowed in an async rule")
+	}
+	l, ok := LinkedRecords[a.Linked]
+	switch {
+	case a.Linked == "":
+		add("linked.update needs linked: which records (%s)", linkedList())
+		return out
+	case !ok:
+		add("linked: %q is not a link (%s)", a.Linked, linkedList())
+		return out
+	case r.RecordType != l.From:
+		add("linked: %s are linked to %s records, so the rule must be for record_type %s", a.Linked, l.From, l.From)
+	}
+	if a.Status != "" && !statusNameRE.MatchString(a.Status) {
+		add("status %q is not a status name", a.Status)
+	}
+	if a.Status == "" && len(a.Set) == 0 && a.Body == nil {
+		add("linked.update needs something to do: status, set or body")
+	}
+	if len(a.Set) > maxLinkedSet {
+		add("linked.update may set at most %d fields", maxLinkedSet)
+	}
+	for _, field := range slices.Sorted(maps.Keys(a.Set)) {
+		v := a.Set[field]
+		kind, ok := SettableFields[field]
+		switch {
+		case strings.HasPrefix(field, "fields."):
+			add("set: %s: linked.update cannot set extra fields yet (they belong to another app's form)", field)
+			continue
+		case !ok:
+			add("set: linked.update cannot change %q (it can change: %s)", field, settableList())
+			continue
+		case ownerProblem(field, l.Type, "linked.update") != "":
+			add("set: %s belongs to %s records, and these are %s records", field, FieldOwners[field], l.Type)
+		}
+		if v == nil {
+			add("set: %s needs a value", field)
+		} else if v.Expr == "" {
+			out = append(out, literalProblems(field, kind, v.Literal)...)
+		}
+	}
+	return out
+}
+
+func linkedList() string {
+	return strings.Join(slices.Sorted(maps.Keys(LinkedRecords)), ", ")
 }
 
 func quoteAll(values []string) string {
@@ -515,6 +613,13 @@ func (r *Rule) compile() {
 			want = expr.KindType(r.Fields[name])
 		}
 		a.Value.compile(env, err, want)
+		for field, v := range a.Set {
+			kind := expr.String
+			if SettableFields[field] == "number" {
+				kind = expr.Int
+			}
+			v.compile(env, err, kind)
+		}
 		a.Message.compile(env, err, expr.String)
 		a.Body.compile(env, err, expr.String)
 		a.to, a.toErr = make([]*expr.Program, len(a.To)), make([]error, len(a.To))

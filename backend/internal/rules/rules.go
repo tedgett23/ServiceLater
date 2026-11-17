@@ -71,12 +71,23 @@ type Notify struct {
 	GroupIDs []string
 }
 
-// Effects are what rules asked for besides changing the record: comments to write, workflows to start and
-// notifications to send.
+// Linked is a linked.update an async rule asked for: change each open record linked to this one (Linked names the
+// link) by setting Set, then moving it to Status, with Comment on it. The values were worked out against the record
+// the rule ran on; the caller finds the linked records and saves each one through the save path.
+type Linked struct {
+	App, Rule, Linked, Status string
+	Set                       map[string]any
+	Comment                   string
+	Internal                  bool
+}
+
+// Effects are what rules asked for besides changing the record: comments to write, workflows to start,
+// notifications to send and linked records to change.
 type Effects struct {
 	Comments []Comment
 	Starts   []Start
 	Notifies []Notify
+	Linked   []Linked
 }
 
 // Before runs before rules in order against in.Record, which it never changes: the record as the rules left it is
@@ -246,6 +257,24 @@ func perform(ctx context.Context, r *apps.Rule, a *apps.Action, in expr.Input, f
 		}
 		fx.Notifies = append(fx.Notifies, n)
 		return nil
+	case "linked.update":
+		l := Linked{App: r.App, Rule: r.Name, Linked: a.Linked, Status: a.Status, Internal: a.Internal, Set: map[string]any{}}
+		for field, v := range a.Set {
+			x, err := value(ctx, v, in)
+			if err != nil {
+				return fmt.Errorf("set %s: %w", field, err)
+			}
+			l.Set[field] = x
+		}
+		if a.Body != nil {
+			body, err := text(ctx, a.Body, in)
+			if err != nil {
+				return err
+			}
+			l.Comment = body
+		}
+		fx.Linked = append(fx.Linked, l)
+		return nil
 	case "set", "record.update":
 		// Both change the record in memory. In a before rule that is the save itself; in an async rule the caller
 		// saves the difference afterwards, through the same path a person's edit takes.
@@ -288,7 +317,13 @@ func set(ctx context.Context, a *apps.Action, in expr.Input) error {
 	if err != nil {
 		return err
 	}
-	rec := in.Record
+	return Assign(in.Record, a.Field, x)
+}
+
+// Assign sets a field of a record to a value a rule worked out: a settable field (apps.SettableFields) or an extra
+// field (fields.name).
+func Assign(rec *expr.Record, field string, x any) error {
+	a := struct{ Field string }{field}
 	if name, ok := strings.CutPrefix(a.Field, "fields."); ok {
 		// The type was checked when the rule was compiled; the value is checked against the form when the record is saved.
 		rec.SetField(name, x)

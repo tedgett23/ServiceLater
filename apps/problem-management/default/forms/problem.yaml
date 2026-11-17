@@ -1,0 +1,38 @@
+# How a problem is filled in and shown. The root cause, workaround and fix are written as the work goes on; a problem
+# with a workaround can be marked a known error, which tells its incidents the workaround (rules/share-workaround.yaml).
+kind: form
+record_type: problem
+fields:
+  category:
+    type: choice
+    label: Category
+    options:
+      - { value: hardware, label: Hardware }
+      - { value: software, label: Software }
+      - { value: network, label: Network }
+      - { value: access, label: Access and accounts }
+      - { value: other, label: Something else }
+  root_cause:
+    type: textarea
+    label: Root cause
+    help: Why the incidents happened.
+  workaround:
+    type: textarea
+    label: Workaround
+    help: How people can carry on until it is fixed.
+  known_error:
+    type: boolean
+    label: Known error
+    help: The cause is known and there is a workaround. Marking it tells the linked incidents the workaround.
+  fix:
+    type: textarea
+    label: Fix
+    help: What was changed so it does not happen again.
+validate:
+  - when: '!has(record.fields.known_error) || !record.fields.known_error || has(record.fields.workaround)'
+    error: A known error needs a workaround.
+layout:
+  create: [title, description, category, priority]
+  detail:
+    - section: Analysis
+      fields: [category, root_cause, workaround, known_error, fix]

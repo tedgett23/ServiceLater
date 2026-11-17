@@ -4194,6 +4194,13 @@
             "format": "uuid",
             "type": "string"
           },
+          "incidents": {
+            "description": "The incidents linked to a problem that the reader may see, oldest first (single-ticket responses, problems only).",
+            "items": {
+              "$ref": "#/components/schemas/ChildTask"
+            },
+            "type": "array"
+          },
           "moves": {
             "description": "Says what the person may do next, and why anything is blocked.",
             "items": {
@@ -4202,6 +4209,10 @@
             "type": "array"
           },
           "number": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "open_incidents": {
             "format": "int64",
             "type": "integer"
           },
@@ -4228,6 +4239,19 @@
           "priority": {
             "format": "int32",
             "type": "integer"
+          },
+          "problem_id": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "problem_reference": {
+            "type": "string"
+          },
+          "problem_title": {
+            "type": "string"
           },
           "reference": {
             "type": "string"
@@ -4298,6 +4322,7 @@
           "fields",
           "id",
           "number",
+          "open_incidents",
           "open_tasks",
           "parent_id",
           "prefix",
@@ -14439,6 +14464,14 @@
                     "description": "Fills in extra fields, by name, as the type's form declares them (GET /forms/{type}).",
                     "type": "object"
                   },
+                  "incidents": {
+                    "description": "Links these incidents to a new problem, each an edit of that incident (as PATCH problem_id would be), in the same transaction: a problem raised from an incident starts out linked to it.",
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
                   "parent_id": {
                     "description": "Files it under another record (a task under a request).",
                     "format": "uuid",
@@ -14451,6 +14484,14 @@
                     "format": "int32",
                     "type": [
                       "integer",
+                      "null"
+                    ]
+                  },
+                  "problem_id": {
+                    "description": "Links a new incident to the problem behind it.",
+                    "format": "uuid",
+                    "type": [
+                      "string",
                       "null"
                     ]
                   },
@@ -14829,6 +14870,14 @@
                     "format": "int32",
                     "type": [
                       "integer",
+                      "null"
+                    ]
+                  },
+                  "problem_id": {
+                    "description": "Links an incident to the problem behind it; null unlinks it.",
+                    "format": "uuid",
+                    "type": [
+                      "string",
                       "null"
                     ]
                   },

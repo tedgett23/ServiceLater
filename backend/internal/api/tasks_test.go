@@ -133,6 +133,7 @@ func installBaseFlow(t *testing.T, pool *pgxpool.Pool, reg *apps.Registry) {
 // keeps it. Tickets of a type with no extension table work everywhere: list, read, comment and move.
 func TestATypeInheritsTheTaskLifecycle(t *testing.T) {
 	h, pool, reg := setupApps(t)
+	withoutProblemManagement(t, pool, reg)
 	installBaseFlow(t, pool, reg)
 	agent := newActor(t, h, pool, "agent@x.test", "agent")
 

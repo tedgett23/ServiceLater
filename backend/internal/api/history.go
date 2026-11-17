@@ -94,6 +94,8 @@ func (h *handlers) resolveHistory(ctx context.Context, q *dbgen.Queries, rows []
 			articles = append(articles, both("id")...)
 		case "ticket":
 			tasks = append(tasks, both("id")...)
+		case "problem_id":
+			tasks = append(tasks, both("")...)
 		case "":
 			if r.Action == "created" {
 				users = append(users, idsIn(r.New, "requester_id")...)
@@ -291,6 +293,8 @@ func (h *handlers) getTicketHistory(w http.ResponseWriter, r *http.Request) {
 				return "Requester", namedText(names.users, "someone"), "text"
 			case "assignment_group_id":
 				return "Assignment group", namedText(names.groups, "a group"), "text"
+			case "problem_id":
+				return "Problem", namedText(names.tasks, "a problem"), "text"
 			case "ci":
 				return "Affected item", idText(names.cis, "an item"), "text"
 			case "article":

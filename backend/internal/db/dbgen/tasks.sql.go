@@ -413,7 +413,10 @@ SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester
        c.planned_start, c.planned_end, COALESCE(c.implementation_plan, '')::text AS implementation_plan,
        COALESCE(c.backout_plan, '')::text AS backout_plan, COALESCE(c.test_plan, '')::text AS test_plan,
        COALESCE(rq.catalog_item, '')::text AS catalog_item, r.manager_id AS requester_manager_id, COALESCE(pt.prefix || p.number, '')::text AS parent_reference,
-       (SELECT count(*) FROM tasks k WHERE k.parent_id = t.id AND k.state_category IN ('open', 'waiting')) AS open_tasks
+       (SELECT count(*) FROM tasks k WHERE k.parent_id = t.id AND k.state_category IN ('open', 'waiting')) AS open_tasks,
+       i.problem_id, COALESCE(prt.prefix || pr.number, '')::text AS problem_reference, COALESCE(pr.title, '')::text AS problem_title,
+       (SELECT count(*) FROM incidents x JOIN tasks y ON y.id = x.task_id
+         WHERE x.problem_id = t.id AND y.state_category IN ('open', 'waiting')) AS open_incidents
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 JOIN users r ON r.id = t.requester_id
@@ -424,6 +427,8 @@ LEFT JOIN changes c ON c.task_id = t.id
 LEFT JOIN requests rq ON rq.task_id = t.id
 LEFT JOIN tasks p ON p.id = t.parent_id
 LEFT JOIN task_types pt ON pt.type = p.type
+LEFT JOIN tasks pr ON pr.id = i.problem_id
+LEFT JOIN task_types prt ON prt.type = pr.type
 WHERE t.id = $1
 `
 
@@ -447,6 +452,10 @@ type GetTicketViewRow struct {
 	RequesterManagerID  uuid.NullUUID      `json:"requester_manager_id"`
 	ParentReference     string             `json:"parent_reference"`
 	OpenTasks           int64              `json:"open_tasks"`
+	ProblemID           uuid.NullUUID      `json:"problem_id"`
+	ProblemReference    string             `json:"problem_reference"`
+	ProblemTitle        string             `json:"problem_title"`
+	OpenIncidents       int64              `json:"open_incidents"`
 }
 
 // A ticket as clients see it: the task, display names, the type's prefix, and the type's own columns. Plain joins,
@@ -488,6 +497,10 @@ func (q *Queries) GetTicketView(ctx context.Context, id uuid.UUID) (GetTicketVie
 		&i.RequesterManagerID,
 		&i.ParentReference,
 		&i.OpenTasks,
+		&i.ProblemID,
+		&i.ProblemReference,
+		&i.ProblemTitle,
+		&i.OpenIncidents,
 	)
 	return i, err
 }
@@ -594,6 +607,35 @@ func (q *Queries) ListComments(ctx context.Context, taskID uuid.UUID) ([]ListCom
 	return items, nil
 }
 
+const listOpenProblemIncidentIDs = `-- name: ListOpenProblemIncidentIDs :many
+SELECT t.id
+FROM incidents i
+JOIN tasks t ON t.id = i.task_id
+WHERE i.problem_id = $1 AND t.state_category IN ('open', 'waiting')
+ORDER BY t.number
+`
+
+// The open and waiting incidents linked to a problem, as the reader may see them: what resolving it acts on.
+func (q *Queries) ListOpenProblemIncidentIDs(ctx context.Context, problemID uuid.NullUUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listOpenProblemIncidentIDs, problemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPlannedWindows = `-- name: ListPlannedWindows :many
 SELECT t.id, t.type, t.number, tt.prefix AS type_prefix, (tt.prefix || t.number::text)::text AS reference, t.title, t.status, t.state_category, t.priority,
        a.name AS assignee_name, c.change_type, c.risk,
@@ -656,6 +698,65 @@ func (q *Queries) ListPlannedWindows(ctx context.Context, arg ListPlannedWindows
 			&i.Risk,
 			&i.PlannedStart,
 			&i.PlannedEnd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProblemIncidents = `-- name: ListProblemIncidents :many
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, (tt.prefix || t.number::text)::text AS reference, a.name AS assignee_name, g.name AS assignment_group_name
+FROM incidents i
+JOIN tasks t ON t.id = i.task_id
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN users a ON a.id = t.assignee_id
+LEFT JOIN groups g ON g.id = t.assignment_group_id
+WHERE i.problem_id = $1
+ORDER BY t.created_at, t.number
+LIMIT 500
+`
+
+type ListProblemIncidentsRow struct {
+	Task                Task        `json:"task"`
+	Reference           string      `json:"reference"`
+	AssigneeName        pgtype.Text `json:"assignee_name"`
+	AssignmentGroupName pgtype.Text `json:"assignment_group_name"`
+}
+
+// The incidents linked to a problem, as the reader may see them, oldest first.
+func (q *Queries) ListProblemIncidents(ctx context.Context, problemID uuid.NullUUID) ([]ListProblemIncidentsRow, error) {
+	rows, err := q.db.Query(ctx, listProblemIncidents, problemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProblemIncidentsRow
+	for rows.Next() {
+		var i ListProblemIncidentsRow
+		if err := rows.Scan(
+			&i.Task.ID,
+			&i.Task.Number,
+			&i.Task.Title,
+			&i.Task.Description,
+			&i.Task.Status,
+			&i.Task.Priority,
+			&i.Task.RequesterID,
+			&i.Task.AssigneeID,
+			&i.Task.CreatedAt,
+			&i.Task.UpdatedAt,
+			&i.Task.StateCategory,
+			&i.Task.Type,
+			&i.Task.AssignmentGroupID,
+			&i.Task.Fields,
+			&i.Task.ParentID,
+			&i.Reference,
+			&i.AssigneeName,
+			&i.AssignmentGroupName,
 		); err != nil {
 			return nil, err
 		}
@@ -893,6 +994,20 @@ func (q *Queries) RetireAppTaskTypes(ctx context.Context, arg RetireAppTaskTypes
 		return nil, err
 	}
 	return items, nil
+}
+
+const setIncidentProblem = `-- name: SetIncidentProblem :exec
+UPDATE incidents SET problem_id = $1 WHERE task_id = $2
+`
+
+type SetIncidentProblemParams struct {
+	ProblemID uuid.NullUUID `json:"problem_id"`
+	TaskID    uuid.UUID     `json:"task_id"`
+}
+
+func (q *Queries) SetIncidentProblem(ctx context.Context, arg SetIncidentProblemParams) error {
+	_, err := q.db.Exec(ctx, setIncidentProblem, arg.ProblemID, arg.TaskID)
+	return err
 }
 
 const stillSees = `-- name: StillSees :one

@@ -135,6 +135,7 @@ func TestOpenFilterUsesCategories(t *testing.T) {
 // which is what an install on another instance triggers through NOTIFY.
 func TestAPIFollowsTheInstalledLifecycle(t *testing.T) {
 	h, pool, reg := setupApps(t)
+	withoutProblemManagement(t, pool, reg) // its lifecycle has resolved too
 	agent := newActor(t, h, pool, "agent@x.test", "agent")
 	ctx := context.Background()
 
