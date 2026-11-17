@@ -144,7 +144,15 @@
 			<div class="views" role="group" aria-label="Show">
 				<h2>Views</h2>
 				{#each views as v (v.id)}
-					<button aria-pressed={queue.filter === v.id} onclick={() => queue.setFilter(v.id)}>{v.label}</button>
+					<!-- The count describes the view; it is not part of its name, which stays "Mine". -->
+					<button
+						aria-pressed={queue.filter === v.id}
+						title={queue.counts[v.id] ? `${queue.counts[v.id]} records` : undefined}
+						onclick={() => queue.setFilter(v.id)}
+					>
+						{v.label}
+						{#if queue.counts[v.id]}<span class="count" aria-hidden="true">{queue.counts[v.id]}</span>{/if}
+					</button>
 				{/each}
 			</div>
 		{/if}
@@ -370,6 +378,13 @@
 		display: flex;
 		flex-direction: column;
 		gap: 1px;
+	}
+	.views .count {
+		margin-left: auto;
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: var(--ink-2);
+		font-variant-numeric: tabular-nums;
 	}
 	.views h2 {
 		padding: 0.25rem 0.5rem 0.3rem;

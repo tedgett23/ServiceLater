@@ -183,3 +183,29 @@ test.describe('an agent working the queue', () => {
 		await expect(page.getByText('doesn’t exist, or you don’t have access')).toBeVisible();
 	});
 });
+
+// The views at the left say how many records each holds, and follow the queue as it changes.
+test('the views show how many records they hold, live', async ({ browser }) => {
+	const { context, page } = await as(browser, 'agent');
+	const loaded = page.waitForResponse((r) => r.url().includes('/api/v1/tickets/counts'));
+	await page.goto('/tickets');
+	await loaded;
+	const side = page.locator('aside.side');
+	const unassigned = side.getByRole('button', { name: 'Unassigned' });
+	const mine = side.getByRole('button', { name: 'Mine' });
+	// A view with nothing in it shows no number.
+	const shown = async (view: typeof mine) => ((await view.locator('.count').count()) ? Number(await view.locator('.count').textContent()) : 0);
+	const unassignedBefore = await shown(unassigned);
+	const mineBefore = await shown(mine);
+
+	const t = await createTicket(context, { title: `Counted ${uid()}` });
+	await expect(unassigned.locator('.count')).toHaveText(String(unassignedBefore + 1));
+	await expect(unassigned).toHaveAttribute('title', `${unassignedBefore + 1} records`);
+
+	// Taking it moves it from Unassigned to Mine.
+	const me = (await (await context.request.get('/api/v1/auth/me')).json()) as { id: string };
+	await api(context, 'patch', `/api/v1/tickets/${t.id}`, { assignee_id: me.id });
+	await expect(mine.locator('.count')).toHaveText(String(mineBefore + 1));
+	if (unassignedBefore === 0) await expect(unassigned.locator('.count')).toHaveCount(0);
+	else await expect(unassigned.locator('.count')).toHaveText(String(unassignedBefore));
+});

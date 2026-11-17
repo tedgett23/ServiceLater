@@ -200,6 +200,34 @@ func intParam(w http.ResponseWriter, raw, name string, lo, hi int, into *int) bo
 	return true
 }
 
+// queueCountsDTO is how many records each view of the queue holds for the caller.
+type queueCountsDTO struct {
+	// Mine: open work assigned to the caller.
+	Mine int64 `json:"mine"`
+	// Groups: open work routed to a group the caller is in.
+	Groups int64 `json:"groups"`
+	// Unassigned: open work nobody has taken.
+	Unassigned int64 `json:"unassigned"`
+	// Due: open work with an SLA clock running or breached, which the Due view lists first.
+	Due int64 `json:"due"`
+	// Open: all open and waiting work the caller may see.
+	Open int64 `json:"open"`
+}
+
+// GET /tickets/counts: how many records each view of the queue holds, counted as the caller (an end user's are
+// their own). Only open and waiting work is counted; there is no count of everything.
+func (h *handlers) countTickets(w http.ResponseWriter, r *http.Request) {
+	var out queueCountsDTO
+	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+		c, err := q.CountQueueViews(r.Context())
+		out = queueCountsDTO{Mine: c.Mine, Groups: c.MyGroups, Unassigned: c.Unassigned, Due: c.OnAClock, Open: c.Open}
+		return err
+	}) {
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // GET /tickets?type=&status=&priority=&assignee=&requester=&assignment_group=&q=&breached=&sort=&limit=&offset=
 // assignee and requester accept a user id or "me"; assignee also accepts "none". assignment_group accepts a group id,
 // "mine" (any group the caller is in) or "none". open=true hides resolved and closed. breached=true keeps tickets with

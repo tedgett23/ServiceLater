@@ -12,6 +12,45 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countQueueViews = `-- name: CountQueueViews :one
+SELECT count(*) AS open,
+       count(*) FILTER (WHERE t.assignee_id = app_current_user_id()) AS mine,
+       count(*) FILTER (WHERE t.assignee_id IS NULL) AS unassigned,
+       count(*) FILTER (WHERE t.assignment_group_id IN
+           (SELECT m.group_id FROM group_members m WHERE m.user_id = app_current_user_id())) AS my_groups,
+       count(*) FILTER (WHERE EXISTS (
+           SELECT 1 FROM task_slas s
+           WHERE s.task_id = t.id AND s.stage <> 'cancelled'
+             AND (s.breached_at IS NOT NULL OR (s.stage = 'running' AND s.due_at IS NOT NULL)))) AS on_a_clock
+FROM tasks t
+JOIN task_types tt ON tt.type = t.type
+WHERE tt.retired_at IS NULL AND t.state_category IN ('open', 'waiting')
+`
+
+type CountQueueViewsRow struct {
+	Open       int64 `json:"open"`
+	Mine       int64 `json:"mine"`
+	Unassigned int64 `json:"unassigned"`
+	MyGroups   int64 `json:"my_groups"`
+	OnAClock   int64 `json:"on_a_clock"`
+}
+
+// How many records each view of the queue holds, for the reader (RLS decides what they can count). Only open and
+// waiting work is counted, which is what every view but All shows, so this reads the state_category index and never
+// the whole table. on_a_clock: records with an SLA clock running or breached, which is what the Due view puts first.
+func (q *Queries) CountQueueViews(ctx context.Context) (CountQueueViewsRow, error) {
+	row := q.db.QueryRow(ctx, countQueueViews)
+	var i CountQueueViewsRow
+	err := row.Scan(
+		&i.Open,
+		&i.Mine,
+		&i.Unassigned,
+		&i.MyGroups,
+		&i.OnAClock,
+	)
+	return i, err
+}
+
 const countTasksOfType = `-- name: CountTasksOfType :one
 SELECT count(*) FROM tasks WHERE type = $1
 `

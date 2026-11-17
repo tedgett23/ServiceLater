@@ -152,6 +152,7 @@ func NewRouter(d Deps) http.Handler {
 			r.Route("/tickets", func(r chi.Router) {
 				r.Get("/", h.listTickets)
 				r.Post("/", h.createTicket)
+				r.Get("/counts", h.countTickets)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.getTicket)
 					r.Get("/comments", h.listComments)
