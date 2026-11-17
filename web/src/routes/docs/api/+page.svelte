@@ -186,16 +186,16 @@
 		padding: 0 1rem;
 		background: var(--chrome);
 		color: var(--on-chrome);
+		border-bottom: 1px solid var(--rule);
 		flex: none;
 	}
 	.mark {
-		font: 900 1.6rem/1 var(--font-display);
-		letter-spacing: 0.01em;
+		font: 650 0.9375rem/1.3 var(--font-display);
+		letter-spacing: -0.01em;
 		text-decoration: none;
-		color: var(--marker);
 	}
 	.title {
-		font: 700 1.3rem/1 var(--font-display);
+		font: 650 1.0625rem/1.3 var(--font-display);
 	}
 	.raw {
 		margin-left: auto;
@@ -254,7 +254,7 @@
 		max-width: 52rem;
 	}
 	h1 {
-		font: 800 2.2rem/1.1 var(--font-display);
+		font: 650 1.5rem/1.3 var(--font-display);
 	}
 	.ver {
 		font-size: 1.2rem;
@@ -266,7 +266,7 @@
 		gap: 0.6rem;
 	}
 	h2 {
-		font: 800 1.6rem/1.2 var(--font-display);
+		font: 650 1.375rem/1.3 var(--font-display);
 		text-transform: capitalize;
 		margin: 2rem 0 0.25rem;
 		padding-bottom: 0.3rem;
@@ -280,7 +280,7 @@
 		scroll-margin-top: 1rem;
 	}
 	h3 {
-		font: 700 1.25rem/1.2 var(--font-display);
+		font: 650 1.0625rem/1.3 var(--font-display);
 	}
 	h4 {
 		margin-top: 0.4rem;

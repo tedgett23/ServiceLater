@@ -309,7 +309,7 @@
 		text-decoration: none;
 	}
 	h1 {
-		font: 800 1.6rem/1.2 var(--font-display);
+		font: 650 1.375rem/1.3 var(--font-display);
 		margin-bottom: 0.4rem;
 	}
 	.lede {
@@ -317,7 +317,7 @@
 		margin-bottom: 1.25rem;
 	}
 	h2 {
-		font: 700 1.15rem/1.2 var(--font-display);
+		font: 650 0.9375rem/1.3 var(--font-display);
 		margin-bottom: 0.75rem;
 	}
 	section {

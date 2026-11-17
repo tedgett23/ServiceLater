@@ -502,7 +502,7 @@
 		border-top: 1px solid var(--rule);
 	}
 	h2 {
-		font: 700 1.25rem/1.2 var(--font-display);
+		font: 650 1.0625rem/1.3 var(--font-display);
 	}
 	.grid {
 		display: grid;

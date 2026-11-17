@@ -215,7 +215,7 @@
 		font-size: 0.9rem;
 	}
 	h1 {
-		font: 800 1.9rem/1.15 var(--font-display);
+		font: 650 1.5rem/1.3 var(--font-display);
 	}
 	.prose {
 		margin-bottom: 1.25rem;

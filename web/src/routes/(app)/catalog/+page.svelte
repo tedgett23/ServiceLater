@@ -125,7 +125,7 @@
 		gap: 0.9rem;
 	}
 	h1 {
-		font: 800 2.2rem/1.1 var(--font-display);
+		font: 650 1.5rem/1.3 var(--font-display);
 	}
 	.ways {
 		display: flex;
@@ -157,7 +157,7 @@
 		margin-top: 1.5rem;
 	}
 	h3 {
-		font: 700 1.35rem/1.2 var(--font-display);
+		font: 650 1.0625rem/1.3 var(--font-display);
 		padding-bottom: 0.4rem;
 		border-bottom: 1px solid var(--rule);
 	}
@@ -210,7 +210,7 @@
 		background: var(--surface);
 	}
 	.mine h2 {
-		font: 700 1.25rem/1.2 var(--font-display);
+		font: 650 1.0625rem/1.3 var(--font-display);
 	}
 	.mine li {
 		display: grid;

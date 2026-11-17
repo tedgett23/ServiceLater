@@ -153,10 +153,10 @@
 		margin-bottom: 1rem;
 	}
 	h1 {
-		font: 800 1.8rem/1.15 var(--font-display);
+		font: 650 1.5rem/1.3 var(--font-display);
 	}
 	h2 {
-		font: 800 1.15rem/1.3 var(--font-display);
+		font: 650 0.9375rem/1.3 var(--font-display);
 		margin: 1.5rem 0 0.25rem;
 	}
 	.meta {

@@ -41,12 +41,12 @@
 <svelte:head><title>Sign in · ServiceLater</title></svelte:head>
 
 <main>
-	<div class="slot" aria-hidden="true"></div>
-
 	<div class="feed">
 		<div class="stub">
+			<span class="logo" aria-hidden="true">SL</span>
 			<h1>ServiceLater</h1>
 		</div>
+		<p class="lead">Sign in to your workspace</p>
 
 		<form onsubmit={submit}>
 			{#if expired && !error}
@@ -77,83 +77,68 @@
 		display: grid;
 		justify-items: center;
 		align-content: start;
-		padding: 0 1rem 3rem;
-	}
-
-	/* The slot the stub prints from. */
-	.slot {
-		width: min(32rem, 100%);
-		height: 0.5rem;
-		margin-top: clamp(2rem, 16vh, 8rem);
-		border-radius: 0 0 var(--radius) var(--radius);
-		background: var(--ink);
+		padding: clamp(2rem, 16vh, 8rem) 1rem 3rem;
+		background: var(--chrome);
 	}
 
 	.feed {
-		width: min(24rem, 100%);
-		animation: print 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+		width: min(23rem, 100%);
+		padding: 1.75rem 1.75rem 2rem;
+		border: 1px solid var(--rule);
+		border-radius: 14px;
+		background: var(--ground);
+		box-shadow: var(--shadow-pop);
 	}
 
+	/* The mark: the yellow ticket and the name. */
 	.stub {
-		position: relative;
-		padding: 2rem 1.5rem 1.5rem;
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+	}
+	.logo {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: none;
+		width: 2.25rem;
+		height: 2.25rem;
+		border-radius: 10px;
 		background: var(--marker);
 		color: var(--on-marker);
-		--notch: 0.7rem;
-		-webkit-mask:
-			radial-gradient(circle var(--notch) at 0 100%, #0000 98%, #000) left / 51% 100% no-repeat,
-			radial-gradient(circle var(--notch) at 100% 100%, #0000 98%, #000) right / 51% 100% no-repeat;
-		mask:
-			radial-gradient(circle var(--notch) at 0 100%, #0000 98%, #000) left / 51% 100% no-repeat,
-			radial-gradient(circle var(--notch) at 100% 100%, #0000 98%, #000) right / 51% 100% no-repeat;
-	}
-	/* Perforation along the tear edge. */
-	.stub::after {
-		content: '';
-		position: absolute;
-		left: 1rem;
-		right: 1rem;
-		bottom: 0;
-		border-bottom: 2px dashed color-mix(in srgb, var(--on-marker) 45%, transparent);
+		font-size: 0.9375rem;
+		font-weight: 800;
+		letter-spacing: -0.02em;
 	}
 	h1 {
-		font: 900 clamp(2.4rem, 12vw, 3.5rem) / 0.9 var(--font-display);
-		letter-spacing: 0.005em;
+		font-size: clamp(1.25rem, 6vw, 1.5rem);
+		font-weight: 680;
+		letter-spacing: -0.02em;
 		white-space: nowrap;
-		text-align: center;
+	}
+	.lead {
+		margin-top: 0.9rem;
+		color: var(--ink-2);
 	}
 
 	form {
 		display: grid;
 		gap: 1rem;
-		padding: 1.75rem 0.25rem 0;
+		padding-top: 1.25rem;
 	}
 	.btn {
-		min-height: 2.75rem;
+		min-height: 2.5rem;
 		margin-top: 0.25rem;
 	}
 	.error {
 		color: var(--red);
 		font-weight: 600;
-		font-size: 0.9rem;
+		font-size: 0.875rem;
 	}
 	.note {
-		font-size: 0.9rem;
+		font-size: 0.875rem;
 		padding: 0.6rem 0.75rem;
 		background: var(--marker-soft);
 		border-radius: var(--radius);
-	}
-
-	@keyframes print {
-		from {
-			transform: translateY(-1.2rem);
-			clip-path: inset(0 0 100% 0);
-			opacity: 0.4;
-		}
-		to {
-			transform: none;
-			clip-path: inset(0 0 -1rem 0);
-			opacity: 1;
-		}
 	}
 </style>

@@ -261,7 +261,7 @@
 		padding: 1.5rem;
 	}
 	h2 {
-		font: 700 1.9rem/1 var(--font-display);
+		font: 650 1.5rem/1.3 var(--font-display);
 	}
 	.kinds {
 		display: flex;

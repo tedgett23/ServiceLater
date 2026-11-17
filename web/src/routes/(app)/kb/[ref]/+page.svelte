@@ -231,11 +231,11 @@
 	}
 	h1 {
 		margin-top: 0.25rem;
-		font: 800 2rem/1.15 var(--font-display);
+		font: 650 1.5rem/1.3 var(--font-display);
 		overflow-wrap: anywhere;
 	}
 	h2 {
-		font: 700 1.25rem/1.2 var(--font-display);
+		font: 650 1.0625rem/1.3 var(--font-display);
 		margin-bottom: 0.5rem;
 	}
 	.byline,

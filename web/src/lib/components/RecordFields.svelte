@@ -78,8 +78,8 @@
 		border-top: 1px solid var(--rule);
 	}
 	h2 {
-		font: 700 1.5rem/1 var(--font-display);
-		letter-spacing: 0.01em;
+		font: 650 1.0625rem/1.3 var(--font-display);
+		letter-spacing: -0.015em;
 	}
 	.grid {
 		display: grid;

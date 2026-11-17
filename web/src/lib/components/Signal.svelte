@@ -22,10 +22,10 @@
 		flex: none;
 	}
 	rect {
-		fill: var(--rule);
+		fill: color-mix(in srgb, var(--ink-2) 28%, transparent);
 	}
 	rect.on {
-		fill: var(--ink);
+		fill: var(--ink-2);
 	}
 	.critical rect.on {
 		fill: var(--red);

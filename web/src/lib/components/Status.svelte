@@ -20,8 +20,8 @@
 	/* Shape as well as colour, so status never depends on hue alone. The shape follows the category, which every
 	   lifecycle has, not the status name, which is the app's to choose. */
 	i {
-		width: 0.65rem;
-		height: 0.65rem;
+		width: 0.56rem;
+		height: 0.56rem;
 		border-radius: 50%;
 		border: 2px solid var(--blue);
 		flex: none;
@@ -33,8 +33,8 @@
 		background: transparent; /* a ticket nobody has touched yet is hollow */
 	}
 	i.waiting {
-		border-color: var(--ink);
-		background: var(--marker);
+		border-color: light-dark(#c98f00, #e0aa1c);
+		background: light-dark(#c98f00, #e0aa1c);
 		border-radius: 2px;
 	}
 	i.done {

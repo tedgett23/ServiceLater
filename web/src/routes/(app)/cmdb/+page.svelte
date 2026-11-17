@@ -137,7 +137,7 @@
 		flex: 1 1 18rem;
 	}
 	h1 {
-		font: 800 1.6rem/1.2 var(--font-display);
+		font: 650 1.375rem/1.3 var(--font-display);
 	}
 	.lede {
 		margin: 0.25rem 0 1rem;
