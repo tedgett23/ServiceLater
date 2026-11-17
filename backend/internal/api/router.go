@@ -57,7 +57,7 @@ func (h *handlers) lifecycleFor(recordType string) *apps.Lifecycle {
 // knownStatus reports whether any record type's lifecycle has this status, for validating a queue filter that
 // spans types.
 func (h *handlers) knownStatus(status string) bool {
-	for _, t := range apps.KnownRecordTypes {
+	for _, t := range append(h.apps.RecordTypes(), "task") {
 		if h.apps.Lifecycle(t).HasState(status) {
 			return true
 		}

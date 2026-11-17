@@ -21,7 +21,7 @@ SELECT id, number, title FROM kb_articles WHERE id = ANY (sqlc.arg('ids')::uuid[
 
 -- name: TaskRefsByID :many
 -- The records the reader may see, by reference.
-SELECT t.id, tt.prefix, t.number, t.title FROM tasks t JOIN task_types tt ON tt.type = t.type WHERE t.id = ANY (sqlc.arg('ids')::uuid[]);
+SELECT t.id, (tt.prefix || t.number::text)::text AS reference, t.title FROM tasks t JOIN task_types tt ON tt.type = t.type WHERE t.id = ANY (sqlc.arg('ids')::uuid[]);
 
 -- name: DeleteHistoryExclusions :exec
 -- System only: an install replaces the app's history exclusions.

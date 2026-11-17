@@ -215,8 +215,8 @@ func (s *SLA) validateStructure(file string, p *Problems) {
 	case utf8.RuneCountInString(s.Label) > maxSLALabel:
 		p.add(file, "label must be at most %d characters", maxSLALabel)
 	}
-	if !slices.Contains(KnownRecordTypes, s.RecordType) {
-		p.add(file, "record_type %q is not a record type this version provides (available: %v)", s.RecordType, KnownRecordTypes)
+	if !validTypeName(s.RecordType) {
+		p.add(file, "record_type %q is not a record type's name", s.RecordType)
 	}
 	switch {
 	case s.Target == nil:

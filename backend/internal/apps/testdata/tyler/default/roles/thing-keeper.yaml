@@ -1,0 +1,8 @@
+kind: role
+name: thing-keeper
+label: Thing keeper
+description: "Sees, files and works Things."
+permissions:
+  - records:read:tyler_thing
+  - records:create:tyler_thing
+  - records:update:tyler_thing

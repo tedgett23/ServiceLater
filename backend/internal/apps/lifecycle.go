@@ -26,11 +26,6 @@ func (c Category) valid() bool {
 	return c == CategoryOpen || c == CategoryWaiting || c == CategoryDone || c == CategoryClosed
 }
 
-// KnownRecordTypes are the record types a definition may name. `task` is the base every type extends: a lifecycle
-// for `task` is the default for any type without its own. The others mirror the registry in the task_types table
-// (migration 00009), which a test keeps in step.
-var KnownRecordTypes = []string{"task", "incident", "change", "request", "problem", "work_task"}
-
 type State struct {
 	ID          string   `json:"id"`
 	Label       string   `json:"label"`
@@ -234,8 +229,8 @@ func (l *Lifecycle) compileGuards() {
 }
 
 func (l *Lifecycle) validateStructure(file string, p *Problems) {
-	if !slices.Contains(KnownRecordTypes, l.RecordType) {
-		p.add(file, "record_type %q is not a record type this version provides (available: %v)", l.RecordType, KnownRecordTypes)
+	if !validTypeName(l.RecordType) {
+		p.add(file, "record_type %q is not a record type's name", l.RecordType)
 	}
 	if len(l.States) == 0 {
 		p.add(file, "a lifecycle needs at least one state")

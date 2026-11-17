@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"slices"
 
 	"github.com/go-chi/chi/v5"
 
@@ -86,16 +85,16 @@ func toFieldDTO(fd apps.FormField) formFieldDTO {
 }
 
 // formType is the {type} path segment, if it names a record type with records of its own.
-func formType(r *http.Request) (string, bool) {
+func (h *handlers) formType(r *http.Request) (string, bool) {
 	t := chi.URLParam(r, "type")
-	return t, t != "task" && slices.Contains(apps.KnownRecordTypes, t)
+	return t, t != "task" && h.apps.Exists(t)
 }
 
 // GET /forms/{type}?item=: the form for a record type, for anyone signed in (people file incidents). A type no app
 // gives a form to has one made of its own fields. With item, a request's: the catalog item's questions, which is how a
 // request ordered from it is laid out (the type's form when the item is gone).
 func (h *handlers) getForm(w http.ResponseWriter, r *http.Request) {
-	t, ok := formType(r)
+	t, ok := h.formType(r)
 	if !ok {
 		writeError(w, http.StatusNotFound, "not found")
 		return
@@ -126,7 +125,7 @@ type formStatesRequest struct {
 // (a priority worked out from impact and urgency). Nothing is saved. The form for filing asks again when a field
 // listed in the form's reactive changes. Saving checks all of it again.
 func (h *handlers) formStates(w http.ResponseWriter, r *http.Request) {
-	t, ok := formType(r)
+	t, ok := h.formType(r)
 	if !ok {
 		writeError(w, http.StatusNotFound, "not found")
 		return

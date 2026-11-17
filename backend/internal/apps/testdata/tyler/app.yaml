@@ -1,0 +1,11 @@
+apiVersion: 1
+name: tyler
+version: 1.0.0
+author: ServiceLater tests
+description: "A sample app for tests only: it adds its own record type, Things, numbered TYL1."
+ServiceLater_min_version: 0.1.0
+dependencies:
+  - core-itsm: ">=0.1.0"
+# Its SLA's clocks are read as the app.
+permissions:
+  - records:read:tyler_thing

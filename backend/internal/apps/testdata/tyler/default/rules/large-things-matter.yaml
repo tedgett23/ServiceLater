@@ -1,0 +1,11 @@
+# Reads the type's own field, typed by its form.
+kind: rule
+name: large-things-matter
+record_type: tyler_thing
+timing: before
+on: [create, update]
+when: has(record.fields.size) && record.fields.size == "large"
+run:
+  - action: set
+    field: priority
+    value: 2

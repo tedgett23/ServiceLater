@@ -550,9 +550,9 @@ func addTaskOfType(t *testing.T, pool *pgxpool.Pool, typ, status, category strin
 	}
 }
 
-func TestKnownRecordTypesMatchTheRegistry(t *testing.T) {
+func TestCoreRecordTypesMatchTheRegistry(t *testing.T) {
 	pool := dbtest.Pool(t)
-	rows, err := pool.Query(context.Background(), "SELECT type FROM task_types")
+	rows, err := pool.Query(context.Background(), "SELECT type FROM task_types WHERE owner_app IS NULL")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,7 +565,7 @@ func TestKnownRecordTypesMatchTheRegistry(t *testing.T) {
 		}
 		registered[typ] = true
 	}
-	for _, typ := range apps.KnownRecordTypes {
+	for _, typ := range apps.CoreRecordTypes {
 		if typ != "task" && !registered[typ] {
 			t.Errorf("%q is a known record type but is not in the task_types registry", typ)
 		}

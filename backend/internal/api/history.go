@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -143,7 +142,7 @@ func (h *handlers) resolveHistory(ctx context.Context, q *dbgen.Queries, rows []
 			return n, err
 		}
 		for _, t := range rows {
-			n.tasks[t.ID] = fmt.Sprintf("%s%d %s", t.Prefix, t.Number, t.Title)
+			n.tasks[t.ID] = t.Reference + " " + t.Title
 		}
 	}
 	return n, nil

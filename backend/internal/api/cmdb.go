@@ -392,7 +392,7 @@ func (h *handlers) getCI(w http.ResponseWriter, r *http.Request) {
 		tickets, err := q.ListCITasks(r.Context(), id)
 		out.Tickets = []ciTicketDTO{}
 		for _, t := range tickets {
-			out.Tickets = append(out.Tickets, ciTicketDTO{ID: t.ID, Reference: fmt.Sprintf("%s%d", t.Prefix, t.Number), Type: t.Type,
+			out.Tickets = append(out.Tickets, ciTicketDTO{ID: t.ID, Reference: t.Reference, Type: t.Type,
 				Title: t.Title, Status: t.Status, StateCategory: t.StateCategory, Priority: t.Priority, UpdatedAt: t.UpdatedAt.Time})
 		}
 		return err

@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"slices"
 
 	"github.com/go-chi/chi/v5"
 
@@ -21,7 +20,7 @@ type lifecycleDTO struct {
 // next is not here: each ticket carries its own moves, because guards depend on the ticket and the person.
 func (h *handlers) getLifecycle(w http.ResponseWriter, r *http.Request) {
 	rt := chi.URLParam(r, "recordType")
-	if !slices.Contains(apps.KnownRecordTypes, rt) {
+	if !h.apps.Exists(rt) { // a retired type's records still open, so its labels are still served
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}

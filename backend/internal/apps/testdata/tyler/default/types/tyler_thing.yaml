@@ -1,0 +1,7 @@
+# Things Tyler keeps track of. References are TYL and the number, like any type's: TYL1.
+kind: record_type
+name: tyler_thing
+prefix: TYL
+label: Thing
+plural: Things
+description: "Things Tyler tracks."

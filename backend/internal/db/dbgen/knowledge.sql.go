@@ -213,18 +213,18 @@ func (q *Queries) ListArticleCategories(ctx context.Context) ([]ListArticleCateg
 }
 
 const listArticleTasks = `-- name: ListArticleTasks :many
-SELECT t.id, tt.prefix, t.number, t.type, t.title, t.status, t.state_category
+SELECT t.id, (tt.prefix || t.number::text)::text AS reference, t.number, t.type, t.title, t.status, t.state_category
 FROM task_articles l
 JOIN tasks t ON t.id = l.task_id
 JOIN task_types tt ON tt.type = t.type
-WHERE l.article_id = $1
+WHERE l.article_id = $1 AND tt.retired_at IS NULL
 ORDER BY l.created_at DESC
 LIMIT 50
 `
 
 type ListArticleTasksRow struct {
 	ID            uuid.UUID `json:"id"`
-	Prefix        string    `json:"prefix"`
+	Reference     string    `json:"reference"`
 	Number        int64     `json:"number"`
 	Type          string    `json:"type"`
 	Title         string    `json:"title"`
@@ -244,7 +244,7 @@ func (q *Queries) ListArticleTasks(ctx context.Context, articleID uuid.UUID) ([]
 		var i ListArticleTasksRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.Prefix,
+			&i.Reference,
 			&i.Number,
 			&i.Type,
 			&i.Title,

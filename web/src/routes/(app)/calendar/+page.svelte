@@ -7,7 +7,7 @@
 	import Status from '$lib/components/Status.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
-	import { can, P, prefixOf, type CalendarEntry, type Freeze } from '$lib/types';
+	import { can, P, refNumber, type CalendarEntry, type Freeze } from '$lib/types';
 
 	type View = 'week' | 'month';
 
@@ -258,7 +258,7 @@
 					<li class:conflict={e.overlaps.length > 0} class:done={e.state_category === 'done' || e.state_category === 'closed'}>
 						<span class="when">{windowText(e)}</span>
 						<a class="what" href="/tickets/{e.reference}">
-							<span class="ref"><span class="prefix">{prefixOf(e)}</span>{e.number}</span>
+							<span class="ref"><span class="prefix">{e.prefix}</span>{refNumber(e)}</span>
 							<span class="title">{e.title}</span>
 						</a>
 						<span class="facts">

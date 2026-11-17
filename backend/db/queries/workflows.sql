@@ -78,7 +78,7 @@ WHERE e.id = $1;
 
 -- name: WorkflowInFlight :many
 -- The runs of a workflow still going, with the record each is on (when the reader may see it), oldest first.
-SELECT e.id, e.status, e.current_step, e.created_at, e.updated_at, e.wake_at, tt.prefix AS record_prefix, t.number AS record_number,
+SELECT e.id, e.status, e.current_step, e.created_at, e.updated_at, e.wake_at, COALESCE(tt.prefix || t.number::text, '')::text AS record_reference,
        t.title AS record_title
 FROM workflow_executions e
 LEFT JOIN tasks t ON t.id = e.record_id

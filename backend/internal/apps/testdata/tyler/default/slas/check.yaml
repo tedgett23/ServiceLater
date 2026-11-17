@@ -1,0 +1,5 @@
+kind: sla
+name: check
+label: Check
+record_type: tyler_thing
+target: 2d

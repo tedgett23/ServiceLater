@@ -3,7 +3,6 @@ package api
 import (
 	"errors"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -13,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
@@ -67,7 +65,7 @@ type userDetailDTO struct {
 func (h *handlers) listStaff(w http.ResponseWriter, r *http.Request) {
 	var recordType pgtype.Text
 	if t := r.URL.Query().Get("type"); t != "" {
-		if t == "task" || !slices.Contains(apps.KnownRecordTypes, t) {
+		if t == "task" || !h.apps.KnownType(t) {
 			writeError(w, http.StatusBadRequest, "unknown type")
 			return
 		}

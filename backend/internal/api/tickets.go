@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -101,7 +100,7 @@ func childTasks(ctx context.Context, q *dbgen.Queries, id uuid.UUID) ([]childTas
 	rows, err := q.ListChildTasks(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	out := make([]childTaskDTO, 0, len(rows))
 	for _, r := range rows {
-		c := childTaskDTO{ID: r.Task.ID, Type: r.Task.Type, Reference: fmt.Sprintf("%s%d", r.TypePrefix, r.Task.Number), Title: r.Task.Title,
+		c := childTaskDTO{ID: r.Task.ID, Type: r.Task.Type, Reference: r.Reference, Title: r.Task.Title,
 			Status: r.Task.Status, StateCategory: r.Task.StateCategory, UpdatedAt: r.Task.UpdatedAt.Time}
 		if r.AssigneeName.Valid {
 			c.AssigneeName = &r.AssigneeName.String
@@ -135,8 +134,8 @@ func (h *handlers) detail(ctx context.Context, q *dbgen.Queries, p auth.Principa
 	return err
 }
 
-func toTicket(t dbgen.Task, prefix, requesterName string, assigneeName, groupName pgtype.Text, resolution string) ticketDTO {
-	return ticketDTO{Ticket: records.FromParts(t, prefix, requesterName, assigneeName, groupName, resolution)}
+func toTicket(t dbgen.Task, prefix, reference, requesterName string, assigneeName, groupName pgtype.Text, resolution string) ticketDTO {
+	return ticketDTO{Ticket: records.FromParts(t, prefix, reference, requesterName, assigneeName, groupName, resolution)}
 }
 
 // ticketView loads a ticket with its display names, by id, as one RLS-scoped query.
@@ -218,7 +217,7 @@ func (h *handlers) listTickets(w http.ResponseWriter, r *http.Request) {
 		args.Status = pgtype.Text{String: s, Valid: true}
 	}
 	if s := qs.Get("type"); s != "" {
-		if s == "task" || !slices.Contains(apps.KnownRecordTypes, s) {
+		if s == "task" || !h.apps.KnownType(s) {
 			writeError(w, http.StatusBadRequest, "unknown type")
 			return
 		}
@@ -312,7 +311,7 @@ func (h *handlers) listTickets(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]ticketDTO, len(rows))
 	for i, t := range rows {
-		items[i] = toTicket(t.Task, t.TypePrefix, t.RequesterName, t.AssigneeName, t.AssignmentGroupName, "")
+		items[i] = toTicket(t.Task, t.TypePrefix, t.Reference, t.RequesterName, t.AssigneeName, t.AssignmentGroupName, "")
 		if t.SlaDueAt.Valid {
 			due := t.SlaDueAt.Time
 			items[i].SLADueAt = &due

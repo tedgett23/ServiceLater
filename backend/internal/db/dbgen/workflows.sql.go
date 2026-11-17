@@ -502,7 +502,7 @@ func (q *Queries) WakeDueExecutions(ctx context.Context) ([]uuid.UUID, error) {
 }
 
 const workflowInFlight = `-- name: WorkflowInFlight :many
-SELECT e.id, e.status, e.current_step, e.created_at, e.updated_at, e.wake_at, tt.prefix AS record_prefix, t.number AS record_number,
+SELECT e.id, e.status, e.current_step, e.created_at, e.updated_at, e.wake_at, COALESCE(tt.prefix || t.number::text, '')::text AS record_reference,
        t.title AS record_title
 FROM workflow_executions e
 LEFT JOIN tasks t ON t.id = e.record_id
@@ -518,15 +518,14 @@ type WorkflowInFlightParams struct {
 }
 
 type WorkflowInFlightRow struct {
-	ID           uuid.UUID          `json:"id"`
-	Status       string             `json:"status"`
-	CurrentStep  string             `json:"current_step"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	WakeAt       pgtype.Timestamptz `json:"wake_at"`
-	RecordPrefix pgtype.Text        `json:"record_prefix"`
-	RecordNumber pgtype.Int8        `json:"record_number"`
-	RecordTitle  pgtype.Text        `json:"record_title"`
+	ID              uuid.UUID          `json:"id"`
+	Status          string             `json:"status"`
+	CurrentStep     string             `json:"current_step"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+	WakeAt          pgtype.Timestamptz `json:"wake_at"`
+	RecordReference string             `json:"record_reference"`
+	RecordTitle     pgtype.Text        `json:"record_title"`
 }
 
 // The runs of a workflow still going, with the record each is on (when the reader may see it), oldest first.
@@ -546,8 +545,7 @@ func (q *Queries) WorkflowInFlight(ctx context.Context, arg WorkflowInFlightPara
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.WakeAt,
-			&i.RecordPrefix,
-			&i.RecordNumber,
+			&i.RecordReference,
 			&i.RecordTitle,
 		); err != nil {
 			return nil, err

@@ -12,6 +12,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countTasksOfType = `-- name: CountTasksOfType :one
+SELECT count(*) FROM tasks WHERE type = $1
+`
+
+func (q *Queries) CountTasksOfType(ctx context.Context, type_ string) (int64, error) {
+	row := q.db.QueryRow(ctx, countTasksOfType, type_)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createChange = `-- name: CreateChange :exec
 INSERT INTO changes (task_id) VALUES ($1)
 `
@@ -287,7 +298,7 @@ func (q *Queries) GetTaskForUpdate(ctx context.Context, id uuid.UUID) (Task, err
 }
 
 const getTaskType = `-- name: GetTaskType :one
-SELECT type, prefix, label, anyone_may_file, from_catalog FROM task_types WHERE type = $1
+SELECT type, prefix, label, anyone_may_file, from_catalog, owner_app, plural, description, retired_at FROM task_types WHERE type = $1
 `
 
 func (q *Queries) GetTaskType(ctx context.Context, type_ string) (TaskType, error) {
@@ -299,12 +310,37 @@ func (q *Queries) GetTaskType(ctx context.Context, type_ string) (TaskType, erro
 		&i.Label,
 		&i.AnyoneMayFile,
 		&i.FromCatalog,
+		&i.OwnerApp,
+		&i.Plural,
+		&i.Description,
+		&i.RetiredAt,
+	)
+	return i, err
+}
+
+const getTaskTypeByPrefix = `-- name: GetTaskTypeByPrefix :one
+SELECT type, prefix, label, anyone_may_file, from_catalog, owner_app, plural, description, retired_at FROM task_types WHERE prefix = $1
+`
+
+func (q *Queries) GetTaskTypeByPrefix(ctx context.Context, prefix string) (TaskType, error) {
+	row := q.db.QueryRow(ctx, getTaskTypeByPrefix, prefix)
+	var i TaskType
+	err := row.Scan(
+		&i.Type,
+		&i.Prefix,
+		&i.Label,
+		&i.AnyoneMayFile,
+		&i.FromCatalog,
+		&i.OwnerApp,
+		&i.Plural,
+		&i.Description,
+		&i.RetiredAt,
 	)
 	return i, err
 }
 
 const getTicketView = `-- name: GetTicketView :one
-SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, tt.prefix AS type_prefix, (tt.prefix || t.number::text)::text AS reference, r.name AS requester_name, a.name AS assignee_name,
        g.name AS assignment_group_name, COALESCE(i.resolution, '')::text AS resolution,
        c.change_type, COALESCE(c.risk, '')::text AS risk, COALESCE(c.impact, '')::text AS impact,
        c.planned_start, c.planned_end, COALESCE(c.implementation_plan, '')::text AS implementation_plan,
@@ -327,6 +363,7 @@ WHERE t.id = $1
 type GetTicketViewRow struct {
 	Task                Task               `json:"task"`
 	TypePrefix          string             `json:"type_prefix"`
+	Reference           string             `json:"reference"`
 	RequesterName       string             `json:"requester_name"`
 	AssigneeName        pgtype.Text        `json:"assignee_name"`
 	AssignmentGroupName pgtype.Text        `json:"assignment_group_name"`
@@ -367,6 +404,7 @@ func (q *Queries) GetTicketView(ctx context.Context, id uuid.UUID) (GetTicketVie
 		&i.Task.Fields,
 		&i.Task.ParentID,
 		&i.TypePrefix,
+		&i.Reference,
 		&i.RequesterName,
 		&i.AssigneeName,
 		&i.AssignmentGroupName,
@@ -388,7 +426,7 @@ func (q *Queries) GetTicketView(ctx context.Context, id uuid.UUID) (GetTicketVie
 }
 
 const listChildTasks = `-- name: ListChildTasks :many
-SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, tt.prefix AS type_prefix, a.name AS assignee_name, g.name AS assignment_group_name
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, tt.prefix AS type_prefix, (tt.prefix || t.number::text)::text AS reference, a.name AS assignee_name, g.name AS assignment_group_name
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 LEFT JOIN users a ON a.id = t.assignee_id
@@ -400,6 +438,7 @@ ORDER BY t.created_at, t.number
 type ListChildTasksRow struct {
 	Task                Task        `json:"task"`
 	TypePrefix          string      `json:"type_prefix"`
+	Reference           string      `json:"reference"`
 	AssigneeName        pgtype.Text `json:"assignee_name"`
 	AssignmentGroupName pgtype.Text `json:"assignment_group_name"`
 }
@@ -431,6 +470,7 @@ func (q *Queries) ListChildTasks(ctx context.Context, parentID uuid.NullUUID) ([
 			&i.Task.Fields,
 			&i.Task.ParentID,
 			&i.TypePrefix,
+			&i.Reference,
 			&i.AssigneeName,
 			&i.AssignmentGroupName,
 		); err != nil {
@@ -488,7 +528,7 @@ func (q *Queries) ListComments(ctx context.Context, taskID uuid.UUID) ([]ListCom
 }
 
 const listPlannedWindows = `-- name: ListPlannedWindows :many
-SELECT t.id, t.type, t.number, tt.prefix AS type_prefix, t.title, t.status, t.state_category, t.priority,
+SELECT t.id, t.type, t.number, tt.prefix AS type_prefix, (tt.prefix || t.number::text)::text AS reference, t.title, t.status, t.state_category, t.priority,
        a.name AS assignee_name, c.change_type, c.risk,
        c.planned_start::timestamptz AS planned_start, c.planned_end::timestamptz AS planned_end
 FROM changes c
@@ -511,6 +551,7 @@ type ListPlannedWindowsRow struct {
 	Type          string             `json:"type"`
 	Number        int64              `json:"number"`
 	TypePrefix    string             `json:"type_prefix"`
+	Reference     string             `json:"reference"`
 	Title         string             `json:"title"`
 	Status        string             `json:"status"`
 	StateCategory string             `json:"state_category"`
@@ -538,6 +579,7 @@ func (q *Queries) ListPlannedWindows(ctx context.Context, arg ListPlannedWindows
 			&i.Type,
 			&i.Number,
 			&i.TypePrefix,
+			&i.Reference,
 			&i.Title,
 			&i.Status,
 			&i.StateCategory,
@@ -558,11 +600,37 @@ func (q *Queries) ListPlannedWindows(ctx context.Context, arg ListPlannedWindows
 	return items, nil
 }
 
+const listRetiredTaskTypes = `-- name: ListRetiredTaskTypes :many
+SELECT type FROM task_types WHERE retired_at IS NOT NULL ORDER BY type
+`
+
+// The types whose apps were removed: their records still open by reference.
+func (q *Queries) ListRetiredTaskTypes(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, listRetiredTaskTypes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var type_ string
+		if err := rows.Scan(&type_); err != nil {
+			return nil, err
+		}
+		items = append(items, type_)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTaskTypes = `-- name: ListTaskTypes :many
-SELECT type, prefix, label, anyone_may_file, from_catalog FROM task_types ORDER BY anyone_may_file DESC, type
+SELECT type, prefix, label, anyone_may_file, from_catalog, owner_app, plural, description, retired_at FROM task_types WHERE retired_at IS NULL ORDER BY anyone_may_file DESC, type
 `
 
 // Types open to everyone (incidents) first: the New ticket dialog starts on the first one the person may file.
+// Retired types (their app was removed) are not listed: nothing offers, grants or files them.
 func (q *Queries) ListTaskTypes(ctx context.Context) ([]TaskType, error) {
 	rows, err := q.db.Query(ctx, listTaskTypes)
 	if err != nil {
@@ -578,6 +646,10 @@ func (q *Queries) ListTaskTypes(ctx context.Context) ([]TaskType, error) {
 			&i.Label,
 			&i.AnyoneMayFile,
 			&i.FromCatalog,
+			&i.OwnerApp,
+			&i.Plural,
+			&i.Description,
+			&i.RetiredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -590,7 +662,7 @@ func (q *Queries) ListTaskTypes(ctx context.Context) ([]TaskType, error) {
 }
 
 const listTickets = `-- name: ListTickets :many
-SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, tt.prefix AS type_prefix, r.name AS requester_name, a.name AS assignee_name,
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, tt.prefix AS type_prefix, (tt.prefix || t.number::text)::text AS reference, r.name AS requester_name, a.name AS assignee_name,
        g.name AS assignment_group_name, sla.due_at::timestamptz AS sla_due_at, COALESCE(sla.breached, false)::bool AS sla_breached
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
@@ -602,7 +674,8 @@ LEFT JOIN LATERAL (
            bool_or(s.breached_at IS NOT NULL) AS breached
     FROM task_slas s WHERE s.task_id = t.id AND s.stage <> 'cancelled'
 ) sla ON true
-WHERE ($1::text IS NULL OR t.type = $1)
+WHERE tt.retired_at IS NULL
+  AND ($1::text IS NULL OR t.type = $1)
   AND ($2::text IS NULL OR t.status = $2)
   AND ($3::smallint IS NULL OR t.priority = $3)
   AND ($4::uuid IS NULL OR t.assignee_id = $4)
@@ -641,6 +714,7 @@ type ListTicketsParams struct {
 type ListTicketsRow struct {
 	Task                Task               `json:"task"`
 	TypePrefix          string             `json:"type_prefix"`
+	Reference           string             `json:"reference"`
 	RequesterName       string             `json:"requester_name"`
 	AssigneeName        pgtype.Text        `json:"assignee_name"`
 	AssignmentGroupName pgtype.Text        `json:"assignment_group_name"`
@@ -651,6 +725,7 @@ type ListTicketsRow struct {
 // The queue works on tasks alone, whatever their type, so it never needs the extension tables.
 // Each row carries its SLA summary: the soonest due time of its running clocks, and whether any clock in force has
 // breached.
+// A retired type's records (its app was removed) are left out of every list; they open only by reference.
 // by_due: breached first, then the soonest due, then the rest newest first.
 func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]ListTicketsRow, error) {
 	rows, err := q.db.Query(ctx, listTickets,
@@ -694,6 +769,7 @@ func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]Lis
 			&i.Task.Fields,
 			&i.Task.ParentID,
 			&i.TypePrefix,
+			&i.Reference,
 			&i.RequesterName,
 			&i.AssigneeName,
 			&i.AssignmentGroupName,
@@ -703,6 +779,38 @@ func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]Lis
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const retireAppTaskTypes = `-- name: RetireAppTaskTypes :many
+UPDATE task_types SET retired_at = now()
+WHERE owner_app = $1 AND retired_at IS NULL AND NOT (type = ANY ($2::text[]))
+RETURNING type
+`
+
+type RetireAppTaskTypesParams struct {
+	OwnerApp pgtype.Text `json:"owner_app"`
+	Keep     []string    `json:"keep"`
+}
+
+// The app's types it no longer defines (all of them, on uninstall) are retired; their records stay.
+func (q *Queries) RetireAppTaskTypes(ctx context.Context, arg RetireAppTaskTypesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, retireAppTaskTypes, arg.OwnerApp, arg.Keep)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var type_ string
+		if err := rows.Scan(&type_); err != nil {
+			return nil, err
+		}
+		items = append(items, type_)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -850,4 +958,38 @@ func (q *Queries) UpdateTaskStatus(ctx context.Context, arg UpdateTaskStatusPara
 		&i.ParentID,
 	)
 	return i, err
+}
+
+const upsertAppTaskType = `-- name: UpsertAppTaskType :exec
+INSERT INTO task_types (type, prefix, label, plural, anyone_may_file, description, owner_app)
+VALUES ($1, $2, $3, $4,
+        $5, $6, $7)
+ON CONFLICT (type) DO UPDATE SET prefix = EXCLUDED.prefix, label = EXCLUDED.label, plural = EXCLUDED.plural,
+    anyone_may_file = EXCLUDED.anyone_may_file,
+    description = EXCLUDED.description, retired_at = NULL
+`
+
+type UpsertAppTaskTypeParams struct {
+	Type          string      `json:"type"`
+	Prefix        string      `json:"prefix"`
+	Label         string      `json:"label"`
+	Plural        string      `json:"plural"`
+	AnyoneMayFile bool        `json:"anyone_may_file"`
+	Description   string      `json:"description"`
+	OwnerApp      pgtype.Text `json:"owner_app"`
+}
+
+// An app's record type, written by its install (records keep their numbering across reinstalls). Bringing a type back
+// clears its retirement. name and prefix of a type with records never change: the install refuses that first.
+func (q *Queries) UpsertAppTaskType(ctx context.Context, arg UpsertAppTaskTypeParams) error {
+	_, err := q.db.Exec(ctx, upsertAppTaskType,
+		arg.Type,
+		arg.Prefix,
+		arg.Label,
+		arg.Plural,
+		arg.AnyoneMayFile,
+		arg.Description,
+		arg.OwnerApp,
+	)
+	return err
 }

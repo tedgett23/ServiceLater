@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -35,9 +34,11 @@ const (
 type Ticket struct {
 	ID uuid.UUID `json:"id"`
 	// Type is the kind of ticket (incident, change ...), Number counts within that type, and Reference is how people
-	// name it: the type's prefix and the number, such as INC42.
+	// name it: the type's prefix and the number, such as INC42 or TYL7. Show it as given; Prefix is its leading part,
+	// for styling.
 	Type          string     `json:"type"`
 	Number        int64      `json:"number"`
+	Prefix        string     `json:"prefix"`
 	Reference     string     `json:"reference"`
 	Title         string     `json:"title"`
 	Description   string     `json:"description"`
@@ -154,8 +155,9 @@ func timePtr(t pgtype.Timestamptz) *time.Time {
 }
 
 // FromParts builds a ticket from a task row and the names around it.
-func FromParts(t dbgen.Task, prefix, requesterName string, assigneeName, groupName pgtype.Text, resolution string) Ticket {
-	d := Ticket{ID: t.ID, Type: t.Type, Number: t.Number, Reference: fmt.Sprintf("%s%d", prefix, t.Number), Resolution: resolution,
+// The reference (prefix and number, such as INC42) comes from the database.
+func FromParts(t dbgen.Task, prefix, reference, requesterName string, assigneeName, groupName pgtype.Text, resolution string) Ticket {
+	d := Ticket{ID: t.ID, Type: t.Type, Number: t.Number, Prefix: prefix, Reference: reference, Resolution: resolution,
 		Title: t.Title, Description: t.Description, Status: t.Status, StateCategory: t.StateCategory,
 		Priority: t.Priority, RequesterID: t.RequesterID, Requester: requesterName,
 		CreatedAt: t.CreatedAt.Time, UpdatedAt: t.UpdatedAt.Time, Fields: DecodeFields(t.Fields)}
@@ -267,7 +269,7 @@ func Load(ctx context.Context, q *dbgen.Queries, id uuid.UUID) (Ticket, error) {
 	if err != nil {
 		return Ticket{}, err
 	}
-	t := FromParts(v.Task, v.TypePrefix, v.RequesterName, v.AssigneeName, v.AssignmentGroupName, v.Resolution)
+	t := FromParts(v.Task, v.TypePrefix, v.Reference, v.RequesterName, v.AssigneeName, v.AssignmentGroupName, v.Resolution)
 	if v.ChangeType.Valid {
 		t.Change = &Change{ChangeType: v.ChangeType.String, Risk: v.Risk, Impact: v.Impact,
 			PlannedStart: timePtr(v.PlannedStart), PlannedEnd: timePtr(v.PlannedEnd),

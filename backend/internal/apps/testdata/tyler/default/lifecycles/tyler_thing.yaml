@@ -1,0 +1,18 @@
+kind: lifecycle
+record_type: tyler_thing
+initial: new
+states:
+  new:     { label: New,     category: open }
+  in_use:  { label: In use,  category: open }
+  stored:  { label: Stored,  category: waiting }
+  gone:    { label: Gone,    category: closed }
+transitions:
+  - { from: new,    to: in_use, verb: Start using, primary: true }
+  - { from: in_use, to: stored, verb: Put away }
+  - { from: stored, to: in_use, verb: Take out }
+  - from: in_use
+    to: gone
+    verb: Get rid of
+    when: has(record.fields.serial)
+    error: Note its serial number first.
+  - { from: stored, to: gone, verb: Get rid of }

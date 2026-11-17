@@ -70,6 +70,8 @@ type Definition struct {
 	Relationship *Relationship
 	// CatalogItem is something people may request (catalog/).
 	CatalogItem *CatalogItem
+	// RecordType is a kind of record the app adds (types/).
+	RecordType *RecordType
 }
 
 // Source is the layers joined for storage and display, for example "default+local".
@@ -82,6 +84,9 @@ type Compiled struct {
 	// Files are the app's own files (app.yaml, README.md, default/ and local/), without the instance's layers, so it
 	// can be compiled again later with a different edit (Install keeps them in app_files).
 	Files map[string][]byte
+	// ForeignTypes are record types the app names that are neither core nor its own: its dependencies must define
+	// them, which only the install can check.
+	ForeignTypes []string
 }
 
 // definition folders: what each holds, and whether this version can install it.
@@ -97,6 +102,7 @@ var definitionDirs = map[string]struct{ kind, unsupported string }{
 	"notifications": {kind: "notification"},
 	"roles":         {kind: "role"},
 	"slas":          {kind: "sla"},
+	"types":         {kind: "record_type"},
 	"ui":            {unsupported: "declarative views are not supported yet"},
 }
 
@@ -379,6 +385,7 @@ func (b *Bundle) Compile() (*Compiled, error) {
 	checkTransitionTargets(defs, &p)
 	checkClasses(defs, &p)
 	checkCatalogWorkflows(defs, &p)
+	foreign := checkRecordTypes(m, defs, &p)
 	if err := p.orNil(); err != nil || m == nil {
 		return nil, p
 	}
@@ -386,7 +393,7 @@ func (b *Bundle) Compile() (*Compiled, error) {
 	for k, v := range b.Files {
 		own[k] = v
 	}
-	return &Compiled{Manifest: *m, Definitions: defs, Files: own}, nil
+	return &Compiled{Manifest: *m, Definitions: defs, Files: own, ForeignTypes: foreign}, nil
 }
 
 // checkDefinitionFile reports whether a file in a layer is a definition this version can install.
@@ -494,6 +501,14 @@ func compileDefinition(kind, file string, data []byte, forms formSet, p *Problem
 		body, _ := json.Marshal(r)
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: r.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Relationship: r}
+	case "record_type":
+		t := parseRecordType(file, data, p)
+		if t == nil {
+			return nil
+		}
+		body, _ := json.Marshal(t)
+		sum := sha256.Sum256(body)
+		return &Definition{Kind: kind, Name: t.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), RecordType: t}
 	case "sla":
 		s := parseSLA(file, data, forms, p)
 		if s == nil {
