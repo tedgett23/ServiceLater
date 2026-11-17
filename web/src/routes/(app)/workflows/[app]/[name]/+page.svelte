@@ -119,10 +119,13 @@
 <svelte:head><title>{name} – Workflows – ServiceLater</title></svelte:head>
 
 <div class="page">
-	<a class="back" href="/workflows">
-		<svg viewBox="0 0 8 12" width="8" height="12" aria-hidden="true"><path d="M6 1 1.5 6 6 11" fill="none" stroke="currentColor" stroke-width="2" /></svg>
-		Workflows
-	</a>
+	<nav class="crumbs" aria-label="Breadcrumb">
+		<ol>
+			<li><a href="/workflows">Workflows</a></li>
+			<li>{page.params.app}</li>
+			<li aria-current="page">{page.params.name}</li>
+		</ol>
+	</nav>
 	{#if loadError}
 		<p class="msg" role="alert">{loadError}</p>
 	{:else if def}
@@ -150,13 +153,16 @@
 			{/if}
 		</div>
 		{#if !editable}<p class="hint">You can look at this workflow; changing it needs the workflows:edit permission.</p>{/if}
-		{#if activity}
-			<label class="live-toggle"><input type="checkbox" bind:checked={showActivity} /> Show where its runs are</label>
-		{/if}
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
 
 		{#key generation}
-			<WorkflowBuilder bind:this={builder} {def} {editable} activity={showActivity ? activity : null} onsave={save} />
+			<WorkflowBuilder bind:this={builder} {def} {editable} activity={showActivity ? activity : null} onsave={save}>
+				{#snippet tools()}
+					{#if activity}
+						<label class="live-toggle"><input type="checkbox" bind:checked={showActivity} /> Show where its runs are</label>
+					{/if}
+				{/snippet}
+			</WorkflowBuilder>
 		{/key}
 
 		{#if def.yaml}
@@ -181,18 +187,41 @@
 </div>
 
 <style>
+	/* A column: the header, then the builder to the bottom of the window; the YAML is below, reached by scrolling. */
 	.page {
 		height: 100%;
 		overflow-y: auto;
-		padding: 1rem 1.25rem 2rem;
+		display: flex;
+		flex-direction: column;
+		padding: 1rem 1.25rem 1.25rem;
 	}
-	.back {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.4rem;
-		margin-bottom: 0.75rem;
-		font-weight: 600;
+	.crumbs ol {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem;
+		margin: 0 0 0.6rem;
+		padding: 0;
+		list-style: none;
+		font-size: 0.8125rem;
+		color: var(--ink-2);
+	}
+	.crumbs li + li::before {
+		content: '/';
+		margin-right: 0.35rem;
+		color: color-mix(in srgb, var(--ink-2) 55%, transparent);
+	}
+	.crumbs a {
+		color: var(--ink-2);
+		font-weight: 550;
 		text-decoration: none;
+	}
+	.crumbs a:hover {
+		color: var(--ink);
+		text-decoration: underline;
+	}
+	.crumbs li:not(:first-child) {
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
 	}
 	.top {
 		display: flex;
@@ -227,8 +256,8 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.45rem;
-		margin-bottom: 0.6rem;
-		font-size: 0.9rem;
+		font-size: 0.875rem;
+		white-space: nowrap;
 	}
 	.reset {
 		display: flex;

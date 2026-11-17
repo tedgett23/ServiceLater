@@ -310,3 +310,39 @@ kbd {
 	border: 0;
 	border-top: 1px solid var(--rule);
 }
+
+/* A segmented control: one choice of a few (Week | Month, Open | Known errors | All), or a joined row of buttons
+   (previous | Today | next). Buttons inside show which is on with aria-pressed. */
+.segmented {
+	display: inline-flex;
+	align-items: stretch;
+	padding: 2px;
+	border: 1px solid var(--rule);
+	border-radius: 8px;
+	background: var(--raised);
+	min-height: 2.25rem;
+}
+.segmented > button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.3rem;
+	padding: 0.3rem 0.75rem;
+	border: 0;
+	border-radius: 6px;
+	background: none;
+	color: var(--ink-2);
+	font: inherit;
+	font-size: 0.875rem;
+	font-weight: 500;
+	cursor: pointer;
+}
+.segmented > button:hover {
+	color: var(--ink);
+}
+.segmented > button[aria-pressed='true'] {
+	background: var(--surface);
+	color: var(--ink);
+	font-weight: 600;
+	box-shadow: var(--shadow);
+}

@@ -1,25 +1,23 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { can, P } from '$lib/types';
+	import { adminGroups } from '$lib/adminNav';
+	import { ui } from '$lib/ui.svelte';
 
 	let { children, data } = $props();
 
 	const here = (path: string) => (page.url.pathname.startsWith(path) ? 'page' : undefined);
+	const groups = $derived(adminGroups(data.user));
 </script>
 
 <div class="admin">
-	<nav aria-label="Admin">
-		{#if can(data.user, P.usersManage)}<a href="/admin/users" aria-current={here('/admin/users')}>Users</a>{/if}
-		{#if can(data.user, P.groupsManage)}<a href="/admin/groups" aria-current={here('/admin/groups')}>Groups</a>{/if}
-		<a href="/admin/roles" aria-current={here('/admin/roles')}>Roles</a>
-		{#if can(data.user, P.catalogManage)}<a href="/admin/catalog" aria-current={here('/admin/catalog')}>Catalog</a>{/if}
-		{#if can(data.user, P.calendarsManage)}<a href="/admin/calendars" aria-current={here('/admin/calendars')}>Calendars</a>{/if}
-		{#if can(data.user, P.settingsManage)}<a href="/admin/sign-in" aria-current={here('/admin/sign-in')}>Sign-in</a>{/if}
-		{#if can(data.user, P.settingsManage)}<a href="/admin/email" aria-current={here('/admin/email')}>Email</a>{/if}
-		{#if can(data.user, P.settingsManage)}<a href="/admin/storage" aria-current={here('/admin/storage')}>Storage</a>{/if}
-		{#if can(data.user, P.settingsManage)}<a href="/admin/history" aria-current={here('/admin/history')}>History</a>{/if}
-		<!-- The API reference lives outside the app shell (it needs no sign-in), so this leaves the app. -->
-		<a href="/docs/api">API reference</a>
+	<!-- The admin pages are listed under Admin in the main navigation. On a phone, or with the navigation folded to
+	     icons, they are this bar above the page instead. -->
+	<nav class="bar" class:shown={ui.navCollapsed} aria-label="Admin">
+		{#each groups as g (g.label)}
+			{#each g.pages as p (p.href)}
+				<a href={p.href} aria-current={here(p.href)}>{p.label}</a>
+			{/each}
+		{/each}
 	</nav>
 	<div class="body">
 		{@render children()}
@@ -29,59 +27,48 @@
 <style>
 	.admin {
 		height: 100%;
-		display: grid;
-		grid-template-columns: 12rem minmax(0, 1fr);
-	}
-	nav {
 		display: flex;
 		flex-direction: column;
-		gap: 0.15rem;
-		padding: 1rem 0.75rem;
-		border-right: 1px solid var(--rule);
-		background: var(--ground);
 	}
-	nav a {
-		padding: 0.4rem 0.6rem;
-		border-radius: var(--radius);
-		font-weight: 600;
-		font-size: 0.925rem;
+	.bar {
+		display: none;
+		flex: none;
+		gap: 0.15rem;
+		overflow-x: auto;
+		padding: 0.4rem 0.75rem;
+		border-bottom: 1px solid var(--rule);
+		background: var(--ground);
+		scrollbar-width: none;
+	}
+	.bar.shown {
+		display: flex;
+	}
+	.bar a {
+		padding: 0.35rem 0.6rem;
+		border-radius: 7px;
+		font-weight: 500;
+		font-size: 0.875rem;
 		color: var(--ink-2);
 		text-decoration: none;
 		white-space: nowrap;
 	}
-	nav a:hover {
+	.bar a:hover {
 		color: var(--ink);
-		background: var(--blue-soft);
+		background: var(--hover);
 	}
-	nav a[aria-current='page'] {
+	.bar a[aria-current='page'] {
 		color: var(--ink);
-		background: var(--surface);
-		box-shadow: inset 3px 0 0 var(--blue);
+		font-weight: 600;
+		background: color-mix(in srgb, var(--ink) 8%, transparent);
 	}
 	.body {
+		flex: 1;
 		min-height: 0;
 		background: var(--surface);
 	}
-
-	/* Narrow: the section links become a row of tabs above the page. */
 	@media (max-width: 40rem) {
-		.admin {
+		.bar {
 			display: flex;
-			flex-direction: column;
-		}
-		nav {
-			flex: none;
-			flex-direction: row;
-			overflow-x: auto;
-			padding: 0.4rem 0.75rem;
-			border-right: 0;
-			border-bottom: 1px solid var(--rule);
-		}
-		nav a[aria-current='page'] {
-			box-shadow: inset 0 -3px 0 var(--blue);
-		}
-		.body {
-			flex: 1;
 		}
 	}
 </style>

@@ -25,7 +25,6 @@
 	import { long, what, who } from '$lib/history';
 	import { can, canRecord, P } from '$lib/types';
 	import Avatar from './Avatar.svelte';
-	import Icon from './Icon.svelte';
 	import { ui } from '$lib/ui.svelte';
 
 	let props: { ticket: Ticket; comments: Comment[]; loadedAt?: number } = $props();
@@ -304,10 +303,16 @@
 </script>
 
 <article class="detail">
-	<a class="back" href="/tickets">
-		<Icon name="back" size={15} />
-		Queue
-	</a>
+	<!-- Where the record sits: its list (problems have their own), then itself; the record it is part of is the byline's
+	     "Part of". On a phone, where the queue is not beside it, the first link is the way back. -->
+	<nav class="crumbs" aria-label="Breadcrumb">
+		<ol>
+			<li>
+				{#if ticket.type === 'problem'}<a href="/problems">Problems</a>{:else}<a href="/tickets">Tickets</a>{/if}
+			</li>
+			<li aria-current="page">{ticket.reference}</li>
+		</ol>
+	</nav>
 
 	<header class="head">
 		<!-- The reference, as the server sends it. Screen readers hear the type first: "Incident INC42". -->
@@ -550,20 +555,35 @@
 		max-width: 72rem;
 	}
 
-	.back {
-		display: none;
+	.crumbs ol {
+		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		gap: 0.4rem;
-		margin-bottom: 1rem;
-		color: var(--ink-2);
+		gap: 0.35rem;
+		margin: 0 0 0.9rem;
+		padding: 0;
+		list-style: none;
 		font-size: 0.8125rem;
+		color: var(--ink-2);
+	}
+	.crumbs li + li::before {
+		content: '/';
+		margin-right: 0.35rem;
+		color: color-mix(in srgb, var(--ink-2) 55%, transparent);
+	}
+	.crumbs a {
+		color: var(--ink-2);
 		font-weight: 550;
 		text-decoration: none;
 	}
-	@media (max-width: 62rem) {
-		.back {
-			display: inline-flex;
-		}
+	.crumbs a:hover {
+		color: var(--ink);
+		text-decoration: underline;
+	}
+	.crumbs [aria-current='page'] {
+		color: var(--ink);
+		font-family: var(--font-mono);
+		font-size: 0.75rem;
 	}
 
 	.head {

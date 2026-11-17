@@ -8,6 +8,7 @@
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { notifications } from '$lib/notifications.svelte';
 	import { queue, queueViews } from '$lib/queue.svelte';
+	import { adminGroups } from '$lib/adminNav';
 	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
 	import { theme } from '$lib/theme.svelte';
@@ -62,6 +63,7 @@
 	// The shortcut as this person's keyboard shows it.
 	const searchKey = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K';
 	const views = $derived(queueViews(canRecordAny(session.user, 'read')));
+	const admin = $derived(adminGroups(session.user));
 
 	function openNotification(id: string) {
 		void notifications.markRead(id);
@@ -161,6 +163,18 @@
 					</button>
 				{/each}
 			</div>
+		{/if}
+
+		<!-- In the admin section, its pages, under Admin like the queue's views under Tickets. -->
+		{#if at('/admin')}
+			<nav class="views" aria-label="Admin">
+				{#each admin as g (g.label)}
+					<h2>{g.label}</h2>
+					{#each g.pages as p (p.href)}
+						<a href={p.href} aria-current={at(p.href) ? 'page' : undefined}>{p.label}</a>
+					{/each}
+				{/each}
+			</nav>
 		{/if}
 
 		<div class="foot">
@@ -349,6 +363,7 @@
 		gap: 1px;
 	}
 	nav.wide a,
+	.views a,
 	.views button {
 		display: flex;
 		align-items: center;
@@ -367,11 +382,13 @@
 		cursor: pointer;
 	}
 	nav.wide a:hover,
+	.views a:hover,
 	.views button:hover {
 		background: var(--hover);
 		color: var(--ink);
 	}
 	nav.wide a[aria-current='page'],
+	.views a[aria-current='page'],
 	.views button[aria-pressed='true'] {
 		background: color-mix(in srgb, var(--ink) 8%, transparent);
 		color: var(--ink);
@@ -391,6 +408,9 @@
 		font-weight: 500;
 		color: var(--ink-2);
 		font-variant-numeric: tabular-nums;
+	}
+	.views a + h2 {
+		margin-top: 0.4rem;
 	}
 	.views h2 {
 		padding: 0.25rem 0.5rem 0.3rem;
