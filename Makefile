@@ -1,4 +1,7 @@
-.PHONY: e2e lint check apps-validate sync-apps dev-db dev-backend dev-web build test sqlc openapi pack-apps
+.PHONY: e2e lint check apps-validate sync-apps dev-db dev-backend dev-web build test sqlc openapi pack-apps image release-check
+
+# The source revision stamped into the binary (servicelater version).
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
 
 dev-db:
 	docker compose -f docker-compose.dev.yml up -d db
@@ -13,7 +16,7 @@ dev-web:
 # Frontend first: it is embedded into the binary.
 build:
 	cd web && npm run build
-	cd backend && go build -o bin/servicelater ./cmd/servicelater
+	cd backend && go build -ldflags "-X main.commit=$(COMMIT)" -o bin/servicelater ./cmd/servicelater
 
 test:
 	cd backend && SL_TEST_DATABASE_URL=$${SL_TEST_DATABASE_URL:-postgres://servicelater:servicelater@localhost:5432/servicelater_test?sslmode=disable} go test -p 1 ./...
@@ -51,3 +54,15 @@ openapi:
 
 pack-apps:
 	for a in apps/*/; do backend/bin/servicelater app pack $$a; done
+
+# The release image, tagged with the commit and as latest. CONTAINER=podman works too (where builds cannot reach the
+# network on their own, add BUILD_FLAGS=--network=host).
+CONTAINER ?= docker
+COMPOSE ?= docker compose
+image:
+	$(CONTAINER) build $(BUILD_FLAGS) --build-arg COMMIT=$(COMMIT) -t servicelater:$(COMMIT) -t servicelater:latest .
+
+# Before tagging a release: build the image, run it in a fresh Compose stack and smoke-test it (deploy/release-check.sh).
+# COMPOSE=podman-compose with CONTAINER=podman.
+release-check: image
+	COMPOSE="$(COMPOSE)" ./deploy/release-check.sh

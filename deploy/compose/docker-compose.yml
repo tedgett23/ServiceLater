@@ -5,7 +5,8 @@
 # Or terminate TLS in front (load balancer / your own proxy) and leave SL_TLS=off.
 services:
   db:
-    image: postgres:17
+    image: docker.io/library/postgres:17
+    restart: unless-stopped
     environment:
       POSTGRES_USER: servicelater
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
@@ -13,12 +14,16 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U servicelater"]
+      # Over TCP: on its first start Postgres initialises behind a socket-only server that pg_isready alone calls ready.
+      test: ["CMD-SHELL", "pg_isready -U servicelater -d servicelater -h 127.0.0.1"]
       interval: 5s
       retries: 10
 
   app:
+    # A published image, or the one built from this checkout when it is not there (docker compose build).
+    image: ${SL_IMAGE:-servicelater:latest}
     build: { context: ../.., dockerfile: Dockerfile }
+    restart: unless-stopped
     environment:
       SL_ROLES: all
       # First-party apps are inside the binary. Your own changes to them go in this volume, as YAML files laid out

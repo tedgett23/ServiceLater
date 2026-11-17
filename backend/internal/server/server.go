@@ -44,7 +44,9 @@ func Run(ctx context.Context, cfg config.Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if cfg.NeedsDB() {
-		pool, err := db.Connect(ctx, cfg.DatabaseURL)
+		// A minute: long enough for a database started alongside (its first start initialises it), short enough that
+		// a wrong address is reported, and the orchestrator restarts us, soon.
+		pool, err := db.ConnectWaiting(ctx, cfg.DatabaseURL, time.Minute)
 		if err != nil {
 			return err
 		}
