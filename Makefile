@@ -22,6 +22,7 @@ test:
 # Browser tests against the real binary and a scratch database (see web/e2e). Needs Playwright's Chromium:
 #   cd web && npx playwright install chromium
 e2e: build
+	cd backend && go build -o bin/fakeidp ./cmd/fakeidp
 	cd web && npm run test:e2e
 
 # First-party apps live in apps/ and are embedded in the binary; the server installs them at startup.

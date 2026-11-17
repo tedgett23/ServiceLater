@@ -504,12 +504,33 @@ export interface Person extends User {
 	deactivated_at: string | null;
 	/** Their manager, who approves what they request. */
 	manager_id: string | null;
+	/** An integration's account: it cannot sign in, and calls the API with API keys. */
+	service_account?: boolean;
 }
 
 export interface PersonDetail extends Person {
 	manager_name: string | null;
 	groups: { id: string; name: string }[];
 	roles: HeldRole[];
+	/** Everything they may do, from every role they hold. */
+	permissions: string[];
+	/** What a service account is for. */
+	description?: string;
+}
+
+/** An API key of a service account, as listed: never the key itself. */
+export interface ApiKey {
+	id: string;
+	name: string;
+	/** The key's first characters, to tell keys apart. */
+	prefix: string;
+	/** What it is narrowed to; absent when it may do whatever its account may. */
+	scopes?: string[];
+	created_at: string;
+	created_by_name: string | null;
+	expires_at: string | null;
+	last_used_at: string | null;
+	revoked_at: string | null;
 }
 
 export const roleLabel: Record<Role, string> = { admin: 'Admin', agent: 'Agent', end_user: 'End user' };

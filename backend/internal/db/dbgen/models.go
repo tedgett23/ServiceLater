@@ -24,6 +24,20 @@ type ActionRun struct {
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 }
 
+type ApiKey struct {
+	ID         uuid.UUID          `json:"id"`
+	UserID     uuid.UUID          `json:"user_id"`
+	Name       string             `json:"name"`
+	Prefix     string             `json:"prefix"`
+	SecretHash []byte             `json:"secret_hash"`
+	Scopes     []string           `json:"scopes"`
+	CreatedBy  uuid.NullUUID      `json:"created_by"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
+	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+}
+
 type App struct {
 	Name        string             `json:"name"`
 	Version     string             `json:"version"`
@@ -299,6 +313,13 @@ type Secret struct {
 	UpdatedAt  pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ServiceAccount struct {
+	UserID      uuid.UUID          `json:"user_id"`
+	Description string             `json:"description"`
+	CreatedBy   uuid.NullUUID      `json:"created_by"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
 type Session struct {
 	ID        uuid.UUID          `json:"id"`
 	UserID    uuid.UUID          `json:"user_id"`
@@ -314,6 +335,25 @@ type Setting struct {
 	Value     []byte             `json:"value"`
 	UpdatedBy uuid.NullUUID      `json:"updated_by"`
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SsoGroupMap struct {
+	ProviderID string    `json:"provider_id"`
+	ClaimValue string    `json:"claim_value"`
+	GroupID    uuid.UUID `json:"group_id"`
+}
+
+type SsoProvider struct {
+	ID             string             `json:"id"`
+	Label          string             `json:"label"`
+	Issuer         string             `json:"issuer"`
+	ClientID       string             `json:"client_id"`
+	AllowedDomains []string           `json:"allowed_domains"`
+	CreateUsers    bool               `json:"create_users"`
+	GroupsClaim    string             `json:"groups_claim"`
+	Enabled        bool               `json:"enabled"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Task struct {
@@ -408,6 +448,15 @@ type UserCredential struct {
 	UserID       uuid.UUID          `json:"user_id"`
 	PasswordHash string             `json:"password_hash"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type UserIdentity struct {
+	ProviderID   string             `json:"provider_id"`
+	Subject      string             `json:"subject"`
+	UserID       uuid.UUID          `json:"user_id"`
+	Email        string             `json:"email"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	LastSignInAt pgtype.Timestamptz `json:"last_sign_in_at"`
 }
 
 type WorkflowApproval struct {

@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"errors"
 	"log/slog"
@@ -29,6 +30,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/secrets"
 	"github.com/servicelater/servicelater/backend/internal/slaclock"
 	"github.com/servicelater/servicelater/backend/internal/slatimer"
+	"github.com/servicelater/servicelater/backend/internal/sso"
 	"github.com/servicelater/servicelater/backend/internal/storage"
 	"github.com/servicelater/servicelater/backend/internal/webui"
 	"github.com/servicelater/servicelater/backend/internal/workflow"
@@ -79,6 +81,9 @@ func Run(ctx context.Context, cfg config.Config) error {
 			if err != nil {
 				return err
 			}
+			tokens.Keys = &auth.APIKeys{Pool: pool}
+			stateKey := sha256.Sum256([]byte("sso-state:" + cfg.JWTSecret))
+			deps.SSO = &sso.Manager{Pool: pool, Keys: deps.Keys, StateKey: stateKey[:]}
 			deps.Tokens = tokens
 			deps.Signer = storage.NewSigner(cfg.JWTSecret)
 			deps.Auth = auth.NewService(pool, tokens, cfg.RefreshTTL)

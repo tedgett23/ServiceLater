@@ -128,7 +128,11 @@ func (g *gen) document() ([]byte, error) {
 			"description": "Generated from the Go source of internal/api by `make openapi`; do not edit by hand.\n\n" +
 				"Sign in with `POST /api/v1/auth/login`. It sets an `sl_access` cookie (a short-lived token) and an " +
 				"`sl_refresh` cookie; `POST /api/v1/auth/refresh` renews both. Unsafe requests from a browser must come " +
-				"from the same origin. Permissions are checked twice: by role in the API, and by row-level security in " +
+				"from the same origin.\n\n" +
+				"Integrations use an API key instead: an admin makes a service account and a key for it (`POST " +
+				"/api/v1/service-accounts`, `POST /api/v1/users/{id}/api-keys`), and every request sends " +
+				"`Authorization: Bearer slk_...`. A key acts as its service account, narrowed to its scopes if it has any.\n\n" +
+				"Permissions are checked twice: by role in the API, and by row-level security in " +
 				"the database, so a record you may not see answers 404, exactly like one that does not exist.\n\n" +
 				"Live updates are a WebSocket at `/ws/v1/subscribe`, which is not described here: it sends hints with " +
 				"ids only, and clients refetch through this API.",
@@ -139,6 +143,7 @@ func (g *gen) document() ([]byte, error) {
 			"schemas": g.components,
 			"securitySchemes": map[string]any{
 				"cookieAuth": map[string]any{"type": "apiKey", "in": "cookie", "name": "sl_access"},
+				"bearerAuth": map[string]any{"type": "http", "scheme": "bearer", "description": "An API key (slk_...) of a service account."},
 			},
 		},
 	}
@@ -361,7 +366,7 @@ func (g *gen) operation(rt Route) (map[string]any, error) {
 		op["x-permissions"] = rt.Permissions
 	}
 	if rt.Auth {
-		op["security"] = []map[string][]string{{"cookieAuth": {}}}
+		op["security"] = []map[string][]string{{"cookieAuth": {}}, {"bearerAuth": {}}}
 	} else {
 		op["security"] = []map[string][]string{}
 	}

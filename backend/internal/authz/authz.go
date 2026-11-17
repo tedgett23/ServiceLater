@@ -173,3 +173,33 @@ func Parse(setting string) Set {
 	}
 	return out
 }
+
+// Narrow is what is left of perms once narrowed to scopes, as an API key narrowed to some permissions has: a scope
+// perms grants is kept; records:<verb>:<type> is kept when perms grants that verb on every type; records:<verb>:*
+// keeps only the record permissions of that verb perms has. It never grants more than perms. It mirrors
+// app_narrow_permissions in SQL (TestNarrowingMatchesTheDatabase).
+func Narrow(perms Set, scopes []string) Set {
+	out := Set{}
+	add := func(p string) {
+		if !out.Has(p) {
+			out = append(out, p)
+		}
+	}
+	for _, s := range scopes {
+		verb, typ, isRecord := ParseRecord(s)
+		switch {
+		case perms.Has(s):
+			add(s)
+		case isRecord && typ != AllTypes && perms.Has(Record(verb, AllTypes)):
+			add(s)
+		case isRecord && typ == AllTypes:
+			for _, p := range perms {
+				if v, _, ok := ParseRecord(p); ok && v == verb {
+					add(p)
+				}
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}

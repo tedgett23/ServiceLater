@@ -174,6 +174,7 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 const listStaff = `-- name: ListStaff :many
 SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id FROM users
 WHERE deactivated_at IS NULL AND app_name IS NULL
+  AND NOT EXISTS (SELECT 1 FROM service_accounts s WHERE s.user_id = users.id)
   AND (CASE WHEN $1::text IS NULL THEN app_user_can_record_any(id, 'update')
             ELSE app_user_can_record(id, 'update', $1) END)
 ORDER BY name

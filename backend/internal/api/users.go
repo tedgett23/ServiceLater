@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -31,6 +32,8 @@ type personDTO struct {
 	DeactivatedAt *time.Time `json:"deactivated_at"`
 	// ManagerID is their manager, who approves what they request (record.requester_manager_id in workflows).
 	ManagerID *uuid.UUID `json:"manager_id"`
+	// ServiceAccount is set for an integration's account: it cannot sign in, and calls the API with API keys.
+	ServiceAccount bool `json:"service_account,omitempty"`
 }
 
 func toPerson(u dbgen.User) personDTO {
@@ -55,9 +58,14 @@ type groupRefDTO struct {
 type userDetailDTO struct {
 	personDTO
 	// ManagerName is their manager's name, when they have one.
-	ManagerName *string       `json:"manager_name"`
+	ManagerName *string `json:"manager_name"`
+	// Description says what a service account is for (service accounts only).
+	Description string        `json:"description,omitempty"`
 	Groups      []groupRefDTO `json:"groups"`
 	Roles       []heldRoleDTO `json:"roles"`
+	// Permissions is everything they may do, from their base role and every role they hold directly or through a
+	// group: what a service account's API keys can be narrowed to.
+	Permissions []string `json:"permissions"`
 }
 
 // GET /users/staff?type= (staff): everyone active who may be assigned a ticket of the type (records:update:<type>),
@@ -108,8 +116,14 @@ func (h *handlers) listUsers(w http.ResponseWriter, r *http.Request) {
 	out := []personDTO{}
 	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
 		rows, err := q.ListUsers(r.Context(), args)
+		if err != nil {
+			return err
+		}
+		services, err := q.ListServiceAccountIDs(r.Context())
 		for _, u := range rows {
-			out = append(out, toPerson(u))
+			p := toPerson(u)
+			p.ServiceAccount = slices.Contains(services, u.ID)
+			out = append(out, p)
 		}
 		return err
 	}) {
@@ -232,6 +246,11 @@ func (h *handlers) getUser(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		out.personDTO = toPerson(u)
+		if sa, err := q.GetServiceAccount(r.Context(), id); err == nil {
+			out.ServiceAccount, out.Description = true, sa.Description
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 		if u.ManagerID.Valid {
 			m, err := q.GetUser(r.Context(), u.ManagerID.UUID)
 			if err != nil {
@@ -240,6 +259,9 @@ func (h *handlers) getUser(w http.ResponseWriter, r *http.Request) {
 			out.ManagerName = &m.Name
 		}
 		if out.Groups, err = userGroups(r, q, id); err != nil {
+			return err
+		}
+		if out.Permissions, err = q.PermissionsOf(r.Context(), id); err != nil {
 			return err
 		}
 		out.Roles, err = userRoles(r, q, id)
@@ -381,6 +403,9 @@ func (h *handlers) setUserPassword(w http.ResponseWriter, r *http.Request) {
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		if err := notAnApp(q, r, id); err != nil {
 			return err
+		}
+		if _, err := q.GetServiceAccount(r.Context(), id); err == nil {
+			return invalid("a service account signs in with API keys, not a password")
 		}
 		if err := q.SetUserPassword(r.Context(), dbgen.SetUserPasswordParams{UserID: id, PasswordHash: hash}); err != nil || id == p.UserID {
 			return err
