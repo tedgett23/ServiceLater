@@ -33,7 +33,7 @@
 		<p class="msg">Nothing is waiting on you.</p>
 	{/if}
 
-	<ul>
+	<ul aria-label="Waiting for your decision">
 		{#each approvals.items as a (a.id)}
 			<li>
 				<div class="row">

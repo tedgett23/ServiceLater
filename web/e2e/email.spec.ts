@@ -21,7 +21,7 @@ test('an admin sets up email, and assignments reach people by email unless they 
 	try {
 		const { page } = admin;
 		await page.goto('/admin');
-		await page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Email' }).click();
+		await page.getByRole('navigation', { name: 'Admin' }).getByRole('link', { name: 'Email', exact: true }).click();
 		const form = page.getByRole('form', { name: 'Mail server' });
 		await form.getByLabel('Send email notifications').check();
 		await form.getByLabel('Host', { exact: true }).fill('127.0.0.1');

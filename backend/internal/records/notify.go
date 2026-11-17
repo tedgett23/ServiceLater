@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -42,6 +43,7 @@ func (s *Service) notifyFromRule(ctx context.Context, q *dbgen.Queries, timing s
 		}
 		add(id)
 	}
+	teams := slices.Contains(s.Apps.Notification(n.App, n.Template).Channels, apps.ChannelTeams)
 	for _, raw := range n.GroupIDs {
 		gid, err := uuid.Parse(raw)
 		if err != nil {
@@ -53,6 +55,13 @@ func (s *Service) notifyFromRule(ctx context.Context, q *dbgen.Queries, timing s
 		}
 		for _, id := range members {
 			add(id)
+		}
+		// A group is also told in its Teams channel, once, when the template asks and the group has one (the
+		// database decides: Teams on, a channel set; app_notify_group_channel).
+		if teams {
+			if _, err := q.NotifyGroupChannel(ctx, dbgen.NotifyGroupChannelParams{GroupID: gid, TaskID: t.ID, App: n.App, Template: n.Template}); err != nil {
+				return err
+			}
 		}
 	}
 	if len(ids) == 0 {

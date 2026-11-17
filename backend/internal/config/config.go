@@ -49,6 +49,10 @@ type Config struct {
 	// WorkerConcurrency is how many background jobs the worker role runs at once (SL_WORKER_CONCURRENCY, default 4).
 	WorkerConcurrency int
 
+	// MailPoll is how often the worker reads the incoming mailbox, when incoming mail is on (SL_MAIL_POLL, default 1m,
+	// at least 1s).
+	MailPoll time.Duration
+
 	// Optional: create the first admin on startup when no users exist.
 	BootstrapEmail, BootstrapName, BootstrapPassword string
 }
@@ -73,6 +77,7 @@ func Load() (Config, error) {
 		AccessTTL:         15 * time.Minute,
 		RefreshTTL:        30 * 24 * time.Hour,
 		WorkerConcurrency: 4,
+		MailPoll:          time.Minute,
 		MaxLiveConns:      10,
 		BundledApps:       os.Getenv("SL_BUNDLED_APPS"),
 		AppsLocalDir:      os.Getenv("SL_APPS_LOCAL_DIR"),
@@ -94,6 +99,13 @@ func Load() (Config, error) {
 			return c, fmt.Errorf("SL_WORKER_CONCURRENCY must be a number from 1 to 64, got %q", v)
 		}
 		c.WorkerConcurrency = n
+	}
+	if v := os.Getenv("SL_MAIL_POLL"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < time.Second {
+			return c, fmt.Errorf("SL_MAIL_POLL must be a duration of at least 1s, such as 1m, got %q", v)
+		}
+		c.MailPoll = d
 	}
 	if c.Roles[RoleAPI] && len(c.JWTSecret) < 32 {
 		return c, fmt.Errorf("SL_JWT_SECRET must be set to at least 32 characters (generate one with: openssl rand -base64 48)")

@@ -57,7 +57,7 @@ test('a pending approval shows up as a live notification, and reading it clears 
 		// Newest first, so this one is hers: other tests' notifications to lena are already read by now.
 		const item = lena.page.locator('.bell li').first().locator('a');
 		await expect(item).toHaveClass(/unread/);
-		await expect(item).toContainText('Something needs your approval');
+		await expect(item).toContainText('Your approval is needed on'); // core-itsm's approval-pending template
 
 		await item.click();
 		await expect(lena.page).toHaveURL(/\/approvals/);

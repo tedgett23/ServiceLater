@@ -67,7 +67,7 @@ test('an update that would strand tickets is refused, and nothing changes', asyn
 	// The installed lifecycle is untouched.
 	const res = await context.request.get('/api/v1/lifecycles/incident');
 	const lifecycle = await res.json();
-	expect(lifecycle.version).toBe('0.3.0');
+	expect(lifecycle.version).toBe('0.4.0');
 	expect(lifecycle.states.map((s: { id: string }) => s.id)).toContain('on_hold');
 });
 

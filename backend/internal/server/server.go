@@ -21,6 +21,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/config"
 	"github.com/servicelater/servicelater/backend/internal/db"
+	"github.com/servicelater/servicelater/backend/internal/inbound"
 	"github.com/servicelater/servicelater/backend/internal/jobs"
 	"github.com/servicelater/servicelater/backend/internal/notify"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
@@ -133,16 +134,22 @@ func Run(ctx context.Context, cfg config.Config) error {
 			worker.Register(workflow.RunKind, engine.Handler())
 			worker.Register(slaclock.AlertKind, slatimer.Handler(workerPool, workerApps))
 			worker.Register(notify.EmailKind, (&notify.Mailer{Pool: workerPool, Apps: workerApps, Keys: keys}).Handler())
+			worker.Register(notify.SMSKind, (&notify.Texter{Pool: workerPool, Apps: workerApps, Keys: keys, Sender: notify.Twilio{}}).Handler())
+			worker.Register(notify.TeamsKind, (&notify.Poster{Pool: workerPool, Apps: workerApps, Keys: keys, Teams: notify.TeamsPoster{}}).Handler())
 			workerFiles := &storage.Manager{Pool: workerPool, Keys: keys, LocalDir: cfg.AttachmentsDir}
 			worker.Register(storage.PurgeKind, workerFiles.PurgeHandler())
 			worker.Register(storage.ExpireKind, workerFiles.ExpireHandler())
+			// Incoming mail: replies become comments, new mail (when allowed) incidents.
+			worker.Register(inbound.FetchKind, (&inbound.Reader{Pool: workerPool, Keys: keys,
+				Processor: &inbound.Processor{Pool: workerPool, Apps: workerApps, Files: workerFiles}}).Handler())
 			background.Add(1)
 			go func() {
 				defer background.Done()
 				var timer sync.WaitGroup
-				timer.Add(2)
+				timer.Add(3)
 				go func() { defer timer.Done(); engine.RunTimer(ctx, time.Second) }()
 				go func() { defer timer.Done(); slatimer.Run(ctx, workerPool, time.Second) }()
+				go func() { defer timer.Done(); inbound.RunTimer(ctx, workerPool, cfg.MailPoll) }()
 				worker.Run(ctx)
 				timer.Wait() // both use the pool, so it closes only when both have stopped
 				workerPool.Close()

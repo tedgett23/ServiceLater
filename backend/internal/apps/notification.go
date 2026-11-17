@@ -8,11 +8,17 @@ import (
 )
 
 // Notification channels. In-app always; email when the instance's email settings turn it on and the person has not
-// turned it off (internal/notify). SMS and Slack are not built yet.
+// turned it off; SMS when SMS is on and the person verified a number and turned SMS on; Teams as one post to the
+// channel of each group a notify action names, when Teams is on and the group has a channel (internal/notify).
 const (
 	ChannelInApp = "in_app"
 	ChannelEmail = "email"
+	ChannelSMS   = "sms"
+	ChannelTeams = "teams"
 )
+
+// Channels are every channel a template may list.
+var Channels = []string{ChannelInApp, ChannelEmail, ChannelSMS, ChannelTeams}
 
 const (
 	maxNotificationTitle = 200
@@ -98,10 +104,10 @@ func (n *Notification) validateStructure(file string, p *Problems) {
 	seen := map[string]bool{}
 	for _, c := range n.Channels {
 		switch {
-		case c == "sms" || c == "slack":
-			p.add(file, "channels: %s is not supported yet (in_app and email are)", c)
-		case c != ChannelInApp && c != ChannelEmail:
-			p.add(file, "channels: %q is not a channel (in_app, email)", c)
+		case c == "slack":
+			p.add(file, "channels: slack is not supported yet (%s are)", strings.Join(Channels, ", "))
+		case !slices.Contains(Channels, c):
+			p.add(file, "channels: %q is not a channel (%s)", c, strings.Join(Channels, ", "))
 		case seen[c]:
 			p.add(file, "channels: %q is listed twice", c)
 		}

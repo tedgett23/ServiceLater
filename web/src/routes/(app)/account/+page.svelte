@@ -41,6 +41,52 @@
 		}
 	}
 
+	// A mobile number for text messages: set it, type back the code texted to it, then turn SMS on and off.
+	let number = $state('');
+	let code = $state('');
+	let codeSent = $state(false);
+
+	async function phone(path: string, method: 'PUT' | 'POST' | 'DELETE', body: unknown, done: string) {
+		saving = true;
+		error = '';
+		try {
+			account = await api<Account>(`/api/v1/account/phone${path}`, { method, body });
+			ui.announce = done;
+			return true;
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'That didn’t work';
+			return false;
+		} finally {
+			saving = false;
+		}
+	}
+
+	async function sendCode(e: Event) {
+		e.preventDefault();
+		if (await phone('', 'PUT', { number: number.trim() }, 'A code is on its way by text')) {
+			codeSent = true;
+			code = '';
+		}
+	}
+
+	async function verify(e: Event) {
+		e.preventDefault();
+		if (await phone('/verify', 'POST', { code: code.trim() }, 'Number confirmed; text messages are on')) codeSent = false;
+	}
+
+	async function setSMS(on: boolean) {
+		saving = true;
+		error = '';
+		try {
+			account = await api<Account>('/api/v1/account', { method: 'PATCH', body: { sms_notifications: on } });
+			ui.announce = on ? 'Text messages on' : 'Text messages off';
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'That change didn’t save';
+		} finally {
+			saving = false;
+		}
+	}
+
 	async function setEmail(on: boolean) {
 		saving = true;
 		error = '';
@@ -94,10 +140,51 @@
 				{/if}
 			</p>
 		</section>
+		{#if account.sms_enabled || account.phone}
+			<section aria-labelledby="sms-h">
+				<h2 id="sms-h">Text messages</h2>
+				<p class="hint">Only urgent notifications are texted, such as an approval waiting for you or a missed deadline.</p>
+				{#if account.phone && account.phone_verified && !codeSent}
+					<label class="check">
+						<input type="checkbox" checked={account.sms_notifications} disabled={saving} onchange={(e) => setSMS(e.currentTarget.checked)} />
+						Text me urgent notifications at {account.phone}
+					</label>
+					<div class="row">
+						<button class="btn" type="button" onclick={() => ((codeSent = false), (number = account!.phone), (account!.phone_verified = false))}>Change number</button>
+						<button class="btn quiet-btn" type="button" disabled={saving} onclick={() => phone('', 'DELETE', undefined, 'Number removed')}>Remove number</button>
+					</div>
+				{:else if codeSent || (account.phone && !account.phone_verified && !number)}
+					<form class="row" onsubmit={verify}>
+						<label class="field">
+							<span>Code texted to {account.phone}</span>
+							<input bind:value={code} inputmode="numeric" autocomplete="one-time-code" maxlength="6" required />
+						</label>
+						<button class="btn primary" disabled={saving || code.trim().length !== 6}>Confirm</button>
+						<button class="btn" type="button" onclick={() => ((codeSent = false), (number = account!.phone))}>Send a new code</button>
+					</form>
+				{:else}
+					<form class="row" onsubmit={sendCode}>
+						<label class="field">
+							<span>Mobile number</span>
+							<input bind:value={number} type="tel" autocomplete="tel" placeholder="+1 555 010 1234" required />
+						</label>
+						<button class="btn primary" disabled={saving || !number.trim()}>Text me a code</button>
+					</form>
+					<p class="hint">In international form, with + and the country code. We text a six-digit code to confirm it is yours.</p>
+				{/if}
+			</section>
+		{/if}
 	{/if}
 </div>
 
 <style>
+	.row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: end;
+		gap: 0.6rem;
+		margin-top: 0.5rem;
+	}
 	.page {
 		height: 100%;
 		overflow-y: auto;

@@ -121,7 +121,7 @@ test.describe('changes', () => {
 
 			// Tomás is on the board: he is asked, and approves.
 			await tomas.page.goto('/approvals');
-			const ask = tomas.page.locator('li', { hasText: c.reference });
+			const ask = tomas.page.getByRole('list', { name: 'Waiting for your decision' }).locator('li', { hasText: c.reference });
 			await expect(ask).toBeVisible({ timeout: 15_000 });
 			await ask.getByRole('textbox').fill('Go ahead.');
 			await ask.getByRole('button', { name: 'Approve' }).click();

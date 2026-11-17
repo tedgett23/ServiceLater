@@ -543,7 +543,15 @@ now). The engine is `internal/rules`; it does no database work, so the API appli
 - **Layers:** a rule is a definition like any other, so `local/` can change one field of a shipped rule (`order`,
   `on_error`, an action) without copying it.
 
-### 6.5 Notifications (built: in-app and email)
+### 6.5 Notifications (built: in-app, email, SMS and Teams)
+
+**SMS and Teams (2026-11-17, migration 00051).** A template lists the channels it uses: `channels: [in_app, email,
+sms, teams]` (in_app always). SMS goes to people who added a mobile number on their account page, confirmed it with a
+texted code and left SMS on, through Twilio (Admin → Messaging); Teams posts once to the channel of each group a notify
+action names, when the group is connected (its Workflows webhook, a secret) and Teams is on. Both are queued in the
+notification's transaction (`channel_deliveries`, jobs `notify.sms` and `notify.teams`) and logged like email. An SMS
+is worded as its recipient reads it in the app; a Teams post as the template says, since the whole channel sees it.
+Pending approvals are worded by core-itsm's `approval-pending` template. Preferences are per channel (email, SMS).
 
 Who hears about what is app content, not code. It is split in two, so the wording and the policy change separately:
 
@@ -600,17 +608,41 @@ never says more than they could read in the app; it is plain text with a link ba
 email and its outcome is in the delivery log (Admin → Email). Sending uses `github.com/wneessen/go-mail`
 (STARTTLS, TLS, or none only to a relay on this machine). core-itsm 0.4.0's templates send email.
 
+**Email in** (migration 00052, `internal/inbound`; IMAP and Microsoft 365 chosen with the user 2026-11-17). Admin →
+Incoming email names one mailbox, read by the worker every `SL_MAIL_POLL` (default a minute; an `inbound.fetch` job
+per interval, deduped, so several workers read it once): IMAP (`go-imap` v2, TLS, STARTTLS, or none only on this
+machine; password in the secret `inbound.password`) or Microsoft 365 through Graph (client credentials, application
+permission Mail.ReadWrite; secret `inbound.graph_secret`; national clouds by address). Unread mail is read up to 25 a
+run and marked read once handled; a database fault leaves it unread for the next run.
+
+- *Replies.* While incoming mail is on, a notification email about a record is sent with Message-ID
+  `<n.<notification id>@servicelater>`, Reply-To the mailbox and a first line saying a reply becomes a comment. A
+  message whose In-Reply-To or References names such an id is a reply: it becomes a comment **as the person the
+  notification went to**, under their RLS (so someone who may no longer comment is refused), with the quoted message
+  and signature stripped (`inbound.Reply`) and its files attached as theirs (same storage and size limit as an
+  upload; at most 10 files, 25 MB). It is refused when From is not that person's address, they are deactivated, or
+  DMARC fails. Replies to approval requests are ignored: approvals are decided in the app.
+- *New mail* files an incident only when `create_incidents` is on, the sender's domain is in `allowed_domains`, and
+  **DMARC passes**: an aligned DKIM signature checked here against DNS (`go-msgauth`, relaxed alignment by the public
+  suffix list), or the `Authentication-Results` verdict of the one receiving server named in `trusted_authserv`
+  (topmost header only, for senders relying on SPF). It is filed as the sender's account (or a new end user when
+  `create_accounts` is on), at most `max_per_hour` per sender, with the subject as title, the text as description
+  and files attached.
+- Mail a program sent (Auto-Submitted, Precedence bulk/list/junk, List-Id, bounces, no-reply senders) and mail from
+  the mailbox itself are ignored, so auto-replies never loop. Each message is logged once by Message-ID
+  (`inbound_emails`: action comment, incident, ignored, refused or failed, with the reason and the authentication
+  verdict), shown under Received on the admin page; a duplicate is never handled twice.
+
 **Still hard-coded, and must move to templates or config:**
 
-- The `approval_pending` notification (title "Something needs your approval", link `/approvals`) is created by a
-  database trigger and worded in Go (`internal/api/notifications.go`). It should become a template that the approval
-  step names, so an app can word it and decide who else hears about it.
 - Opening a ticket marks every notification about it read. Whether a kind clears on view, on action, or only when
   dismissed should be part of the template.
 - The placeholder list and the fixed recipient kinds (`assignee`, `requester`, `assignment_group`) are code. Adding
   one is a platform change, not an app change.
-- Per-person preferences are one switch (email on or off); muting a kind or choosing a channel per kind belongs in
-  config, not in each rule.
+- Per-person preferences are one switch per channel (email, SMS); muting a kind or choosing a channel per kind
+  belongs in config, not in each rule.
+- How a reply by email is read (comment as the recipient, quote stripping) and what new mail becomes (an incident)
+  are fixed; the record type and fields for new mail could become config.
 
 ### 6.6 SLAs (built)
 
