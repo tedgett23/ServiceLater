@@ -95,7 +95,7 @@ SELECT sqlc.embed(t), tt.prefix AS type_prefix, (tt.prefix || t.number::text)::t
        COALESCE(c.backout_plan, '')::text AS backout_plan, COALESCE(c.test_plan, '')::text AS test_plan,
        COALESCE(rq.catalog_item, '')::text AS catalog_item, r.manager_id AS requester_manager_id, COALESCE(pt.prefix || p.number, '')::text AS parent_reference,
        (SELECT count(*) FROM tasks k WHERE k.parent_id = t.id AND k.state_category IN ('open', 'waiting')) AS open_tasks,
-       i.problem_id, COALESCE(prt.prefix || pr.number, '')::text AS problem_reference, COALESCE(pr.title, '')::text AS problem_title,
+       COALESCE(i.problem_id, c.problem_id) AS problem_id, COALESCE(prt.prefix || pr.number, '')::text AS problem_reference, COALESCE(pr.title, '')::text AS problem_title,
        (SELECT count(*) FROM incidents x JOIN tasks y ON y.id = x.task_id
          WHERE x.problem_id = t.id AND y.state_category IN ('open', 'waiting')) AS open_incidents
 FROM tasks t
@@ -108,7 +108,7 @@ LEFT JOIN changes c ON c.task_id = t.id
 LEFT JOIN requests rq ON rq.task_id = t.id
 LEFT JOIN tasks p ON p.id = t.parent_id
 LEFT JOIN task_types pt ON pt.type = p.type
-LEFT JOIN tasks pr ON pr.id = i.problem_id
+LEFT JOIN tasks pr ON pr.id = COALESCE(i.problem_id, c.problem_id)
 LEFT JOIN task_types prt ON prt.type = pr.type
 WHERE t.id = $1;
 
@@ -117,7 +117,12 @@ WHERE t.id = $1;
 -- breached.
 -- name: ListTickets :many
 SELECT sqlc.embed(t), tt.prefix AS type_prefix, (tt.prefix || t.number::text)::text AS reference, r.name AS requester_name, a.name AS assignee_name,
-       g.name AS assignment_group_name, sla.due_at::timestamptz AS sla_due_at, COALESCE(sla.breached, false)::bool AS sla_breached
+       g.name AS assignment_group_name, sla.due_at::timestamptz AS sla_due_at, COALESCE(sla.breached, false)::bool AS sla_breached,
+       -- A problem's open incidents and the changes made to fix it (the CASE keeps other rows from counting).
+       (CASE WHEN t.type = 'problem' THEN (SELECT count(*) FROM incidents x JOIN tasks y ON y.id = x.task_id
+              WHERE x.problem_id = t.id AND y.state_category IN ('open', 'waiting')) ELSE 0 END)::bigint AS open_incidents,
+       (CASE WHEN t.type = 'problem' THEN (SELECT count(*) FROM changes x JOIN tasks y ON y.id = x.task_id
+              WHERE x.problem_id = t.id) ELSE 0 END)::bigint AS linked_changes
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 JOIN users r ON r.id = t.requester_id
@@ -143,6 +148,7 @@ WHERE tt.retired_at IS NULL
        (SELECT m.group_id FROM group_members m WHERE m.user_id = app_current_user_id()))
   AND (sqlc.narg('search')::text IS NULL OR t.title ILIKE '%' || sqlc.narg('search') || '%' ESCAPE '\')
   AND (NOT sqlc.arg('breached')::bool OR sla.breached)
+  AND (sqlc.narg('fields')::jsonb IS NULL OR t.fields @> sqlc.narg('fields')::jsonb)
 -- by_due: breached first, then the soonest due, then the rest newest first.
 ORDER BY CASE WHEN sqlc.arg('by_due')::bool THEN NOT COALESCE(sla.breached, false) END,
          CASE WHEN sqlc.arg('by_due')::bool THEN sla.due_at END ASC NULLS LAST, t.created_at DESC, t.id DESC
@@ -164,6 +170,21 @@ RETURNING *;
 -- name: UpdateIncident :exec
 UPDATE incidents SET resolution = sqlc.arg('resolution') WHERE task_id = sqlc.arg('task_id');
 
+-- name: SetChangeProblem :exec
+UPDATE changes SET problem_id = sqlc.narg('problem_id') WHERE task_id = sqlc.arg('task_id');
+
+-- The changes made to fix a problem, as the reader may see them, oldest first.
+-- name: ListProblemChanges :many
+SELECT sqlc.embed(t), (tt.prefix || t.number::text)::text AS reference, a.name AS assignee_name, g.name AS assignment_group_name
+FROM changes c
+JOIN tasks t ON t.id = c.task_id
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN users a ON a.id = t.assignee_id
+LEFT JOIN groups g ON g.id = t.assignment_group_id
+WHERE c.problem_id = $1
+ORDER BY t.created_at, t.number
+LIMIT 500;
+
 -- name: SetIncidentProblem :exec
 UPDATE incidents SET problem_id = sqlc.narg('problem_id') WHERE task_id = sqlc.arg('task_id');
 
@@ -180,6 +201,13 @@ ORDER BY t.created_at, t.number
 LIMIT 500;
 
 -- The open and waiting incidents linked to a problem, as the reader may see them: what resolving it acts on.
+-- name: ListOpenProblemChangeIDs :many
+SELECT t.id
+FROM changes c
+JOIN tasks t ON t.id = c.task_id
+WHERE c.problem_id = $1 AND t.state_category IN ('open', 'waiting')
+ORDER BY t.number;
+
 -- name: ListOpenProblemIncidentIDs :many
 SELECT t.id
 FROM incidents i
@@ -264,3 +292,23 @@ SELECT COALESCE(g.restricted, false)::bool AS restricted, t.assignee_id,
        COALESCE(ARRAY(SELECT m.user_id FROM group_members m WHERE m.group_id = g.id), '{}')::uuid[] AS members
 FROM tasks t LEFT JOIN groups g ON g.id = t.assignment_group_id
 WHERE t.id = $1;
+
+-- Open records of a type that look related to a text (and, optionally, to some configuration items): candidates share
+-- a word, a near spelling or an item; each is scored by app_match_score plus 0.5 for a shared item. Runs as the
+-- caller, so it suggests only what they may see. unlinked keeps incidents not linked to a problem yet.
+-- name: SuggestRecords :many
+SELECT sqlc.embed(t), (tt.prefix || t.number::text)::text AS reference, a.name AS assignee_name, g.name AS assignment_group_name,
+       shared.yes::bool AS shared_item,
+       (app_match_score(sqlc.arg('text')::text, t.title) + CASE WHEN shared.yes THEN 0.5 ELSE 0 END)::float8 AS score
+FROM tasks t
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN users a ON a.id = t.assignee_id
+LEFT JOIN groups g ON g.id = t.assignment_group_id
+CROSS JOIN LATERAL (SELECT EXISTS (SELECT 1 FROM task_cis x WHERE x.task_id = t.id AND x.ci_id = ANY (sqlc.arg('cis')::uuid[])) AS yes) shared
+WHERE t.type = sqlc.arg('type')::text AND t.state_category IN ('open', 'waiting')
+  AND t.id <> sqlc.arg('exclude')::uuid
+  AND (NOT sqlc.arg('unlinked')::bool OR NOT EXISTS (SELECT 1 FROM incidents i WHERE i.task_id = t.id AND i.problem_id IS NOT NULL))
+  AND (to_tsvector('english'::regconfig, t.title) @@ app_any_word_query(sqlc.arg('text')::text)
+       OR t.title % sqlc.arg('text')::text OR shared.yes)
+ORDER BY score DESC, t.number DESC
+LIMIT 20;

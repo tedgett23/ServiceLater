@@ -36,6 +36,12 @@ managers). The table is core; what a freeze means is this app's content:
 
 Both use a lookup (`count: freeze_window`, docs/apps-platform.md §5), so a freeze counts under the person's own access.
 
+## Problems
+
+A change can record the problem it fixes (its Problem field, or **Raise a change** on a problem). When it finishes
+well (reaches Review), `rules/resolve-fixed-problem.yaml` comments on the problem and moves it to Resolved, if its
+lifecycle allows (Fix in progress, root cause and fix written down); resolving it resolves its incidents.
+
 ## Roles
 
 - `change-manager`: runs the change process: sees, files and edits changes (`records:*:change`), internal notes,

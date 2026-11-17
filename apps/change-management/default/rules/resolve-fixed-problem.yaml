@@ -1,0 +1,20 @@
+# A change made to fix a problem (its Problem field) that finishes well (reaches Review) tells the problem, then moves
+# it to Resolved. The move goes through the problem's lifecycle: it is made only from Fix in progress with the root
+# cause and fix written down, and otherwise is left to a person (the refusal is recorded in servicelater jobs runs).
+# Resolving the problem then resolves its open incidents (problem-management's resolve-linked-incidents).
+#
+# It lives here, not in problem-management, because an app's rules do not fire on what the same app saved: put there,
+# it would stop the problem's own rule from resolving the incidents.
+kind: rule
+name: resolve-fixed-problem
+record_type: change
+timing: async
+on: [update]
+when: has(record.problem_id) && record.state_category == "done" && old.state_category != "done"
+run:
+  - action: linked.update
+    linked: problem
+    body: '="Change " + record.reference + " (" + record.title + "), made to fix this problem, is done."'
+  - action: linked.update
+    linked: problem
+    status: resolved

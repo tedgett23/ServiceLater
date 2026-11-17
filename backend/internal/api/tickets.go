@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -86,6 +88,11 @@ type ticketDTO struct {
 	// Incidents are the incidents linked to a problem that the reader may see, oldest first (single-ticket
 	// responses, problems only).
 	Incidents []childTaskDTO `json:"incidents,omitempty"`
+	// Changes are the changes made to fix a problem that the reader may see, oldest first (single-ticket responses,
+	// problems only).
+	Changes []childTaskDTO `json:"changes,omitempty"`
+	// LinkedChanges is how many changes were made to fix a problem (lists, problems only).
+	LinkedChanges int64 `json:"linked_changes,omitempty"`
 }
 
 // childTaskDTO is a record under another: one team's part of the work.
@@ -114,6 +121,16 @@ func childTasks(ctx context.Context, q *dbgen.Queries, id uuid.UUID) ([]childTas
 // problemIncidents are the incidents linked to a problem that the reader may see.
 func problemIncidents(ctx context.Context, q *dbgen.Queries, id uuid.UUID) ([]childTaskDTO, error) {
 	rows, err := q.ListProblemIncidents(ctx, uuid.NullUUID{UUID: id, Valid: true})
+	out := make([]childTaskDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, summaryOf(r.Task, r.Reference, r.AssigneeName, r.AssignmentGroupName))
+	}
+	return out, err
+}
+
+// problemChanges are the changes made to fix a problem that the reader may see.
+func problemChanges(ctx context.Context, q *dbgen.Queries, id uuid.UUID) ([]childTaskDTO, error) {
+	rows, err := q.ListProblemChanges(ctx, uuid.NullUUID{UUID: id, Valid: true})
 	out := make([]childTaskDTO, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, summaryOf(r.Task, r.Reference, r.AssigneeName, r.AssignmentGroupName))
@@ -152,6 +169,9 @@ func (h *handlers) detail(ctx context.Context, q *dbgen.Queries, p auth.Principa
 	}
 	if out.Type == "problem" {
 		if out.Incidents, err = problemIncidents(ctx, q, out.ID); err != nil {
+			return err
+		}
+		if out.Changes, err = problemChanges(ctx, q, out.ID); err != nil {
 			return err
 		}
 	}
@@ -261,10 +281,18 @@ func (h *handlers) countTickets(w http.ResponseWriter, r *http.Request) {
 // assignee and requester accept a user id or "me"; assignee also accepts "none". assignment_group accepts a group id,
 // "mine" (any group the caller is in) or "none". open=true hides resolved and closed. breached=true keeps tickets with
 // a breached SLA; sort=due lists those first, then the soonest SLA due time (newest first otherwise).
+// fields.<name>=<value> keeps records whose extra field has that value: true and false match a yes/no field, anything
+// else matches text or a choice exactly (fields.known_error=true lists known errors).
 func (h *handlers) listTickets(w http.ResponseWriter, r *http.Request) {
 	qs := r.URL.Query()
 	var args dbgen.ListTicketsParams
 	args.Limit, args.Offset = defaultLimit, 0
+	if match, msg := fieldFilter(qs); msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	} else if match != nil {
+		args.Fields = match
+	}
 
 	if s := qs.Get("status"); s != "" {
 		if !h.knownStatus(s) {
@@ -374,8 +402,36 @@ func (h *handlers) listTickets(w http.ResponseWriter, r *http.Request) {
 			items[i].SLADueAt = &due
 		}
 		items[i].SLABreached = t.SlaBreached
+		items[i].OpenIncidents, items[i].LinkedChanges = t.OpenIncidents, t.LinkedChanges
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "limit": limit, "offset": args.Offset, "has_more": more})
+}
+
+var fieldNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+
+// fieldFilter is the fields.<name> parameters as the JSON object a record's extra fields must contain, or nil.
+func fieldFilter(qs url.Values) ([]byte, string) {
+	match := map[string]any{}
+	for key, values := range qs {
+		name, ok := strings.CutPrefix(key, "fields.")
+		if !ok {
+			continue
+		}
+		if !fieldNameRE.MatchString(name) || len(values) != 1 {
+			return nil, "fields." + name + " must name an extra field once"
+		}
+		switch v := values[0]; v {
+		case "true", "false":
+			match[name] = v == "true"
+		default:
+			match[name] = v
+		}
+	}
+	if len(match) == 0 {
+		return nil, ""
+	}
+	raw, _ := json.Marshal(match)
+	return raw, ""
 }
 
 // POST /tickets: file a record of any type in use (GET /record-types says which the caller may). Anyone may file an
@@ -398,7 +454,7 @@ func (h *handlers) createTicket(w http.ResponseWriter, r *http.Request) {
 		ParentID *uuid.UUID `json:"parent_id"`
 		// AssignmentGroupID routes it to a team as it is filed.
 		AssignmentGroupID *uuid.UUID `json:"assignment_group_id"`
-		// ProblemID links a new incident to the problem behind it.
+		// ProblemID links a new incident to the problem behind it, or a new change to the problem it fixes.
 		ProblemID *uuid.UUID `json:"problem_id"`
 		// Incidents links these incidents to a new problem, each an edit of that incident (as PATCH problem_id
 		// would be), in the same transaction: a problem raised from an incident starts out linked to it.
@@ -481,7 +537,7 @@ func (h *handlers) updateTicket(w http.ResponseWriter, r *http.Request) {
 		Change *changeFields `json:"change"`
 		// Fields sets extra fields by name; null clears one. Fields not named are left alone.
 		Fields map[string]any `json:"fields"`
-		// ProblemID links an incident to the problem behind it; null unlinks it.
+		// ProblemID links an incident to the problem behind it, or a change to the problem it fixes; null unlinks it.
 		ProblemID nullable[uuid.UUID] `json:"problem_id"`
 	}
 	if !decode(w, r, &req) {

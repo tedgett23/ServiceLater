@@ -69,8 +69,8 @@ type Ticket struct {
 	OpenTasks int64 `json:"open_tasks"`
 	// CatalogItem is the catalog item a request was ordered from (empty for anything else): its form is the record's.
 	CatalogItem string `json:"catalog_item,omitempty"`
-	// ProblemID is the problem an incident is linked to (incidents only), with how people name it and its title as the
-	// reader may see them (empty when they may not).
+	// ProblemID is the problem an incident is linked to (the cause behind it) or a change fixes, with how people name
+	// it and its title as the reader may see them (empty when they may not). Other types have none.
 	ProblemID        *uuid.UUID `json:"problem_id,omitempty"`
 	ProblemReference string     `json:"problem_reference,omitempty"`
 	ProblemTitle     string     `json:"problem_title,omitempty"`

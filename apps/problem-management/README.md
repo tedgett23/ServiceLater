@@ -24,6 +24,17 @@ raising a problem from the incident). The problem lists its incidents.
 Both use the `linked.update` rule action (docs/apps-platform.md §6), as this app's principal for the person who
 changed the problem, so the manifest holds `records:update:incident`.
 
+## Changes that fix a problem
+
+A change records the problem it fixes (core: `changes.problem_id`); the problem lists its changes and can raise one.
+When such a change finishes, change-management's `resolve-fixed-problem` rule resolves the problem (it lives in that
+app so this app's own rule still resolves the incidents: an app's rules do not fire on what it saved itself).
+
+## The Problems page
+
+`/problems` lists problems: open ones, known errors (with their workarounds) or all, with their open incidents and
+changes.
+
 ## Roles
 
 - `problem-manager`: sees, files and edits problems, and sees and links incidents. Agents can already do all of it.

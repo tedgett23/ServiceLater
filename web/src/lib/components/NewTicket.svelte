@@ -2,11 +2,13 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
 	import FieldInput from '$lib/components/FieldInput.svelte';
+	import SuggestedRecord from '$lib/components/SuggestedRecord.svelte';
+	import { session } from '$lib/session.svelte';
 	import { wide } from '$lib/fields';
 	import { forms } from '$lib/forms.svelte';
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { queue } from '$lib/queue.svelte';
-	import type { ArticleHit, FieldState, FieldValue, FormField, Ticket } from '$lib/types';
+	import { canRecord, type ArticleHit, type FieldState, type FieldValue, type FormField, type Suggestion, type Ticket } from '$lib/types';
 	import { bytes } from '$lib/format';
 	import { ui } from '$lib/ui.svelte';
 	import { uploads } from '$lib/uploads.svelte';
@@ -36,6 +38,10 @@
 
 	// The dialog element owns focus trapping and Escape; we just mirror its open state.
 	$effect(() => {
+		if (ui.newTicketOpen && ui.newTicketType) {
+			chosen = ui.newTicketType;
+			ui.newTicketType = '';
+		}
 		if (ui.newTicketOpen && !dialog.open) dialog.showModal();
 		if (!ui.newTicketOpen && dialog.open) dialog.close();
 	});
@@ -94,10 +100,11 @@
 	function suggest(text: string) {
 		clearTimeout(suggestTimer);
 		if (text.trim().length < 3) {
-			suggestions = [];
+			suggestions = problems = [];
 			return;
 		}
 		suggestTimer = setTimeout(async () => {
+			void suggestProblems(text);
 			const n = ++suggestAsked;
 			try {
 				const r = await api<{ items: ArticleHit[] }>(`/api/v1/kb/suggest?${new URLSearchParams({ q: text })}`);
@@ -107,6 +114,32 @@
 			}
 		}, 300);
 	}
+
+	// Open problems like the incident being typed, for those who may read problems: a known error's workaround may
+	// answer it, and an incident can be filed already linked to its problem.
+	const asksProblems = $derived(
+		kind === 'incident' && canRecord(session.user, 'read', 'problem') && lifecycle.types.some((t) => t.type === 'problem')
+	);
+	let problems = $state<Suggestion[]>([]);
+	let linkTo = $state('');
+	let problemsAsked = 0;
+	async function suggestProblems(text: string) {
+		const n = ++problemsAsked;
+		if (!asksProblems || text.trim().length < 3) {
+			problems = [];
+			return;
+		}
+		try {
+			const r = await api<{ items: Suggestion[] }>(`/api/v1/tickets/suggest?${new URLSearchParams({ type: 'problem', q: text.trim() })}`);
+			if (n === problemsAsked) problems = r.items;
+		} catch {
+			/* a help, not a step */
+		}
+	}
+	// A problem chosen to link stays chosen only while it is still suggested.
+	$effect(() => {
+		if (linkTo && !problems.some((p) => p.id === linkTo)) linkTo = '';
+	});
 
 	function set(f: FormField, v: FieldValue | null) {
 		values[f.name] = v;
@@ -120,7 +153,8 @@
 	function reset() {
 		error = chosen = '';
 		files = [];
-		suggestions = [];
+		suggestions = problems = [];
+		linkTo = '';
 		filledFor = '';
 	}
 
@@ -129,7 +163,10 @@
 		busy = true;
 		error = '';
 		try {
-			const t = await api<Ticket>('/api/v1/tickets', { method: 'POST', body: { type: kind, ...body(true) } });
+			const t = await api<Ticket>('/api/v1/tickets', {
+				method: 'POST',
+				body: { type: kind, ...body(true), ...(kind === 'incident' && linkTo ? { problem_id: linkTo } : {}) }
+			});
 			queue.prepend(t);
 			if (files.length) uploads.start(t.id, files);
 			ui.newTicketOpen = false;
@@ -184,6 +221,22 @@
 								{#each suggestions as a (a.id)}
 									<!-- A new tab, so what has been typed here is not lost. -->
 									<li><a href="/kb/{a.reference}" target="_blank" rel="noopener">{a.title}</a></li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
+					{#if f.name === 'title' && asksProblems && problems.length}
+						<div class="suggest wide" role="region" aria-label="Known problems">
+							<p>This may be a known problem:</p>
+							<ul class="problems">
+								{#each problems as p (p.id)}
+									<SuggestedRecord s={p} newTab>
+										{#snippet action()}
+											<button type="button" class="btn" aria-pressed={linkTo === p.id} onclick={() => (linkTo = linkTo === p.id ? '' : p.id)}
+												>{linkTo === p.id ? 'Will be linked' : 'Link to it'}</button
+											>
+										{/snippet}
+									</SuggestedRecord>
 								{/each}
 							</ul>
 						</div>
@@ -252,6 +305,15 @@
 	.suggest ul {
 		margin: 0;
 		padding-left: 1.1rem;
+	}
+	.suggest ul.problems {
+		padding-left: 0;
+		list-style: none;
+	}
+	.suggest button[aria-pressed='true'] {
+		border-color: var(--primary);
+		color: var(--ink);
+		font-weight: 600;
 	}
 	dialog::backdrop {
 		background: color-mix(in srgb, #0b0d13 45%, transparent);

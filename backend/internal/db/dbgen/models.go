@@ -99,6 +99,8 @@ type Change struct {
 	ImplementationPlan string             `json:"implementation_plan"`
 	BackoutPlan        string             `json:"backout_plan"`
 	TestPlan           string             `json:"test_plan"`
+	ProblemID          uuid.NullUUID      `json:"problem_id"`
+	ProblemType        pgtype.Text        `json:"problem_type"`
 }
 
 type Ci struct {
