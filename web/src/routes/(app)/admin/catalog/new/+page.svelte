@@ -51,7 +51,7 @@
 	}
 	h1 {
 		margin: 0.75rem 0 0.5rem;
-		font: 800 1.7rem/1.2 var(--font-display);
+		font: 650 1.375rem/1.3 var(--font-display);
 	}
 	.error {
 		color: var(--red);

@@ -384,11 +384,11 @@
 		text-decoration: none;
 	}
 	h1 {
-		font: 800 1.9rem/1.15 var(--font-display);
+		font: 650 1.5rem/1.3 var(--font-display);
 		overflow-wrap: anywhere;
 	}
 	h2 {
-		font: 700 1.35rem/1.2 var(--font-display);
+		font: 650 1.0625rem/1.3 var(--font-display);
 		margin-bottom: 0.75rem;
 	}
 	.lede {

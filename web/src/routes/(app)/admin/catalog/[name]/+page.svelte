@@ -74,7 +74,7 @@
 	}
 	h1 {
 		margin-top: 0.75rem;
-		font: 800 1.7rem/1.2 var(--font-display);
+		font: 650 1.375rem/1.3 var(--font-display);
 	}
 	.lede {
 		margin-bottom: 0.5rem;

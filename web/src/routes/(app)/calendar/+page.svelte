@@ -295,7 +295,7 @@
 		gap: 0.75rem;
 	}
 	h1 {
-		font: 800 1.9rem/1.15 var(--font-display);
+		font: 650 1.5rem/1.3 var(--font-display);
 	}
 	.controls,
 	.nav,
@@ -329,7 +329,7 @@
 		margin-top: 1.25rem;
 	}
 	h2 {
-		font: 700 1.2rem/1.2 var(--font-display);
+		font: 650 1.0625rem/1.3 var(--font-display);
 		padding-bottom: 0.4rem;
 		border-bottom: 1px solid var(--rule);
 	}
@@ -380,7 +380,7 @@
 		text-decoration: underline;
 	}
 	.ref {
-		font: 700 1.05rem/1 var(--font-display);
+		font: 650 0.9375rem/1.3 var(--font-display);
 		color: var(--ink-2);
 		white-space: nowrap;
 	}

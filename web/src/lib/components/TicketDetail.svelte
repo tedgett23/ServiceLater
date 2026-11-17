@@ -21,7 +21,9 @@
 	import { staff } from '$lib/staff.svelte';
 	import type { Attachment, Comment, FieldValue, FormField, HistoryEntry, Status as StatusT, Ticket } from '$lib/types';
 	import { long, what, who } from '$lib/history';
-	import { can, canRecord, P, refNumber } from '$lib/types';
+	import { can, canRecord, P } from '$lib/types';
+	import Avatar from './Avatar.svelte';
+	import Icon from './Icon.svelte';
 	import { ui } from '$lib/ui.svelte';
 
 	let props: { ticket: Ticket; comments: Comment[]; loadedAt?: number } = $props();
@@ -293,16 +295,18 @@
 
 <article class="detail">
 	<a class="back" href="/tickets">
-		<svg viewBox="0 0 8 12" width="8" height="12" aria-hidden="true"><path d="M6 1 1.5 6 6 11" fill="none" stroke="currentColor" stroke-width="2" /></svg>
+		<Icon name="back" size={15} />
 		Queue
 	</a>
 
 	<header class="head">
-		<div class="stub"><span class="sr-only">{`${lifecycle.typeLabel(ticket.type)} `}</span><span class="prefix" aria-hidden="true">{ticket.prefix}</span>{refNumber(ticket)}</div>
+		<!-- The reference, as the server sends it. Screen readers hear the type first: "Incident INC42". -->
+		<div class="stub"><span class="sr-only">{`${lifecycle.typeLabel(ticket.type)} `}</span>{ticket.reference}</div>
 		<div class="headtext">
 			<h1>{ticket.title}</h1>
 			<p class="byline">
 				Opened by <strong>{ticket.requester_name}</strong> on <time datetime={ticket.created_at}>{when(ticket.created_at)}</time>
+				<span class="kind">· {lifecycle.typeLabel(ticket.type)}</span>
 			</p>
 			{#if ticket.parent_reference}
 				<p class="byline">Part of <a href="/tickets/{ticket.parent_reference}">{ticket.parent_reference}</a></p>
@@ -358,7 +362,8 @@
 					{#each activity as item (item.key)}
 						{#if item.comment}
 							{@const c = item.comment}
-							<li class:internal={c.internal} class:pending={c.pending}>
+							<li class="comment" class:internal={c.internal} class:pending={c.pending}>
+								<Avatar name={c.author_name} />
 								<div class="cmeta">
 									<strong>{c.author_name}</strong>{#if c.on_behalf_of_name}{' '}<span class="behalf">for {c.on_behalf_of_name}</span>{/if}
 									{#if c.internal}<span class="tag">Internal note</span>{/if}
@@ -368,7 +373,8 @@
 							</li>
 						{:else if item.file}
 							{@const f = item.file}
-							<li class="file">
+							<li class="comment file">
+								<Avatar name={f.created_by_name} />
 								<div class="cmeta">
 									<strong>{f.created_by_name}</strong> <span class="did">attached a file</span>
 									<time datetime={item.at}>{when(item.at)}</time>
@@ -444,7 +450,7 @@
 				{/if}
 
 				{#if ticket.slas?.length}
-					<div>
+					<div class="stack">
 						<dt>SLA</dt>
 						<dd><SlaClocks clocks={ticket.slas} /></dd>
 					</div>
@@ -502,14 +508,18 @@
 								<button class="btn quiet-btn" onclick={() => assign(session.user!.id)}>Assign to me</button>
 							{/if}
 						{:else}
-							{ticket.assignee_name ?? 'Not assigned yet'}
+							{#if ticket.assignee_name}
+								<span class="person"><Avatar name={ticket.assignee_name} size="sm" /> {ticket.assignee_name}</span>
+							{:else}
+								Not assigned yet
+							{/if}
 						{/if}
 					</dd>
 				</div>
 
 				<div>
 					<dt>Requested by</dt>
-					<dd>{ticket.requester_name}</dd>
+					<dd><span class="person"><Avatar name={ticket.requester_name} size="sm" /> {ticket.requester_name}</span></dd>
 				</div>
 				<div>
 					<dt>Last updated</dt>
@@ -523,8 +533,8 @@
 <style>
 	.detail {
 		container-type: inline-size;
-		padding: 1.25rem 1.5rem 3rem;
-		max-width: 68rem;
+		padding: 1.5rem 1.75rem 3rem;
+		max-width: 72rem;
 	}
 
 	.back {
@@ -532,7 +542,9 @@
 		align-items: center;
 		gap: 0.4rem;
 		margin-bottom: 1rem;
-		font-weight: 600;
+		color: var(--ink-2);
+		font-size: 0.8125rem;
+		font-weight: 550;
 		text-decoration: none;
 	}
 	@media (max-width: 62rem) {
@@ -542,63 +554,46 @@
 	}
 
 	.head {
-		display: flex;
-		align-items: center;
-		gap: 1.5rem;
-		margin-bottom: 1.75rem;
+		margin-bottom: 1.25rem;
 	}
 
-	/* The take-a-number stub: the one loud thing on the screen. */
-	/* The type's prefix is the small print above the number. */
-	.stub .prefix {
-		display: block;
-		font-size: 0.2em;
-		letter-spacing: 0.16em;
-		margin-bottom: 0.15em;
-	}
+	/* The ticket's number: a small marker-yellow tag, the one piece of the old take-a-number stub that stays. */
 	.stub {
-		flex: none;
-		position: relative;
-		min-width: 6.5rem;
-		text-align: center;
-		padding: 0.3rem 1.6rem 0.4rem;
-		background: var(--marker);
-		color: var(--on-marker);
-		font: 900 clamp(3.4rem, 8cqi, 5.6rem) / 1 var(--font-display);
-		letter-spacing: 0.01em;
-		--notch: 0.8rem;
-		-webkit-mask:
-			radial-gradient(circle var(--notch) at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
-			radial-gradient(circle var(--notch) at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
-		mask:
-			radial-gradient(circle var(--notch) at 0 50%, #0000 98%, #000) left / 51% 100% no-repeat,
-			radial-gradient(circle var(--notch) at 100% 50%, #0000 98%, #000) right / 51% 100% no-repeat;
+		display: inline-block;
+		margin-bottom: 0.6rem;
+		padding: 0.2rem 0.45rem;
+		border-radius: 6px;
+		background: var(--marker-soft);
+		color: var(--marker-ink);
+		border: 1px solid color-mix(in srgb, var(--marker) 45%, transparent);
+		font: 600 0.75rem/1.2 var(--font-mono);
 	}
 	.headtext {
 		min-width: 0;
 	}
 	h1 {
-		font: 700 clamp(1.6rem, 3.6cqi, 2.4rem) / 1.1 var(--font-display);
-		letter-spacing: 0.005em;
+		font: 680 clamp(1.25rem, 2.9cqi, 1.5rem) / 1.25 var(--font-display);
+		letter-spacing: -0.022em;
 		overflow-wrap: anywhere;
 	}
 	.byline {
 		margin-top: 0.4rem;
 		color: var(--ink-2);
-		font-size: 0.9rem;
+		font-size: 0.8125rem;
 	}
 	.byline strong {
 		color: var(--ink);
+		font-weight: 550;
 	}
 
 	.body {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 15rem;
+		grid-template-columns: minmax(0, 1fr) 18.5rem;
 		grid-template-areas:
 			'desc meta'
 			'activity meta';
 		grid-template-rows: auto 1fr;
-		column-gap: 2.5rem;
+		column-gap: 2rem;
 		align-items: start;
 	}
 	.lead {
@@ -723,6 +718,8 @@
 	}
 	.meta {
 		grid-area: meta;
+		padding-left: 1.5rem;
+		border-left: 1px solid var(--rule);
 	}
 	/* Narrow: read the problem, then act on it, then the thread. */
 	@container (max-width: 44rem) {
@@ -738,10 +735,10 @@
 		.activity {
 			margin-top: 0;
 		}
-		.head {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 1rem;
+		.meta {
+			padding: 1rem 0 0;
+			border-left: 0;
+			border-top: 1px solid var(--rule);
 		}
 	}
 
@@ -760,9 +757,8 @@
 		max-width: 68ch;
 	}
 	h2 {
-		font: 700 1.5rem/1 var(--font-display);
+		font: 650 1.0625rem/1.3 var(--font-display);
 		margin-bottom: 1rem;
-		letter-spacing: 0.01em;
 	}
 	ol {
 		list-style: none;
@@ -771,19 +767,27 @@
 		display: grid;
 		gap: 1rem;
 	}
-	li {
-		padding-left: 0.9rem;
-		border-left: 3px solid var(--rule);
+	/* A comment: who said it at the left, then the words. */
+	li.comment {
+		display: grid;
+		grid-template-columns: 1.75rem minmax(0, 1fr);
+		column-gap: 0.7rem;
+	}
+	li.comment > :global(.avatar) {
+		grid-row: span 3;
+	}
+	li.comment > :not(:global(.avatar)) {
+		grid-column: 2;
 	}
 	.behalf {
 		color: var(--ink-2);
 		font-weight: 400;
 	}
 	li.internal {
-		border-left-color: var(--marker);
+		padding: 0.6rem 0.75rem 0.65rem;
+		border: 1px solid color-mix(in srgb, var(--marker) 50%, transparent);
+		border-radius: 10px;
 		background: var(--marker-soft);
-		padding: 0.5rem 0.75rem 0.6rem 0.9rem;
-		border-radius: 0 var(--radius) var(--radius) 0;
 	}
 	li.pending {
 		opacity: 0.6;
@@ -792,19 +796,28 @@
 		display: flex;
 		flex-wrap: wrap;
 		align-items: baseline;
-		gap: 0.6rem;
-		font-size: 0.85rem;
-		margin-bottom: 0.2rem;
+		gap: 0.5rem;
+		font-size: 0.8125rem;
+		margin-bottom: 0.15rem;
+	}
+	.cmeta strong {
+		font-weight: 600;
 	}
 	.cmeta time {
 		color: var(--ink-2);
+		font-size: 0.75rem;
 	}
 	.tag {
+		font-size: 0.6875rem;
 		font-weight: 600;
-		padding: 0 0.35rem;
+		padding: 0.05rem 0.4rem;
+		background: color-mix(in srgb, var(--marker) 55%, transparent);
+		color: var(--marker-ink);
+		border-radius: 5px;
+	}
+	li.internal .tag {
 		background: var(--marker);
 		color: var(--on-marker);
-		border-radius: 2px;
 	}
 	li p {
 		white-space: pre-wrap;
@@ -836,16 +849,37 @@
 	.meta dl {
 		margin: 0;
 		display: grid;
-		gap: 1rem;
+		gap: 0.6rem;
 	}
+	/* A property: its name at the left, its value beside it. */
 	.meta dl > div {
 		display: grid;
-		gap: 0.25rem;
+		grid-template-columns: 7.5rem minmax(0, 1fr);
+		align-items: start;
+		gap: 0.25rem 0.5rem;
+	}
+	.meta dl > div > dt {
+		padding-top: 0.4rem;
+	}
+	.meta dl > div > dd {
+		min-height: 2rem;
+		align-content: center;
+	}
+	.meta dl > div.stack,
+	.meta dl > div.actions {
+		grid-template-columns: minmax(0, 1fr);
+		padding: 0.5rem 0 0.6rem;
+	}
+	.meta dl > div.stack {
+		border-block: 1px solid var(--rule);
+		padding-block: 0.75rem;
 	}
 	dt {
 		font-size: 0.8125rem;
 		color: var(--ink-2);
-		font-weight: 600;
+	}
+	dd {
+		font-weight: 500;
 	}
 	dd {
 		margin: 0;
@@ -854,19 +888,24 @@
 		justify-items: start;
 	}
 	dd :global(.select) {
-		min-height: 2.25rem;
+		min-height: 2rem;
+		padding-block: 0.2rem;
 	}
 	dd select {
 		width: 100%;
 	}
-	.inline {
+	.inline,
+	.person {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: 0.45rem;
 	}
 	.actions {
 		display: grid;
 		gap: 0.4rem;
+	}
+	.actions .btn {
+		width: 100%;
 	}
 	/* Why a move is unavailable, right under it, so nobody has to guess or try and fail. */
 	.help {

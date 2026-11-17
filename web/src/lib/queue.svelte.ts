@@ -4,6 +4,23 @@ import { canRecordAny } from './types';
 
 export type Filter = 'mine' | 'groups' | 'unassigned' | 'due' | 'open' | 'all';
 
+/** The views of the queue a person is offered: staff work several, everyone else sees their own open or all. */
+export function queueViews(staff: boolean): { id: Filter; label: string }[] {
+	return staff
+		? [
+				{ id: 'mine', label: 'Mine' },
+				{ id: 'groups', label: 'My groups' },
+				{ id: 'unassigned', label: 'Unassigned' },
+				{ id: 'due', label: 'Due' },
+				{ id: 'open', label: 'Open' },
+				{ id: 'all', label: 'All' }
+			]
+		: [
+				{ id: 'open', label: 'Open' },
+				{ id: 'all', label: 'All' }
+			];
+}
+
 const STORE_KEY = 'sl.filter';
 
 function remembered(): Filter | null {

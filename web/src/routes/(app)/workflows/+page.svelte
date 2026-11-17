@@ -114,10 +114,10 @@
 		max-width: 52rem;
 	}
 	h1 {
-		font: 800 1.6rem/1.2 var(--font-display);
+		font: 650 1.375rem/1.3 var(--font-display);
 	}
 	h2 {
-		font: 700 1.2rem/1.2 var(--font-display);
+		font: 650 1.0625rem/1.3 var(--font-display);
 		margin-bottom: 0.4rem;
 	}
 	.lede {

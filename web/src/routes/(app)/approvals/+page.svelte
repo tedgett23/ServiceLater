@@ -81,7 +81,7 @@
 		margin: 0 auto;
 	}
 	h1 {
-		font: 800 1.6rem/1.2 var(--font-display);
+		font: 650 1.375rem/1.3 var(--font-display);
 		margin-bottom: 0.75rem;
 	}
 	ul {

@@ -6,28 +6,16 @@
 	import Status from '$lib/components/Status.svelte';
 	import { clock } from '$lib/clock.svelte';
 	import { age, span } from '$lib/format';
-	import { queue, type Filter } from '$lib/queue.svelte';
-	import { canRecordAny, refNumber, type Ticket } from '$lib/types';
+	import Avatar from '$lib/components/Avatar.svelte';
+	import { queue, queueViews } from '$lib/queue.svelte';
+	import { canRecordAny, type Ticket } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let { data, children } = $props();
 
 	const staff = $derived(canRecordAny(data.user, 'read'));
-	const filters = $derived<{ id: Filter; label: string }[]>(
-		staff
-			? [
-					{ id: 'mine', label: 'Mine' },
-					{ id: 'groups', label: 'My groups' },
-					{ id: 'unassigned', label: 'Unassigned' },
-					{ id: 'due', label: 'Due' },
-					{ id: 'open', label: 'Open' },
-					{ id: 'all', label: 'All' }
-				]
-			: [
-					{ id: 'open', label: 'Open' },
-					{ id: 'all', label: 'All' }
-				]
-	);
+	const filters = $derived(queueViews(staff));
+	const viewLabel = $derived(filters.find((f) => f.id === queue.filter)?.label ?? 'Tickets');
 
 	onMount(() => queue.start(data.user));
 	$effect(() => clock.watch());
@@ -91,6 +79,7 @@
 <div class="split" class:detail-open={detailOpen}>
 	<section class="queue" aria-label="Ticket queue">
 		<div class="tools">
+			<h2>{viewLabel}</h2>
 			<input
 				bind:this={searchBox}
 				bind:value={queue.search}
@@ -101,6 +90,7 @@
 				placeholder="Search titles"
 				aria-label="Search ticket titles"
 			/>
+			<!-- The views live in the navigation at the left; here only when that is collapsed or on a phone. -->
 			<div class="filters" role="group" aria-label="Show">
 				{#each filters as f (f.id)}
 					<button aria-pressed={queue.filter === f.id} onclick={() => queue.setFilter(f.id)}>{f.label}</button>
@@ -131,21 +121,25 @@
 					<li>
 						<a id="row-{t.id}" class="row" class:active={isActive(t)} href="/tickets/{t.reference}" aria-current={isActive(t) ? 'page' : undefined}>
 							<Signal priority={t.priority} />
-							<span class="num"><span class="prefix">{t.prefix}</span>{refNumber(t)}</span>
 							<span class="title">{t.title}</span>
 							<time class="age" datetime={t.updated_at}>{age(t.updated_at)}</time>
 							<span class="sub">
+								<span class="ref">{t.reference}</span>
 								<Status status={t.status} category={t.state_category} type={t.type} />
 								{#if sla(t, clock.now)}
 									{@const s = sla(t, clock.now)!}
 									<span class="sla {s.tone}">{s.text}</span>
 								{/if}
 								<span class="who"><span class="sr-only">Requested by </span>{t.requester_name}</span>
+							</span>
+							<span class="owner">
 								{#if t.assignment_group_name}
 									<span class="group"><span class="sr-only">Group </span>{t.assignment_group_name}</span>
 								{/if}
 								{#if t.assignee_name}
-									<span class="assignee"><span class="sr-only">Assigned to </span>{t.assignee_name}</span>
+									<span class="assignee" title="Assigned to {t.assignee_name}">
+										<Avatar name={t.assignee_name} size="sm" /><span class="sr-only">Assigned to {t.assignee_name}</span>
+									</span>
 								{:else if t.state_category === 'open' || t.state_category === 'waiting'}
 									<span class="assignee unassigned">Unassigned</span>
 								{/if}
@@ -173,13 +167,13 @@
 	.split {
 		height: 100%;
 		display: grid;
-		grid-template-columns: minmax(20rem, 27rem) 1fr;
+		grid-template-columns: minmax(20rem, 26.5rem) 1fr;
 	}
 	.queue {
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
-		background: var(--surface);
+		background: var(--ground);
 		border-right: 1px solid var(--rule);
 	}
 	.pane {
@@ -190,41 +184,69 @@
 
 	.tools {
 		display: grid;
-		gap: 0.6rem;
-		padding: 0.75rem;
+		grid-template-columns: auto minmax(0, 1fr);
+		align-items: center;
+		gap: 0.6rem 0.9rem;
+		padding: 0.6rem 1rem;
+		min-height: 3.25rem;
 		border-bottom: 1px solid var(--rule);
 	}
+	.tools h2 {
+		font-size: 0.9375rem;
+		font-weight: 650;
+		white-space: nowrap;
+	}
+	.tools input {
+		min-height: 2rem;
+		padding-block: 0.25rem;
+	}
 	.filters {
-		display: flex;
-		gap: 0.25rem;
+		grid-column: 1 / -1;
+		display: none;
+		gap: 0.125rem;
 		overflow-x: auto; /* a last resort on the narrowest phones; the labels never wrap */
+	}
+	:global(.shell.collapsed) .filters {
+		display: flex;
 	}
 	.filters button {
 		flex: none;
 		white-space: nowrap;
 		padding: 0.25rem 0.6rem;
-		border: 1px solid transparent;
-		border-radius: var(--radius);
+		border: 0;
+		border-radius: 7px;
 		background: transparent;
-		font-size: 0.875rem;
-		font-weight: 600;
+		font-size: 0.8125rem;
+		font-weight: 550;
 		color: var(--ink-2);
 		cursor: pointer;
 	}
 	.filters button:hover {
-		background: var(--blue-soft);
+		background: var(--hover);
 	}
 	.filters button[aria-pressed='true'] {
-		background: var(--ink);
-		color: var(--surface);
+		background: color-mix(in srgb, var(--ink) 8%, transparent);
+		color: var(--ink);
+		font-weight: 600;
+	}
+	@media (max-width: 40rem) {
+		.filters {
+			display: flex;
+		}
+		.tools h2 {
+			display: none;
+		}
+		.tools {
+			grid-template-columns: minmax(0, 1fr);
+		}
 	}
 	/* Six views must fit a phone without scrolling. */
 	@media (max-width: 26rem) {
 		.filters {
-			gap: 0.1rem;
+			gap: 0;
 		}
 		.filters button {
-			padding: 0.25rem 0.4rem;
+			padding: 0.25rem 0.45rem;
 		}
 	}
 
@@ -239,78 +261,68 @@
 		padding: 0;
 	}
 	li {
-		border-bottom: 1px solid var(--rule);
+		border-bottom: 1px solid color-mix(in srgb, var(--rule) 70%, transparent);
 	}
 
 	.row {
 		display: grid;
-		grid-template-columns: 1.1rem 3.1rem 1fr auto;
+		grid-template-columns: 1.1rem minmax(0, 1fr) auto;
 		grid-template-areas:
-			'sig num title age'
-			'.   sub sub   sub';
+			'sig title age'
+			'.   sub   owner';
 		align-items: center;
-		column-gap: 0.5rem;
-		row-gap: 0.15rem;
-		padding: 0.6rem 0.75rem 0.6rem 0.7rem;
-		border-left: 3px solid transparent;
+		column-gap: 0.65rem;
+		row-gap: 0.2rem;
+		padding: 0.65rem 1rem;
 		text-decoration: none;
 	}
 	.row:hover {
-		background: var(--raised);
+		background: var(--hover);
 	}
 	.row.active {
-		background: var(--raised);
-		border-left-color: var(--blue);
+		background: var(--blue-soft);
+		box-shadow: inset 2px 0 0 var(--primary);
 	}
 	.row :global(.signal) {
 		grid-area: sig;
 		align-self: center;
 	}
-	.num {
-		grid-area: num;
-		display: grid;
-		font: 700 1.3rem/1 var(--font-display);
-		color: var(--ink-2);
-		letter-spacing: 0.02em;
-		padding-top: 0.1rem;
-	}
-	/* The type is the small print above the number: INC over 42. */
-	.prefix {
-		font-size: 0.6rem;
-		letter-spacing: 0.08em;
-		font-weight: 800;
-	}
 	.title {
 		grid-area: title;
-		font-weight: 600;
+		font-weight: 550;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 	.age {
 		grid-area: age;
-		font-size: 0.8rem;
+		justify-self: end;
+		font-size: 0.75rem;
 		color: var(--ink-2);
 	}
 	.sub {
 		grid-area: sub;
 		display: flex;
 		align-items: center;
-		gap: 0.9rem;
-		font-size: 0.8125rem;
+		gap: 0.7rem;
+		font-size: 0.78rem;
 		color: var(--ink-2);
 		min-width: 0;
+	}
+	.ref {
+		font: 500 0.72rem var(--font-mono);
+		white-space: nowrap;
 	}
 	.sla {
 		white-space: nowrap;
 	}
 	/* Yellow: due within the hour. Red: missed. */
 	.sla.soon {
-		padding: 0 0.3rem;
-		background: var(--marker);
-		color: var(--on-marker);
+		padding: 0 0.35rem;
+		background: var(--marker-soft);
+		color: var(--marker-ink);
 		font-weight: 600;
-		border-radius: 2px;
+		border-radius: 5px;
 	}
 	.sla.bad {
 		color: var(--red);
@@ -322,29 +334,35 @@
 		white-space: nowrap;
 		min-width: 0;
 	}
-	.assignee {
-		margin-left: auto;
-		white-space: nowrap;
-		color: var(--ink);
+	.owner {
+		grid-area: owner;
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.5rem;
+		min-width: 0;
+		font-size: 0.78rem;
+		color: var(--ink-2);
 	}
 	/* The team, quieter than the person, beside them on the right. */
 	.group {
-		margin-left: auto;
-		white-space: nowrap;
+		max-width: 8rem;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		min-width: 3rem;
+		white-space: nowrap;
 	}
-	.group + .assignee {
-		margin-left: 0;
+	.assignee {
+		display: inline-flex;
+		white-space: nowrap;
 	}
 	/* Highlighter, so unowned work stands out in a scan. */
 	.assignee.unassigned {
-		padding: 0 0.3rem;
-		background: var(--marker);
-		color: var(--on-marker);
+		padding: 0 0.4rem;
+		background: var(--marker-soft);
+		color: var(--marker-ink);
+		font-size: 0.7rem;
 		font-weight: 600;
-		border-radius: 2px;
+		border-radius: 5px;
 	}
 
 	.msg {
@@ -356,7 +374,7 @@
 	}
 	.quiet-msg {
 		padding: 0.75rem 1rem;
-		font-size: 0.85rem;
+		font-size: 0.8125rem;
 	}
 	.link {
 		border: 0;

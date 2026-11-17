@@ -66,14 +66,14 @@
 		margin-bottom: 1rem;
 	}
 	h1 {
-		font: 800 1.6rem/1.2 var(--font-display);
+		font: 650 1.375rem/1.3 var(--font-display);
 	}
 	.head .btn {
 		flex: none;
 		white-space: nowrap;
 	}
 	h2 {
-		font: 700 1.2rem/1.2 var(--font-display);
+		font: 650 1.0625rem/1.3 var(--font-display);
 		padding-bottom: 0.35rem;
 		border-bottom: 1px solid var(--rule);
 	}

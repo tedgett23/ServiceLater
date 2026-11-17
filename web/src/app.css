@@ -1,66 +1,91 @@
-@import '@fontsource-variable/public-sans';
-@import '@fontsource/big-shoulders-display/700';
-@import '@fontsource/big-shoulders-display/900';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
 
-/* Cool paper, navy ink, one ultramarine for action and one marker yellow for "look here". */
+/* A workspace: neutral surfaces and hairlines, one indigo for action, and marker yellow for "look here".
+   The dark theme is graphite, and there the yellow is also the colour of the main action. */
 :root {
-	--ground: #e8ebf1;
-	--surface: #f9fafc;
-	--raised: #ffffff;
-	--ink: #0f1440;
-	--ink-2: #464c75;
-	--rule: #cdd2e0;
-	--blue: #2a35dc;
+	--ground: #ffffff; /* the page */
+	--surface: #fbfbfc; /* panels beside it: the queue, side rails */
+	--raised: #ffffff; /* inputs, menus, things that sit on top */
+	--ink: #1b1d29;
+	--ink-2: #666a80;
+	--rule: #e6e6ec;
+	--blue: #3d46e6;
 	--on-blue: #ffffff;
-	--blue-soft: #dfe2fb;
+	--blue-soft: #eef0fe;
+	--hover: #f1f1f5;
+	--primary: #3d46e6; /* the main action on a screen */
+	--on-primary: #ffffff;
 	--marker: #ffd93d;
-	--on-marker: #0f1440;
-	--marker-soft: #fff3b5;
-	--red: #c4213f;
-	--focus: #2a35dc;
-	--chrome: #0f1440; /* app bar: stays dark in both themes */
-	--on-chrome: #e8ebf1;
+	--on-marker: #12163f;
+	--marker-soft: #fff6d1;
+	--marker-ink: #7a5a00; /* marker-coloured text on a quiet ground */
+	--red: #cf2338;
+	--green: #17794a;
+	--focus: #3d46e6;
+	--chrome: #f7f7f9; /* the navigation at the left */
+	--on-chrome: #1b1d29;
+	--shadow: 0 1px 2px rgb(20 22 42 / 0.06);
+	--shadow-pop: 0 8px 28px rgb(20 22 42 / 0.14), 0 1px 3px rgb(20 22 42 / 0.08);
 
-	--font-body: 'Public Sans Variable', system-ui, sans-serif;
-	--font-display: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+	--font-body: 'Inter Variable', system-ui, sans-serif;
+	--font-display: 'Inter Variable', system-ui, sans-serif;
+	--font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-	--radius: 4px;
+	--radius: 8px;
 	color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme='light']) {
-		--ground: #0a0d29;
-		--surface: #10153a;
-		--raised: #171d49;
-		--ink: #e9ebfa;
-		--ink-2: #a2a8d4;
-		--rule: #2b3266;
-		--blue: #8b94ff;
-		--on-blue: #0a0d29;
-		--blue-soft: #232a70;
-		--marker-soft: #3b3714;
-		--red: #ff7b95;
-		--focus: #8b94ff;
-		--chrome: #060820;
+		--ground: #0e1017;
+		--surface: #11141c;
+		--raised: #171b26;
+		--ink: #e7e9f0;
+		--ink-2: #9499ad;
+		--rule: #232837;
+		--blue: #8f99ff;
+		--on-blue: #0b0d13;
+		--blue-soft: #1c2142;
+		--hover: #1a1e2a;
+		--primary: #ffd93d;
+		--on-primary: #0b0d13;
+		--marker-soft: #2a2409;
+		--marker-ink: #ffd93d;
+		--red: #ff6b7d;
+		--green: #6fe0a8;
+		--focus: #8f99ff;
+		--chrome: #0a0c12;
+		--on-chrome: #e7e9f0;
+		--shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+		--shadow-pop: 0 10px 32px rgb(0 0 0 / 0.55), 0 1px 3px rgb(0 0 0 / 0.4);
 		color-scheme: dark;
 	}
 }
-/* Someone who chose Dark on their account gets it whatever their device says (lib/theme.svelte.ts). */
+/* Someone who chose Dark on their account gets it whatever their device says (lib/theme.svelte.ts). Keep this in
+   step with the media query above. */
 :root[data-theme='dark'] {
-	--ground: #0a0d29;
-	--surface: #10153a;
-	--raised: #171d49;
-	--ink: #e9ebfa;
-	--ink-2: #a2a8d4;
-	--rule: #2b3266;
-	--blue: #8b94ff;
-	--on-blue: #0a0d29;
-	--blue-soft: #232a70;
-	--marker-soft: #3b3714;
-	--red: #ff7b95;
-	--focus: #8b94ff;
-	--chrome: #060820;
+	--ground: #0e1017;
+	--surface: #11141c;
+	--raised: #171b26;
+	--ink: #e7e9f0;
+	--ink-2: #9499ad;
+	--rule: #232837;
+	--blue: #8f99ff;
+	--on-blue: #0b0d13;
+	--blue-soft: #1c2142;
+	--hover: #1a1e2a;
+	--primary: #ffd93d;
+	--on-primary: #0b0d13;
+	--marker-soft: #2a2409;
+	--marker-ink: #ffd93d;
+	--red: #ff6b7d;
+	--green: #6fe0a8;
+	--focus: #8f99ff;
+	--chrome: #0a0c12;
+	--on-chrome: #e7e9f0;
+	--shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+	--shadow-pop: 0 10px 32px rgb(0 0 0 / 0.55), 0 1px 3px rgb(0 0 0 / 0.4);
 	color-scheme: dark;
 }
 
@@ -79,7 +104,8 @@ body {
 	margin: 0;
 	background: var(--ground);
 	color: var(--ink);
-	font: 400 15px/1.5 var(--font-body);
+	font: 400 14px/1.5 var(--font-body);
+	font-feature-settings: 'cv11', 'ss01';
 	-webkit-font-smoothing: antialiased;
 	font-variant-numeric: tabular-nums;
 }
@@ -89,6 +115,11 @@ h2,
 h3,
 p {
 	margin: 0;
+}
+h1,
+h2,
+h3 {
+	letter-spacing: -0.015em;
 }
 
 a {
@@ -128,28 +159,29 @@ textarea {
 	align-items: center;
 	justify-content: center;
 	gap: 0.5rem;
-	min-height: 2.25rem;
-	padding: 0 0.9rem;
+	min-height: 2.125rem;
+	padding: 0 0.8rem;
 	border: 1px solid var(--rule);
 	border-radius: var(--radius);
 	background: var(--raised);
-	font-weight: 600;
-	font-size: 0.9rem;
+	box-shadow: var(--shadow);
+	font-weight: 550;
+	font-size: 0.875rem;
 	cursor: pointer;
 	text-decoration: none;
 	transition: background-color 0.1s;
 }
 .btn:hover {
-	background: var(--blue-soft);
+	background: var(--hover);
 }
 .btn:disabled {
 	opacity: 0.55;
 	cursor: default;
 }
 .btn.primary {
-	background: var(--blue);
-	border-color: var(--blue);
-	color: var(--on-blue);
+	background: var(--primary);
+	border-color: var(--primary);
+	color: var(--on-primary);
 }
 .btn.primary:hover {
 	filter: brightness(1.1);
@@ -161,19 +193,21 @@ textarea {
 }
 .field > span,
 .field > label {
-	font-size: 0.85rem;
-	font-weight: 600;
+	font-size: 0.8125rem;
+	font-weight: 550;
+	color: var(--ink-2);
 }
 .field input,
 .field textarea,
 .field select,
 .select {
 	width: 100%;
-	min-height: 2.5rem;
-	padding: 0.5rem 0.65rem;
+	min-height: 2.25rem;
+	padding: 0.4rem 0.65rem;
 	border: 1px solid var(--rule);
 	border-radius: var(--radius);
 	background: var(--raised);
+	box-shadow: var(--shadow);
 }
 .field textarea {
 	resize: vertical;
@@ -191,10 +225,9 @@ kbd {
 	min-width: 1.35em;
 	padding: 0 0.3em;
 	border: 1px solid var(--rule);
-	border-bottom-width: 2px;
-	border-radius: 3px;
+	border-radius: 4px;
 	background: var(--raised);
-	font: 600 0.75rem/1.35 var(--font-body);
+	font: 550 0.6875rem/1.45 var(--font-body);
 	text-align: center;
 }
 
@@ -217,8 +250,8 @@ kbd {
 .prose h2,
 .prose h3,
 .prose h4 {
-	font-family: var(--font-display);
-	line-height: 1.2;
+	font-weight: 650;
+	line-height: 1.25;
 	margin-top: 1.4em;
 }
 .prose h1 {

@@ -203,7 +203,7 @@
 		margin-bottom: 0.75rem;
 	}
 	h1 {
-		font: 800 1.6rem/1.2 var(--font-display);
+		font: 650 1.375rem/1.3 var(--font-display);
 		overflow-wrap: anywhere;
 	}
 	.lede,
@@ -248,7 +248,7 @@
 	}
 	.yaml h2 {
 		margin-top: 0.75rem;
-		font: 700 1.05rem/1.2 var(--font-display);
+		font: 650 0.9375rem/1.3 var(--font-display);
 	}
 	.yaml summary {
 		cursor: pointer;

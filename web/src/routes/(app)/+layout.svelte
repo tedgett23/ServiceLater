@@ -7,18 +7,52 @@
 	import { forms } from '$lib/forms.svelte';
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { notifications } from '$lib/notifications.svelte';
-	import { queue } from '$lib/queue.svelte';
+	import { queue, queueViews } from '$lib/queue.svelte';
 	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
 	import { theme } from '$lib/theme.svelte';
 	import { api } from '$lib/api';
 	import type { Account } from '$lib/types';
-	import { ui } from '$lib/ui.svelte';
+	import { setNavCollapsed, ui } from '$lib/ui.svelte';
+	import Avatar from '$lib/components/Avatar.svelte';
+	import Icon, { type IconName } from '$lib/components/Icon.svelte';
 	import NewTicket from '$lib/components/NewTicket.svelte';
 	import { can, canAdmin, canRecord, canRecordAny, P } from '$lib/types';
 
 	let { children } = $props();
 	let bell = $state<HTMLDetailsElement>();
+
+	const at = (prefix: string) => page.url.pathname.startsWith(prefix);
+	// The sections this person has, in order. Approvals appears only while something waits on them.
+	const sections = $derived(
+		[
+			{ href: '/tickets', label: 'Tickets', icon: 'tickets', show: canRecordAny(session.user, 'read') },
+			{
+				href: '/calendar',
+				label: 'Calendar',
+				icon: 'calendar',
+				show: canRecord(session.user, 'read', 'change') && lifecycle.types.some((t) => t.type === 'change')
+			},
+			{ href: '/catalog', label: 'Request something', icon: 'catalog', show: true },
+			{ href: '/kb', label: 'Knowledge', icon: 'knowledge', show: true },
+			{ href: '/cmdb', label: 'CMDB', icon: 'cmdb', show: can(session.user, P.cmdbRead) },
+			{
+				href: '/workflows',
+				label: 'Workflows',
+				icon: 'workflows',
+				show: can(session.user, P.workflowsReadAll) || can(session.user, P.workflowsEdit)
+			},
+			{ href: '/runs', label: 'Runs', icon: 'runs', show: can(session.user, P.workflowsReadAll) },
+			{ href: '/admin', label: 'Admin', icon: 'admin', show: canAdmin(session.user) },
+			{
+				href: '/approvals',
+				label: `Approvals (${approvals.items.length})`,
+				icon: 'approvals',
+				show: approvals.items.length > 0
+			}
+		].filter((s) => s.show) as { href: string; label: string; icon: IconName }[]
+	);
+	const views = $derived(queueViews(canRecordAny(session.user, 'read')));
 
 	function openNotification(id: string) {
 		void notifications.markRead(id);
@@ -59,55 +93,64 @@
 	});
 </script>
 
-{#snippet sections()}
-	{#if canRecordAny(session.user, 'read')}
-		<a href="/tickets" aria-current={page.url.pathname.startsWith('/tickets') ? 'page' : undefined}>Tickets</a>
-	{/if}
-	{#if canRecord(session.user, 'read', 'change') && lifecycle.types.some((t) => t.type === 'change')}
-		<a href="/calendar" aria-current={page.url.pathname.startsWith('/calendar') ? 'page' : undefined}>Calendar</a>
-	{/if}
-	<a href="/catalog" aria-current={page.url.pathname.startsWith('/catalog') ? 'page' : undefined}>Request something</a>
-	<a href="/kb" aria-current={page.url.pathname.startsWith('/kb') ? 'page' : undefined}>Knowledge</a>
-	{#if can(session.user, P.cmdbRead)}
-		<a href="/cmdb" aria-current={page.url.pathname.startsWith('/cmdb') ? 'page' : undefined}>CMDB</a>
-	{/if}
-	{#if can(session.user, P.workflowsReadAll) || can(session.user, P.workflowsEdit)}
-		<a href="/workflows" aria-current={page.url.pathname.startsWith('/workflows') ? 'page' : undefined}>Workflows</a>
-	{/if}
-	{#if can(session.user, P.workflowsReadAll)}
-		<a href="/runs" aria-current={page.url.pathname.startsWith('/runs') ? 'page' : undefined}>Runs</a>
-	{/if}
-	{#if canAdmin(session.user)}
-		<a href="/admin" aria-current={page.url.pathname.startsWith('/admin') ? 'page' : undefined}>Admin</a>
-	{/if}
-	{#if approvals.items.length > 0}
-		<a href="/approvals" aria-current={page.url.pathname.startsWith('/approvals') ? 'page' : undefined}>
-			Approvals ({approvals.items.length})
+{#snippet links(icons: boolean)}
+	{#each sections as s (s.href)}
+		<a href={s.href} aria-current={at(s.href) ? 'page' : undefined} title={icons && ui.navCollapsed ? s.label : undefined}>
+			{#if icons}<Icon name={s.icon} />{/if}
+			<span class="lbl">{s.label}</span>
 		</a>
-	{/if}
+	{/each}
 {/snippet}
 
-<div class="shell">
-	<header>
-		<a class="mark" href="/" aria-label="ServiceLater, home">ServiceLater</a>
+<div class="shell" class:collapsed={ui.navCollapsed}>
+	<!-- The navigation: a column at the left, or on a phone a bar across the top. -->
+	<aside class="side">
+		<div class="brand">
+			<a class="mark" href="/" aria-label="ServiceLater, home">
+				<span class="logo" aria-hidden="true">SL</span>
+				<span class="word">ServiceLater</span>
+			</a>
+			<button
+				class="collapse"
+				onclick={() => setNavCollapsed(!ui.navCollapsed)}
+				aria-label={ui.navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+				aria-expanded={!ui.navCollapsed}
+				title={ui.navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+			>
+				<Icon name="sidebar" />
+			</button>
+		</div>
+
+		<button class="btn primary new" onclick={() => (ui.newTicketOpen = true)} title={ui.navCollapsed ? 'New ticket' : undefined}>
+			<Icon name="plus" size={15} />
+			<span class="lbl">New ticket</span>
+			<kbd aria-hidden="true">c</kbd>
+		</button>
+
 		<nav class="wide" aria-label="Sections">
-			{@render sections()}
+			{@render links(true)}
 		</nav>
-		<div class="right">
+
+		{#if at('/tickets')}
+			<div class="views" role="group" aria-label="Show">
+				<h2>Views</h2>
+				{#each views as v (v.id)}
+					<button aria-pressed={queue.filter === v.id} onclick={() => queue.setFilter(v.id)}>{v.label}</button>
+				{/each}
+			</div>
+		{/if}
+
+		<div class="foot">
 			{#if realtime.down}
 				<span class="offline" role="status">Reconnecting…</span>
 			{/if}
-			<button class="btn primary" onclick={() => (ui.newTicketOpen = true)}>
-				New ticket <kbd aria-hidden="true">c</kbd>
-			</button>
+			<a class="who" href="/account" aria-label="Your account, {session.user?.name}" title={ui.navCollapsed ? session.user?.name : undefined}>
+				<Avatar name={session.user?.name ?? '?'} />
+				<span class="lbl">{session.user?.name}</span>
+			</a>
 			<details class="bell" bind:this={bell}>
-				<summary aria-label="Notifications{notifications.unreadCount > 0 ? `, ${notifications.unreadCount} unread` : ''}">
-					<svg viewBox="0 0 18 18" aria-hidden="true">
-						<path
-							d="M9 1.5c-1 0-1.8.8-1.8 1.8v.4C5 4.3 3.6 6 3.6 8v3l-1.2 1.8c-.2.3 0 .7.4.7h13.4c.4 0 .6-.4.4-.7L15.4 11V8c0-2-1.4-3.7-3.6-4.3v-.4c0-1-.8-1.8-1.8-1.8Z"
-						/>
-						<path d="M7 14.5a2 2 0 0 0 4 0" />
-					</svg>
+				<summary aria-label="Notifications{notifications.unreadCount > 0 ? `, ${notifications.unreadCount} unread` : ''}" title="Notifications">
+					<Icon name="bell" size={17} />
 					{#if notifications.unreadCount > 0}<i class="badge" aria-hidden="true"></i>{/if}
 				</summary>
 				<div class="panel">
@@ -128,22 +171,25 @@
 							{/each}
 						</ul>
 					{/if}
-					<!-- The header hides the name on a phone, so the way to the account page is here too. -->
+					<!-- A phone hides the name, so the way to the account page is here too. -->
 					<a class="prefs" href="/account" onclick={() => bell && (bell.open = false)}>Notification settings</a>
 				</div>
 			</details>
-			<a class="who" href="/account" aria-label="Your account, {session.user?.name}">{session.user?.name}</a>
-			<button class="btn quiet" onclick={() => session.logout()}>Sign out</button>
+			<button class="signout" onclick={() => session.logout()} aria-label="Sign out" title="Sign out">
+				<Icon name="signout" size={17} />
+			</button>
 		</div>
-	</header>
+	</aside>
 
-	<!-- On a phone there is no room for these in the app bar, so they get a bar of their own. -->
-	<nav class="narrow" aria-label="Sections">
-		{@render sections()}
-	</nav>
+	<div class="main">
+		<!-- On a phone the sections get a bar of their own under the app bar. -->
+		<nav class="narrow" aria-label="Sections">
+			{@render links(false)}
+		</nav>
 
-	<div class="content">
-		{@render children()}
+		<div class="content">
+			{@render children()}
+		</div>
 	</div>
 
 	<div class="sr-only" aria-live="polite">{ui.announce}</div>
@@ -155,113 +201,203 @@
 	.shell {
 		height: 100dvh;
 		display: flex;
+	}
+	.side {
+		flex: none;
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		width: 14.5rem;
+		padding: 0.75rem 0.625rem;
+		background: var(--chrome);
+		color: var(--on-chrome);
+		border-right: 1px solid var(--rule);
+		overflow-y: auto;
+		overflow-x: hidden;
+	}
+	.main {
+		flex: 1;
+		min-width: 0;
+		display: flex;
 		flex-direction: column;
 	}
-	header {
-		position: relative;
+	.content {
+		flex: 1;
+		min-height: 0;
+	}
+
+	.brand {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 1rem;
-		height: 3.25rem;
-		padding: 0 1rem;
-		background: var(--chrome);
-		color: var(--on-chrome);
-		flex: none;
+		gap: 0.5rem;
+		padding: 0.125rem 0.25rem 0.125rem 0.4rem;
 	}
 	.mark {
-		font: 900 1.6rem/1 var(--font-display);
-		letter-spacing: 0.01em;
-		text-decoration: none;
-		color: var(--marker);
-	}
-	nav {
-		display: flex;
-		gap: 0.25rem;
-	}
-	nav.wide {
-		margin-right: auto;
-		margin-left: 0.5rem;
-	}
-	nav.narrow {
-		display: none;
-		flex: none;
-		/* An admin has more sections than a phone is wide: they scroll sideways in the bar, never the page. */
-		overflow-x: auto;
-		scrollbar-width: none;
-		padding: 0.25rem 0.75rem;
-		background: var(--chrome);
-		border-top: 1px solid color-mix(in srgb, var(--on-chrome) 18%, transparent);
-	}
-	nav a {
-		white-space: nowrap;
-		padding: 0.2rem 0.7rem;
-		border-radius: var(--radius);
-		font-size: 0.9rem;
-		font-weight: 600;
-		text-decoration: none;
-		color: color-mix(in srgb, var(--on-chrome) 75%, transparent);
-	}
-	nav a:hover {
-		color: var(--on-chrome);
-	}
-	nav a[aria-current='page'] {
-		background: color-mix(in srgb, var(--on-chrome) 15%, transparent);
-		color: var(--on-chrome);
-	}
-	.right {
 		display: flex;
 		align-items: center;
-		gap: 0.75rem;
+		gap: 0.55rem;
 		min-width: 0;
+		text-decoration: none;
+		font-weight: 650;
+		font-size: 0.9375rem;
+		letter-spacing: -0.01em;
+	}
+	/* The yellow ticket: what is left of the stub, as the mark. */
+	.logo {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex: none;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: 7px;
+		background: var(--marker);
+		color: var(--on-marker);
+		font-size: 0.6875rem;
+		font-weight: 800;
+		letter-spacing: -0.02em;
+	}
+	.collapse,
+	.signout,
+	.bell summary {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex: none;
+		width: 1.875rem;
+		height: 1.875rem;
+		padding: 0;
+		border: 0;
+		border-radius: 7px;
+		background: none;
+		color: var(--ink-2);
+		cursor: pointer;
+	}
+	.collapse:hover,
+	.signout:hover,
+	.bell summary:hover {
+		background: var(--hover);
+		color: var(--ink);
+	}
+
+	.new {
+		justify-content: flex-start;
+		gap: 0.45rem;
+		padding: 0 0.6rem;
+		white-space: nowrap;
+	}
+	.new kbd {
+		margin-left: auto;
+		border-color: transparent;
+		background: color-mix(in srgb, var(--on-primary) 18%, transparent);
+		color: inherit;
+	}
+
+	nav.wide {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+	nav.wide a,
+	.views button {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		height: 1.9rem;
+		padding: 0 0.5rem;
+		border: 0;
+		border-radius: 7px;
+		background: none;
+		color: var(--ink-2);
+		font-size: 0.875rem;
+		font-weight: 500;
+		text-align: left;
+		text-decoration: none;
+		white-space: nowrap;
+		cursor: pointer;
+	}
+	nav.wide a:hover,
+	.views button:hover {
+		background: var(--hover);
+		color: var(--ink);
+	}
+	nav.wide a[aria-current='page'],
+	.views button[aria-pressed='true'] {
+		background: color-mix(in srgb, var(--ink) 8%, transparent);
+		color: var(--ink);
+		font-weight: 600;
+	}
+	nav.wide a[aria-current='page'] :global(.icon) {
+		color: var(--primary);
+	}
+	.views {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+	}
+	.views h2 {
+		padding: 0.25rem 0.5rem 0.3rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		letter-spacing: 0;
+		color: var(--ink-2);
+	}
+
+	.foot {
+		display: flex;
+		align-items: center;
+		gap: 0.125rem;
+		margin-top: auto;
+		padding-top: 0.625rem;
+		border-top: 1px solid var(--rule);
+	}
+	.who {
+		display: flex;
+		align-items: center;
+		gap: 0.55rem;
+		flex: 1;
+		min-width: 0;
+		padding: 0.2rem 0.25rem;
+		border-radius: 7px;
+		text-decoration: none;
+		font-size: 0.875rem;
+		font-weight: 550;
+	}
+	.who:hover {
+		background: var(--hover);
+	}
+	.who .lbl {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.offline {
+		position: absolute;
+		left: 0.625rem;
+		bottom: 3.5rem;
 		padding: 0.1rem 0.5rem;
-		border-radius: 2px;
+		border-radius: 5px;
 		background: var(--marker);
 		color: var(--on-marker);
 		font-size: 0.8125rem;
 		font-weight: 600;
 		white-space: nowrap;
+		z-index: 5;
 	}
-	.who {
-		color: inherit;
-		text-decoration: none;
-		font-size: 0.9rem;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+	.side {
+		position: relative;
 	}
-	.who:hover {
-		text-decoration: underline;
-	}
+
 	.bell {
 		position: relative;
 	}
 	.bell summary {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 2rem;
-		height: 2rem;
-		border-radius: var(--radius);
 		list-style: none;
-		cursor: pointer;
+		position: relative;
 	}
 	.bell summary::-webkit-details-marker {
 		display: none;
-	}
-	.bell summary:hover {
-		background: color-mix(in srgb, var(--on-chrome) 15%, transparent);
-	}
-	.bell svg {
-		width: 1.1rem;
-		height: 1.1rem;
-		fill: none;
-		stroke: var(--on-chrome);
-		stroke-width: 1.3;
-		stroke-linecap: round;
-		stroke-linejoin: round;
 	}
 	/* Yellow already means "look here" (unassigned tickets, internal notes), so the badge reuses it. */
 	.bell .badge {
@@ -272,27 +408,29 @@
 		height: 0.5rem;
 		border-radius: 50%;
 		background: var(--marker);
+		box-shadow: 0 0 0 2px var(--chrome);
 	}
 	.bell .panel {
-		position: absolute;
-		top: calc(100% + 0.4rem);
-		right: 0;
-		width: 18rem;
+		position: fixed;
+		left: 0.625rem;
+		bottom: 3.25rem;
+		width: 20rem;
 		max-width: calc(100vw - 1.5rem);
-		max-height: 20rem;
+		max-height: 24rem;
 		overflow-y: auto;
 		border: 1px solid var(--rule);
-		border-radius: var(--radius);
-		background: var(--surface);
+		border-radius: 10px;
+		background: var(--raised);
 		color: var(--ink);
-		z-index: 20;
+		box-shadow: var(--shadow-pop);
+		z-index: 30;
 	}
 	.bell .prefs {
 		display: block;
 		padding: 0.55rem 0.75rem;
 		border-top: 1px solid var(--rule);
-		font-size: 0.85rem;
-		font-weight: 600;
+		font-size: 0.8125rem;
+		font-weight: 550;
 	}
 	.bell .empty {
 		padding: 0.9rem;
@@ -307,17 +445,17 @@
 	.bell li + li a {
 		border-top: 1px solid var(--rule);
 	}
-	.bell a {
+	.bell li a {
 		display: flex;
 		justify-content: space-between;
 		gap: 0.75rem;
 		padding: 0.6rem 0.8rem;
 		text-decoration: none;
 		color: inherit;
-		font-size: 0.875rem;
+		font-size: 0.8125rem;
 	}
-	.bell a:hover {
-		background: var(--blue-soft);
+	.bell li a:hover {
+		background: var(--hover);
 	}
 	.bell a.unread {
 		box-shadow: inset 3px 0 0 var(--marker);
@@ -332,74 +470,145 @@
 	.bell .detail {
 		color: var(--ink-2);
 		font-weight: 400;
-		font-size: 0.8125rem;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
 	.bell time {
 		color: var(--ink-2);
-		font-size: 0.8rem;
+		font-size: 0.75rem;
 		white-space: nowrap;
 	}
-	header .btn {
-		min-height: 2rem;
-		white-space: nowrap;
+
+	nav.narrow {
+		display: none;
 	}
-	header .btn.primary kbd {
-		background: color-mix(in srgb, var(--on-blue) 18%, transparent);
-		border-color: color-mix(in srgb, var(--on-blue) 35%, transparent);
-		color: inherit;
-	}
-	header .btn.quiet {
-		background: transparent;
-		border-color: color-mix(in srgb, var(--on-chrome) 35%, transparent);
-		color: var(--on-chrome);
-	}
-	header .btn.quiet:hover {
-		background: color-mix(in srgb, var(--on-chrome) 15%, transparent);
-	}
-	header :focus-visible {
-		outline-color: var(--marker);
-	}
-	.content {
-		flex: 1;
-		min-height: 0;
-	}
-	@media (max-width: 40rem) {
-		.who,
-		header kbd {
-			display: none;
-		}
-		nav.wide {
-			display: none;
-		}
-		nav.narrow {
-			display: flex;
-		}
-		nav.narrow a {
-			min-height: 2.25rem;
-			display: inline-flex;
+
+	/* Collapsed: icons only. The labels stay for screen readers and show as tooltips. */
+	@media (min-width: 40.01rem) {
+		.collapsed .side {
+			width: 3.5rem;
 			align-items: center;
-			padding: 0 0.9rem;
+			padding-inline: 0.5rem;
 		}
-		header {
-			padding: 0 0.75rem;
-		}
-		/* No room for it in the bar (it pushed "Sign out" off the screen), so it hangs just below it instead. */
-		.offline {
+		.collapsed .lbl,
+		.collapsed .word,
+		.collapsed .new kbd,
+		.collapsed .views {
 			position: absolute;
-			top: calc(100% + 0.4rem);
+			width: 1px;
+			height: 1px;
+			overflow: hidden;
+			clip-path: inset(50%);
+			white-space: nowrap;
+		}
+		.collapsed .views {
+			display: none;
+		}
+		.collapsed .brand {
+			flex-direction: column;
+			padding: 0;
+			gap: 0.5rem;
+		}
+		.collapsed .new,
+		.collapsed nav.wide a {
+			width: 2.125rem;
+			padding: 0;
+			justify-content: center;
+		}
+		.collapsed .foot {
+			flex-direction: column;
+			gap: 0.25rem;
+		}
+		.collapsed .who {
+			flex: none;
+			padding: 0.15rem;
+		}
+		.collapsed .bell .panel {
+			left: 3.9rem;
+			bottom: 0.625rem;
+		}
+	}
+
+	/* A phone: the column becomes a bar across the top, and the sections a second bar under it. */
+	@media (max-width: 40rem) {
+		.shell {
+			flex-direction: column;
+		}
+		.side {
+			flex-direction: row;
+			align-items: center;
+			width: auto;
+			height: 3.25rem;
+			padding: 0 0.75rem;
+			gap: 0.5rem;
+			border-right: 0;
+			border-bottom: 1px solid var(--rule);
+			overflow: visible;
+		}
+		.brand {
+			padding: 0;
+			margin-right: auto;
+		}
+		.collapse,
+		nav.wide,
+		.views,
+		.new kbd,
+		.who .lbl {
+			display: none;
+		}
+		.new {
+			padding: 0 0.7rem;
+		}
+		.foot {
+			margin: 0;
+			padding: 0;
+			border: 0;
+			gap: 0.25rem;
+		}
+		.who {
+			flex: none;
+			padding: 0;
+		}
+		.offline {
 			left: 50%;
+			bottom: auto;
+			top: calc(100% + 0.4rem);
 			transform: translateX(-50%);
 			z-index: 20;
 		}
-		/* The bell added a fourth item to .right; there is no room left at this width for full button padding too. */
-		.right {
-			gap: 0.4rem;
+		.bell .panel {
+			left: auto;
+			right: 0.75rem;
+			bottom: auto;
+			top: 3.5rem;
 		}
-		header .btn.primary {
-			padding: 0 0.6rem;
+		nav.narrow {
+			display: flex;
+			flex: none;
+			gap: 0.125rem;
+			/* An admin has more sections than a phone is wide: they scroll sideways in the bar, never the page. */
+			overflow-x: auto;
+			scrollbar-width: none;
+			padding: 0.25rem 0.5rem;
+			background: var(--chrome);
+			border-bottom: 1px solid var(--rule);
+		}
+		nav.narrow a {
+			display: inline-flex;
+			align-items: center;
+			min-height: 2.25rem;
+			padding: 0 0.8rem;
+			border-radius: 7px;
+			color: var(--ink-2);
+			font-size: 0.875rem;
+			font-weight: 550;
+			text-decoration: none;
+			white-space: nowrap;
+		}
+		nav.narrow a[aria-current='page'] {
+			background: color-mix(in srgb, var(--ink) 8%, transparent);
+			color: var(--ink);
 		}
 	}
 </style>

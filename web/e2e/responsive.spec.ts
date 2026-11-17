@@ -22,13 +22,38 @@ test('on a phone the header fits and the ticket reads problem, then actions, the
 	await expect(page.getByLabel('Search ticket titles')).toBeVisible();
 });
 
-test('in dark mode the app bar stays dark so the wordmark is readable', async ({ browser }) => {
+test('in dark mode the navigation is dark and the wordmark is readable on it', async ({ browser }) => {
 	const { page } = await as(browser, 'agent', { colorScheme: 'dark' });
 	await page.goto('/tickets');
-	const bar = page.locator('header').first();
-	await expect(bar).toBeVisible();
-	const [r, g, b] = (await bar.evaluate((el) => getComputedStyle(el).backgroundColor)).match(/\d+/g)!.map(Number);
-	expect((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255).toBeLessThan(0.15);
+	const side = page.locator('aside.side');
+	await expect(side).toBeVisible();
+	const lum = (rgb: string) => {
+		const [r, g, b] = rgb.match(/\d+/g)!.map(Number);
+		return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+	};
+	expect(lum(await side.evaluate((el) => getComputedStyle(el).backgroundColor))).toBeLessThan(0.15);
+	const word = page.getByRole('link', { name: 'ServiceLater, home' });
+	expect(lum(await word.evaluate((el) => getComputedStyle(el).color))).toBeGreaterThan(0.7);
+});
+
+// The navigation at the left folds to its icons, stays that way after a reload, and the views move into the queue.
+test('the navigation collapses to icons and remembers it', async ({ browser }) => {
+	const { page } = await as(browser, 'agent');
+	await page.goto('/tickets');
+	const side = page.locator('aside.side');
+	const wide = (await side.boundingBox())!.width;
+	await expect(side.getByRole('button', { name: 'All', exact: true })).toBeVisible();
+
+	await page.getByRole('button', { name: 'Collapse navigation' }).click();
+	await expect.poll(async () => (await side.boundingBox())!.width).toBeLessThan(wide / 2);
+	// Still reachable by name, and the views are now above the list.
+	await expect(page.getByRole('link', { name: 'Knowledge' })).toBeVisible();
+	await expect(page.getByLabel('Ticket queue').getByRole('button', { name: 'All', exact: true })).toBeVisible();
+
+	await page.reload();
+	await expect(page.getByRole('button', { name: 'Expand navigation' })).toBeVisible();
+	await page.getByRole('button', { name: 'Expand navigation' }).click();
+	await expect(side.getByRole('button', { name: 'All', exact: true })).toBeVisible();
 });
 
 test('the sign-in wordmark is not clipped on a narrow screen', async ({ browser }) => {
