@@ -208,6 +208,71 @@
         ],
         "type": "object"
       },
+      "ApiKey": {
+        "description": "An API key as it is listed: never the key itself.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "created_by_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "last_used_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "prefix": {
+            "description": "The key's first characters (slk_ and eight more), to tell keys apart.",
+            "type": "string"
+          },
+          "revoked_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopes": {
+            "description": "The permissions the key is narrowed to; absent when it may do everything its account may.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "created_at",
+          "created_by_name",
+          "expires_at",
+          "id",
+          "last_used_at",
+          "name",
+          "prefix",
+          "revoked_at"
+        ],
+        "type": "object"
+      },
       "ApiOption": {
         "description": "One value a choice offers.",
         "properties": {
@@ -3269,6 +3334,10 @@
           "role": {
             "description": "Admin, agent or end_user.",
             "type": "string"
+          },
+          "service_account": {
+            "description": "Set for an integration's account: it cannot sign in, and calls the API with API keys.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -4482,6 +4551,10 @@
               "null"
             ]
           },
+          "description": {
+            "description": "Says what a service account is for (service accounts only).",
+            "type": "string"
+          },
           "email": {
             "type": "string"
           },
@@ -4513,6 +4586,13 @@
           "name": {
             "type": "string"
           },
+          "permissions": {
+            "description": "Everything they may do, from their base role and every role they hold directly or through a group: what a service account's API keys can be narrowed to.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "role": {
             "description": "Admin, agent or end_user.",
             "type": "string"
@@ -4522,6 +4602,10 @@
               "$ref": "#/components/schemas/HeldRole"
             },
             "type": "array"
+          },
+          "service_account": {
+            "description": "Set for an integration's account: it cannot sign in, and calls the API with API keys.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -4533,6 +4617,7 @@
           "manager_id",
           "manager_name",
           "name",
+          "permissions",
           "role",
           "roles"
         ],
@@ -4759,6 +4844,11 @@
       }
     },
     "securitySchemes": {
+      "bearerAuth": {
+        "description": "An API key (slk_...) of a service account.",
+        "scheme": "bearer",
+        "type": "http"
+      },
       "cookieAuth": {
         "in": "cookie",
         "name": "sl_access",
@@ -4767,7 +4857,7 @@
     }
   },
   "info": {
-    "description": "Generated from the Go source of internal/api by `make openapi`; do not edit by hand.\n\nSign in with `POST /api/v1/auth/login`. It sets an `sl_access` cookie (a short-lived token) and an `sl_refresh` cookie; `POST /api/v1/auth/refresh` renews both. Unsafe requests from a browser must come from the same origin. Permissions are checked twice: by role in the API, and by row-level security in the database, so a record you may not see answers 404, exactly like one that does not exist.\n\nLive updates are a WebSocket at `/ws/v1/subscribe`, which is not described here: it sends hints with ids only, and clients refetch through this API.",
+    "description": "Generated from the Go source of internal/api by `make openapi`; do not edit by hand.\n\nSign in with `POST /api/v1/auth/login`. It sets an `sl_access` cookie (a short-lived token) and an `sl_refresh` cookie; `POST /api/v1/auth/refresh` renews both. Unsafe requests from a browser must come from the same origin.\n\nIntegrations use an API key instead: an admin makes a service account and a key for it (`POST /api/v1/service-accounts`, `POST /api/v1/users/{id}/api-keys`), and every request sends `Authorization: Bearer slk_...`. A key acts as its service account, narrowed to its scopes if it has any.\n\nPermissions are checked twice: by role in the API, and by row-level security in the database, so a record you may not see answers 404, exactly like one that does not exist.\n\nLive updates are a WebSocket at `/ws/v1/subscribe`, which is not described here: it sends hints with ids only, and clients refetch through this API.",
     "title": "ServiceLater API",
     "version": "v1"
   },
@@ -4862,6 +4952,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get account",
@@ -4967,6 +5060,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Patch account",
@@ -5075,6 +5171,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List my approvals",
@@ -5223,6 +5322,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Decide approval",
@@ -5324,6 +5426,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Delete attachment",
@@ -5451,6 +5556,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Complete attachment",
@@ -5576,6 +5684,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Download attachment",
@@ -5821,6 +5932,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Attachment part UR ls",
@@ -6084,6 +6198,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Me",
@@ -6245,6 +6362,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List business calendars",
@@ -6350,6 +6470,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Create business calendar",
@@ -6454,6 +6577,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Delete business calendar",
@@ -6563,6 +6689,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get business calendar",
@@ -6679,6 +6808,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Update business calendar",
@@ -6811,6 +6943,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List calendar",
@@ -6919,6 +7054,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List catalog",
@@ -7034,6 +7172,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List catalog items",
@@ -7144,6 +7285,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get catalog item def",
@@ -7262,6 +7406,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Put catalog item def",
@@ -7375,6 +7522,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Reset catalog item def",
@@ -7485,6 +7635,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get catalog item",
@@ -7602,6 +7755,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Order catalog item",
@@ -7719,6 +7875,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Catalog states",
@@ -7882,6 +8041,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List c is",
@@ -7990,6 +8152,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Create CI",
@@ -8094,6 +8259,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Delete CI",
@@ -8203,6 +8371,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get CI",
@@ -8322,6 +8493,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Update CI",
@@ -8444,6 +8618,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get CI history",
@@ -8555,6 +8732,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get CI impact",
@@ -8676,6 +8856,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Create CI relationship",
@@ -8789,6 +8972,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Delete CI relationship",
@@ -8899,6 +9085,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Export c is",
@@ -9031,6 +9220,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Import c is",
@@ -9133,6 +9325,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Export CI relationships",
@@ -9257,6 +9452,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Import CI relationships",
@@ -9307,6 +9505,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get CMDB model",
@@ -9374,6 +9575,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get form",
@@ -9491,6 +9695,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Form states",
@@ -9603,6 +9810,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List freeze windows",
@@ -9708,6 +9918,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Create freeze window",
@@ -9812,6 +10025,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Delete freeze window",
@@ -9921,6 +10137,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get freeze window",
@@ -10037,6 +10256,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Update freeze window",
@@ -10148,6 +10370,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List groups",
@@ -10265,6 +10490,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Create group",
@@ -10369,6 +10597,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Delete group",
@@ -10478,6 +10709,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get group",
@@ -10615,6 +10849,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Update group",
@@ -10737,6 +10974,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List group members",
@@ -10847,6 +11087,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Remove group member",
@@ -10958,6 +11201,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Add group member",
@@ -11110,6 +11356,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List articles",
@@ -11215,6 +11464,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Create article",
@@ -11319,6 +11571,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Delete article",
@@ -11427,6 +11682,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get article",
@@ -11542,6 +11800,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Update article",
@@ -11663,6 +11924,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Set article status",
@@ -11785,6 +12049,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List article versions",
@@ -11900,6 +12167,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get article version",
@@ -12008,6 +12278,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List article categories",
@@ -12125,6 +12398,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Suggest articles",
@@ -12182,6 +12458,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get lifecycle",
@@ -12295,6 +12574,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List my notifications",
@@ -12417,6 +12699,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Mark task notifications read",
@@ -12525,6 +12810,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Mark notification read",
@@ -12649,6 +12937,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List permissions",
@@ -12757,6 +13048,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List record types",
@@ -12865,6 +13159,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List roles",
@@ -12977,6 +13274,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get role",
@@ -13115,6 +13415,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Grant role",
@@ -13227,6 +13530,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Revoke role",
@@ -13336,11 +13642,139 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Search",
         "tags": [
           "search"
+        ]
+      }
+    },
+    "/api/v1/service-accounts": {
+      "post": {
+        "description": "With {\"name\", \"description\"?, \"role\"?}: an account for an integration. It cannot sign in; it calls the API with API keys (POST /users/{id}/api-keys). Give it roles and groups like a person; role is its base role (end_user when left out; admin needs roles:manage).\n\nRequires the `users:manage` permission.",
+        "operationId": "createServiceAccount",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "description": "Says what it is for and who looks after it.",
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Person"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Create service account",
+        "tags": [
+          "service-accounts"
+        ],
+        "x-permissions": [
+          "users:manage"
         ]
       }
     },
@@ -13433,6 +13867,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get email settings",
@@ -13541,6 +13978,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Put email settings",
@@ -13652,6 +14092,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List email deliveries",
@@ -13762,6 +14205,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Test email",
@@ -13862,6 +14308,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get history settings",
@@ -13970,6 +14419,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Put history settings",
@@ -14070,6 +14522,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get storage settings",
@@ -14178,6 +14633,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Put storage settings",
@@ -14278,6 +14736,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Test storage",
@@ -14489,6 +14950,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List tickets",
@@ -14676,6 +15140,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Create ticket",
@@ -14773,6 +15240,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Count tickets",
@@ -14897,6 +15367,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Suggest tickets",
@@ -15004,6 +15477,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get ticket",
@@ -15184,6 +15660,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Update ticket",
@@ -15313,6 +15792,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Unlink ticket article",
@@ -15440,6 +15922,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Link ticket article",
@@ -15580,6 +16065,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Create attachment",
@@ -15706,6 +16194,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Unlink ticket CI",
@@ -15833,6 +16324,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Link ticket CI",
@@ -15954,6 +16448,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List comments",
@@ -16077,6 +16574,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Create comment",
@@ -16195,6 +16695,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get ticket history",
@@ -16302,6 +16805,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get ticket impact",
@@ -16423,6 +16929,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Ticket suggestions",
@@ -16545,6 +17054,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Transition ticket",
@@ -16693,6 +17205,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List users",
@@ -16817,6 +17332,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Create user",
@@ -16937,6 +17455,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List staff",
@@ -17041,6 +17562,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Delete user",
@@ -17150,6 +17674,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get user",
@@ -17304,9 +17831,461 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Update user",
+        "tags": [
+          "users"
+        ],
+        "x-permissions": [
+          "users:manage"
+        ]
+      }
+    },
+    "/api/v1/users/{id}/api-keys": {
+      "get": {
+        "description": "A service account's keys, live ones first. The keys themselves are never shown again after they are made.\n\nRequires the `users:manage` permission.",
+        "operationId": "listAPIKeys",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/ApiKey"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List API keys",
+        "tags": [
+          "users"
+        ],
+        "x-permissions": [
+          "users:manage"
+        ]
+      },
+      "post": {
+        "description": "With {\"name\", \"expires_at\"?, \"scopes\"?}: a new key for a service account. The response's key is shown this once: send it as `Authorization: Bearer \u003ckey\u003e`. scopes narrows the key to some of the account's permissions (each must be one the account has); without it the key may do whatever the account may, now and later. Nobody can make a key that could do something they cannot do themselves.\n\nRequires the `users:manage` permission.",
+        "operationId": "createAPIKey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "expires_at": {
+                    "description": "When the key stops working; never when left out.",
+                    "format": "date-time",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "scopes": {
+                    "description": "Permission names, such as records:create:incident or records:read:*.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "created_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "created_by_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "expires_at": {
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "key": {
+                      "description": "The key itself, shown only in this response.",
+                      "type": "string"
+                    },
+                    "last_used_at": {
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "prefix": {
+                      "description": "The key's first characters (slk_ and eight more), to tell keys apart.",
+                      "type": "string"
+                    },
+                    "revoked_at": {
+                      "format": "date-time",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scopes": {
+                      "description": "The permissions the key is narrowed to; absent when it may do everything its account may.",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "created_at",
+                    "created_by_name",
+                    "expires_at",
+                    "id",
+                    "key",
+                    "last_used_at",
+                    "name",
+                    "prefix",
+                    "revoked_at"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Create API key",
+        "tags": [
+          "users"
+        ],
+        "x-permissions": [
+          "users:manage"
+        ]
+      }
+    },
+    "/api/v1/users/{id}/api-keys/{keyId}": {
+      "delete": {
+        "description": "Revoke a key. It stops working at once.\n\nRequires the `users:manage` permission.",
+        "operationId": "revokeAPIKey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "keyId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Revoke API key",
         "tags": [
           "users"
         ],
@@ -17424,6 +18403,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Set user password",
@@ -17586,6 +18568,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List runs",
@@ -17702,6 +18687,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Start run",
@@ -17813,6 +18801,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get run",
@@ -17924,6 +18915,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Cancel run",
@@ -18042,6 +19036,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "List workflows",
@@ -18161,6 +19158,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get workflow def",
@@ -18288,6 +19288,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Put workflow def",
@@ -18406,6 +19409,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Get workflow activity",
@@ -18528,6 +19534,9 @@
         "security": [
           {
             "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
           }
         ],
         "summary": "Reset workflow def",
@@ -18603,6 +19612,9 @@
     },
     {
       "name": "search"
+    },
+    {
+      "name": "service-accounts"
     },
     {
       "name": "settings"

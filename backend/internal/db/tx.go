@@ -22,11 +22,25 @@ func WithUser(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID, fn func
 		if _, err := tx.Exec(ctx, "SET LOCAL ROLE servicelater_app"); err != nil {
 			return fmt.Errorf("db: set role: %w", err)
 		}
-		if _, err := tx.Exec(ctx, "SELECT app_begin($1)", userID); err != nil {
+		var err error
+		if scopes, ok := ctx.Value(scopesKey{}).([]string); ok {
+			_, err = tx.Exec(ctx, "SELECT app_begin_key($1, $2)", userID, scopes)
+		} else {
+			_, err = tx.Exec(ctx, "SELECT app_begin($1)", userID)
+		}
+		if err != nil {
 			return fmt.Errorf("db: set user: %w", err)
 		}
 		return fn(tx)
 	})
+}
+
+type scopesKey struct{}
+
+// WithScopes narrows every WithUser transaction made with ctx to scopes (app_narrow_permissions): a request made
+// with an API key that may do only some of what its account may.
+func WithScopes(ctx context.Context, scopes []string) context.Context {
+	return context.WithValue(ctx, scopesKey{}, scopes)
 }
 
 // WithPrincipal runs fn as an app's service principal acting on behalf of a person: RLS checks the principal's

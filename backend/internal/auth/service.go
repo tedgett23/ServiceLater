@@ -30,6 +30,8 @@ const (
 var ErrEmailTaken = errors.New("a user with that email already exists")
 
 var (
+	// ErrPasswordsOff is a correct password from someone the sign-in settings send to single sign-on instead.
+	ErrPasswordsOff       = errors.New("sign in with your organisation's single sign-on: passwords are for admins only here")
 	ErrInvalidCredentials = errors.New("invalid email or password")
 	ErrInvalidSession     = errors.New("invalid or expired session")
 	ErrRateLimited        = errors.New("too many attempts, try again later")
@@ -100,6 +102,15 @@ func (s *Service) Login(ctx context.Context, email, password, clientKey string) 
 		if !CheckPassword(u.PasswordHash, password) {
 			failure = ErrInvalidCredentials
 			return nil
+		}
+		// Checked after the password, so the answer says nothing about an address to someone who does not know it.
+		if u.Role != "admin" {
+			if adminsOnly, err := PasswordsForAdminsOnly(ctx, q); err != nil {
+				return err
+			} else if adminsOnly {
+				failure = ErrPasswordsOff
+				return nil
+			}
 		}
 		if err := q.ResetRateLimit(ctx, key); err != nil {
 			return err
@@ -250,6 +261,38 @@ func (s *Service) Cleanup(ctx context.Context) error {
 		_, err := q.DeleteStaleRateLimits(ctx)
 		return err
 	})
+}
+
+// PasswordsForAdminsOnly reads the sign-in setting that sends everyone but admins to single sign-on.
+func PasswordsForAdminsOnly(ctx context.Context, q *dbgen.Queries) (bool, error) {
+	rows, err := q.GetSystemSettings(ctx, "sign_in.passwords")
+	if err != nil {
+		return false, err
+	}
+	for _, r := range rows {
+		if r.Name == "sign_in.passwords" && string(r.Value) == `"admins"` {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// SignedInBySSO starts a session for someone single sign-on has just identified (sso.Manager.Finish), as Login does
+// for a password. A deactivated account gets ErrInvalidSession.
+func (s *Service) SignedInBySSO(ctx context.Context, userID uuid.UUID) (*Session, error) {
+	var sess *Session
+	err := db.WithSystem(ctx, s.pool, func(tx pgx.Tx) error {
+		q := dbgen.New(tx)
+		u, err := q.GetSignInUser(ctx, userID)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && u.DeactivatedAt.Valid) {
+			return ErrInvalidSession
+		} else if err != nil {
+			return err
+		}
+		sess, err = s.issue(ctx, q, User{ID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role}, uuid.New())
+		return err
+	})
+	return sess, err
 }
 
 func (s *Service) issue(ctx context.Context, q *dbgen.Queries, u User, family uuid.UUID) (*Session, error) {

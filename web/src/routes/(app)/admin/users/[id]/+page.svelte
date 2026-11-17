@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
+	import ApiKeys from '$lib/components/ApiKeys.svelte';
 	import PersonPicker from '$lib/components/PersonPicker.svelte';
 	import { groups } from '$lib/groups.svelte';
 	import { can, P, roleLabel, type PersonDetail, type Role, type RoleInfo } from '$lib/types';
@@ -140,10 +141,11 @@
 	{:else if person}
 		<h1>{person.name}</h1>
 		<p class="lede">
-			{roleLabel[person.role]}{#if person.deactivated_at}<span class="off">, deactivated</span>{/if}{#if self}, you{/if}
+			{#if person.service_account}Service account, base role {roleLabel[person.role].toLowerCase()}{:else}{roleLabel[person.role]}{/if}{#if person.deactivated_at}<span class="off">, deactivated</span>{/if}{#if self}, you{/if}
 		</p>
 
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
+		{#if person.service_account && person.description}<p class="about">{person.description}</p>{/if}
 
 		<form class="block" onsubmit={save} aria-labelledby="details-h">
 			<h2 id="details-h">Details</h2>
@@ -167,6 +169,9 @@
 			<div><button class="btn primary" disabled={!dirty || !name.trim() || !email.trim() || busy}>Save</button></div>
 		</form>
 
+		{#if person.service_account}
+			<ApiKeys userId={person.id} permissions={person.permissions} disabled={!!person.deactivated_at} />
+		{:else}
 		<section class="block" aria-labelledby="manager-h">
 			<h2 id="manager-h">Manager</h2>
 			<p class="hint">Approves what {person.name} requests, when a request’s workflow asks the manager.</p>
@@ -180,6 +185,7 @@
 				onchange={(id, who) => patch({ manager_id: id }, id ? `${who} is now the manager` : 'Manager removed')}
 			/>
 		</section>
+		{/if}
 
 		<section class="block" aria-labelledby="groups-h">
 			<h2 id="groups-h">Groups</h2>
@@ -255,6 +261,7 @@
 			{/if}
 		</section>
 
+		{#if !person.service_account}
 		<form class="block" onsubmit={setPassword} aria-labelledby="password-h">
 			<h2 id="password-h">Password</h2>
 			<label class="field">
@@ -264,11 +271,25 @@
 			<p class="hint">At least 8 characters.{self ? '' : ' Setting it signs them out everywhere.'}</p>
 			<div><button class="btn" disabled={password.length < 8 || busy}>Set password</button></div>
 		</form>
+		{/if}
 
 		{#if !self}
 			<section class="block" aria-labelledby="access-h">
 				<h2 id="access-h">Access</h2>
-				{#if person.deactivated_at}
+				{#if person.service_account}
+					<p class="hint">
+						{person.deactivated_at
+							? 'Deactivated: none of its keys work.'
+							: 'Deactivating stops every one of its keys at once. Its records and history stay.'}
+					</p>
+					<div>
+						{#if person.deactivated_at}
+							<button class="btn" disabled={busy} onclick={() => patch({ deactivated: false }, 'Reactivated')}>Reactivate</button>
+						{:else}
+							<button class="btn reject" disabled={busy} onclick={() => patch({ deactivated: true }, 'Deactivated')}>Deactivate</button>
+						{/if}
+					</div>
+				{:else if person.deactivated_at}
 					<p class="hint">Deactivated: they cannot sign in, and are not offered as an assignee or asked to approve anything.</p>
 					<div><button class="btn" disabled={busy} onclick={() => patch({ deactivated: false }, 'Reactivated')}>Reactivate</button></div>
 				{:else}
@@ -326,6 +347,10 @@
 	.off {
 		color: var(--red);
 		font-weight: 600;
+	}
+	.about {
+		margin-top: 0.5rem;
+		color: var(--ink-2);
 	}
 	.block {
 		display: grid;

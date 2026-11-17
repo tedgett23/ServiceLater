@@ -18,6 +18,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/realtime"
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/secrets"
+	"github.com/servicelater/servicelater/backend/internal/sso"
 	"github.com/servicelater/servicelater/backend/internal/storage"
 )
 
@@ -37,6 +38,9 @@ type Deps struct {
 	// api server must have the same key (storage.NewSigner with the token secret); left out, links work only on this
 	// server.
 	Signer *storage.Signer
+	// SSO runs single sign-on. Every api server must share its StateKey (derive it from the token secret); left out,
+	// a sign-in must come back to the server it started on.
+	SSO *sso.Manager
 }
 
 type handlers struct {
@@ -49,6 +53,7 @@ type handlers struct {
 	sender notify.Sender
 	files  *storage.Manager
 	signer *storage.Signer
+	sso    *sso.Manager
 }
 
 // lifecycleFor is the status flow for a ticket type: the type's own, else the `task` default, else the built-in one.
@@ -77,8 +82,11 @@ func NewRouter(d Deps) http.Handler {
 	if d.Signer == nil {
 		d.Signer = storage.NewSigner(rand.Text())
 	}
+	if d.SSO == nil {
+		d.SSO = &sso.Manager{Pool: d.Pool, Keys: d.Keys, StateKey: []byte(rand.Text())}
+	}
 	h := &handlers{pool: d.Pool, perms: auth.NewPermissionCache(d.Pool), auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool},
-		keys: d.Keys, sender: d.Sender, files: d.Files, signer: d.Signer}
+		keys: d.Keys, sender: d.Sender, files: d.Files, signer: d.Signer, sso: d.SSO}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer, finishWrites)
 
@@ -91,6 +99,9 @@ func NewRouter(d Deps) http.Handler {
 
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/login", h.login)
+			r.Get("/sso", h.signInOptions)
+			r.Get("/sso/{id}/start", h.ssoStart)
+			r.Get("/sso/{id}/callback", h.ssoCallback)
 			r.Post("/refresh", h.refresh)
 			r.Post("/logout", h.logout)
 			r.With(d.Tokens.Authenticate).Get("/me", h.me)
@@ -109,8 +120,12 @@ func NewRouter(d Deps) http.Handler {
 					r.Patch("/", h.updateUser)
 					r.Delete("/", h.deleteUser)
 					r.Put("/password", h.setUserPassword)
+					r.Get("/api-keys", h.listAPIKeys)
+					r.Post("/api-keys", h.createAPIKey)
+					r.Delete("/api-keys/{keyId}", h.revokeAPIKey)
 				})
 			})
+			r.With(auth.RequirePermission(authz.UsersManage)).Post("/service-accounts", h.createServiceAccount)
 			r.Get("/permissions", h.listPermissions)
 			r.Route("/roles", func(r chi.Router) {
 				r.With(auth.RequirePermission(authz.RolesManage, authz.UsersManage, authz.GroupsManage)).Get("/", h.listRoles)
@@ -214,6 +229,14 @@ func NewRouter(d Deps) http.Handler {
 					r.Get("/versions", h.listArticleVersions)
 					r.Get("/versions/{version}", h.getArticleVersion)
 				})
+			})
+			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/sign-in", h.getSignInSettings)
+			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/sign-in", h.putSignInSettings)
+			r.Route("/sso-providers", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.SettingsManage))
+				r.Get("/", h.listSSOProviders)
+				r.Put("/{id}", h.putSSOProvider)
+				r.Delete("/{id}", h.deleteSSOProvider)
 			})
 			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/history", h.getHistorySettings)
 			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/history", h.putHistorySettings)

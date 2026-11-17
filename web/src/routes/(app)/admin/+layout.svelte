@@ -14,6 +14,7 @@
 		<a href="/admin/roles" aria-current={here('/admin/roles')}>Roles</a>
 		{#if can(data.user, P.catalogManage)}<a href="/admin/catalog" aria-current={here('/admin/catalog')}>Catalog</a>{/if}
 		{#if can(data.user, P.calendarsManage)}<a href="/admin/calendars" aria-current={here('/admin/calendars')}>Calendars</a>{/if}
+		{#if can(data.user, P.settingsManage)}<a href="/admin/sign-in" aria-current={here('/admin/sign-in')}>Sign-in</a>{/if}
 		{#if can(data.user, P.settingsManage)}<a href="/admin/email" aria-current={here('/admin/email')}>Email</a>{/if}
 		{#if can(data.user, P.settingsManage)}<a href="/admin/storage" aria-current={here('/admin/storage')}>Storage</a>{/if}
 		{#if can(data.user, P.settingsManage)}<a href="/admin/history" aria-current={here('/admin/history')}>History</a>{/if}

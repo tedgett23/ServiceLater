@@ -24,6 +24,30 @@
 	let creating = $state(false);
 	let createError = $state('');
 
+	// Adding a service account.
+	let saName = $state('');
+	let saDescription = $state('');
+	let saRole = $state<Role>('agent');
+	let saError = $state('');
+
+	async function createService(e: Event) {
+		e.preventDefault();
+		if (creating) return;
+		creating = true;
+		saError = '';
+		try {
+			const p = await api<Person>('/api/v1/service-accounts', {
+				method: 'POST',
+				body: { name: saName.trim(), description: saDescription.trim(), role: saRole }
+			});
+			await goto(`/admin/users/${p.id}`);
+		} catch (err) {
+			saError = err instanceof Error ? err.message : 'Could not add it';
+		} finally {
+			creating = false;
+		}
+	}
+
 	function query(offset: number) {
 		const p = new URLSearchParams({ limit: String(PAGE), offset: String(offset) });
 		if (search.trim()) p.set('q', search.trim());
@@ -112,7 +136,11 @@
 				<a href="/admin/users/{p.id}">
 					<span class="name">{p.name}</span>
 					<span class="role">{p.deactivated_at ? 'Deactivated' : roleLabel[p.role]}</span>
-					<span class="email">{p.email}</span>
+					{#if p.service_account}
+						<span class="email"><span class="badge">Service account</span></span>
+					{:else}
+						<span class="email">{p.email}</span>
+					{/if}
 				</a>
 			</li>
 		{/each}
@@ -151,6 +179,36 @@
 		{#if createError}<p class="error" role="alert">{createError}</p>{/if}
 		<div>
 			<button class="btn primary" disabled={!name.trim() || !email.trim() || password.length < 8 || creating}>Add user</button>
+		</div>
+	</form>
+
+	<form class="create-service" onsubmit={createService} aria-labelledby="sa-h">
+		<h2 id="sa-h">Add a service account</h2>
+		<p class="hint">
+			For an integration, such as monitoring that files incidents. It cannot sign in: it calls the API with keys you make on
+			its page. Give it the roles it needs, as you would a person.
+		</p>
+		<div class="pair">
+			<label class="field">
+				<span>Name</span>
+				<input bind:value={saName} maxlength="200" required autocomplete="off" placeholder="Monitoring" />
+			</label>
+			<label class="field">
+				<span>Base role</span>
+				<select bind:value={saRole}>
+					<option value="end_user">End user</option>
+					<option value="agent">Agent</option>
+					<option value="admin">Admin</option>
+				</select>
+			</label>
+		</div>
+		<label class="field">
+			<span>What it is for</span>
+			<input bind:value={saDescription} maxlength="500" autocomplete="off" placeholder="Files incidents from Alertmanager. Owner: Ops team." />
+		</label>
+		{#if saError}<p class="error" role="alert">{saError}</p>{/if}
+		<div>
+			<button class="btn primary" disabled={!saName.trim() || creating}>Add service account</button>
 		</div>
 	</form>
 </div>
@@ -230,7 +288,16 @@
 	.more {
 		margin-top: 0.75rem;
 	}
-	.create {
+	.badge {
+		padding: 0 0.4rem;
+		border-radius: 4px;
+		background: var(--marker-soft);
+		color: var(--marker-ink);
+		font-weight: 600;
+		font-size: 0.8125rem;
+	}
+	.create,
+	.create-service {
 		display: grid;
 		gap: 0.75rem;
 		margin-top: 2rem;

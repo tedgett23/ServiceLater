@@ -19,6 +19,9 @@ type Claims struct {
 }
 
 type Tokens struct {
+	// Keys checks API keys; nil means the API accepts only signed-in sessions.
+	Keys *APIKeys
+
 	secret []byte
 	ttl    time.Duration
 }

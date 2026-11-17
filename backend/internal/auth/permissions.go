@@ -84,6 +84,9 @@ func (c *PermissionCache) Load(next http.Handler) http.Handler {
 			return
 		}
 		p.Perms = perms
+		if p.Scopes != nil {
+			p.Perms = authz.Narrow(perms, p.Scopes)
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 	})
 }

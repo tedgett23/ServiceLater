@@ -15,6 +15,7 @@ SELECT count(*) FROM users WHERE app_name IS NULL;
 -- name: ListStaff :many
 SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id FROM users
 WHERE deactivated_at IS NULL AND app_name IS NULL
+  AND NOT EXISTS (SELECT 1 FROM service_accounts s WHERE s.user_id = users.id)
   AND (CASE WHEN sqlc.narg('record_type')::text IS NULL THEN app_user_can_record_any(id, 'update')
             ELSE app_user_can_record(id, 'update', sqlc.narg('record_type')) END)
 ORDER BY name;

@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 )
@@ -95,6 +96,9 @@ func (h *handlers) me(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal error")
 		return
 	}
+	if p.Scopes != nil { // a narrowed API key: what it may do, not all its account may
+		perms = authz.Narrow(perms, p.Scopes)
+	}
 	writeJSON(w, http.StatusOK, auth.User{ID: u.ID, Email: u.Email, Name: u.Name, Role: u.Role, Permissions: perms})
 }
 
@@ -102,6 +106,8 @@ func (h *handlers) authError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, auth.ErrInvalidCredentials), errors.Is(err, auth.ErrInvalidSession):
 		writeError(w, http.StatusUnauthorized, err.Error())
+	case errors.Is(err, auth.ErrPasswordsOff):
+		writeError(w, http.StatusForbidden, err.Error())
 	case errors.Is(err, auth.ErrRateLimited):
 		w.Header().Set("Retry-After", "900")
 		writeError(w, http.StatusTooManyRequests, err.Error())

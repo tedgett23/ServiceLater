@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { ApiError } from '$lib/api';
@@ -10,6 +11,28 @@
 	let error = $state('');
 
 	const expired = $derived(page.url.searchParams.has('expired'));
+	// Why a single sign-on attempt came back here, in the server's words.
+	const ssoError = $derived(page.url.searchParams.get('sso_error') ?? '');
+
+	// The organisation's sign-in providers, and whether passwords are for admins only (the rest use a provider).
+	let providers = $state<{ id: string; label: string }[]>([]);
+	let adminsOnly = $state(false);
+	let showPassword = $state(false);
+	const passwordForm = $derived(!adminsOnly || providers.length === 0 || showPassword);
+
+	onMount(async () => {
+		try {
+			const res = await fetch('/api/v1/auth/sso');
+			if (!res.ok) return;
+			const opts: { providers: { id: string; label: string }[]; passwords: string } = await res.json();
+			providers = opts.providers;
+			adminsOnly = opts.passwords === 'admins';
+		} catch {
+			/* the password form still works */
+		}
+	});
+
+	const startURL = (id: string) => `/api/v1/auth/sso/${id}/start?${new URLSearchParams({ next: destination() })}`;
 
 	// Only follow same-site paths, so a crafted ?next= can't bounce people to another origin.
 	function destination() {
@@ -29,6 +52,8 @@
 				error = 'Too many sign-in attempts. Wait a few minutes and try again.';
 			} else if (err instanceof ApiError && err.status === 401) {
 				error = 'That email and password don’t match. Check both and try again.';
+			} else if (err instanceof ApiError && err.status === 403) {
+				error = err.message;
 			} else {
 				error = 'Can’t reach the server. Check your connection and try again.';
 			}
@@ -48,6 +73,22 @@
 		</div>
 		<p class="lead">Sign in to your workspace</p>
 
+		{#if ssoError}<p class="error sso-error" role="alert">{ssoError}</p>{/if}
+
+		{#if providers.length}
+			<div class="providers">
+				{#each providers as p (p.id)}
+					<a class="btn" class:primary={adminsOnly} href={startURL(p.id)}>Sign in with {p.label}</a>
+				{/each}
+			</div>
+			{#if adminsOnly && !showPassword}
+				<button class="link" type="button" onclick={() => (showPassword = true)}>Admins: sign in with a password</button>
+			{:else}
+				<p class="or"><span>or</span></p>
+			{/if}
+		{/if}
+
+		{#if passwordForm}
 		<form onsubmit={submit}>
 			{#if expired && !error}
 				<p class="note" role="status">Your session ended. Sign in to pick up where you left off.</p>
@@ -68,6 +109,7 @@
 
 			<button class="btn primary" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
 		</form>
+		{/if}
 	</div>
 </main>
 
@@ -134,6 +176,46 @@
 		color: var(--red);
 		font-weight: 600;
 		font-size: 0.875rem;
+	}
+	.providers {
+		display: grid;
+		gap: 0.5rem;
+		padding-top: 1.25rem;
+	}
+	.providers .btn {
+		justify-content: center;
+		text-decoration: none;
+	}
+	.sso-error {
+		margin-top: 1rem;
+		padding: 0.6rem 0.75rem;
+		border-left: 3px solid var(--red);
+		background: var(--raised);
+	}
+	.or {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		margin-top: 1rem;
+		color: var(--ink-2);
+		font-size: 0.8125rem;
+	}
+	.or::before,
+	.or::after {
+		content: '';
+		flex: 1;
+		border-top: 1px solid var(--rule);
+	}
+	.link {
+		margin-top: 1rem;
+		padding: 0;
+		border: 0;
+		background: none;
+		color: var(--ink-2);
+		font: inherit;
+		font-size: 0.875rem;
+		text-decoration: underline;
+		cursor: pointer;
 	}
 	.note {
 		font-size: 0.875rem;

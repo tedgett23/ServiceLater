@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	cel.dev/cel-go v0.32.0
 	github.com/coder/websocket v1.8.15
+	github.com/coreos/go-oidc/v3 v3.14.1
 	github.com/emersion/go-sasl v0.0.0-20241020182733-b788ff22d5a6
 	github.com/emersion/go-smtp v0.25.0
 	github.com/go-chi/chi/v5 v5.3.2
@@ -16,6 +17,7 @@ require (
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/servicelater/servicelater/apps v0.0.0-00010101000000-000000000000
 	github.com/wneessen/go-mail v0.8.1
+	golang.org/x/oauth2 v0.30.0
 	golang.org/x/tools v0.51.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -25,6 +27,7 @@ require (
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
