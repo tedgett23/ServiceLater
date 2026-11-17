@@ -134,7 +134,10 @@ test.describe('an agent working the queue', () => {
 		await expect(row(page, a.title)).toBeVisible();
 		await page.getByLabel('Search ticket titles').blur();
 
-		await openTicket(page, b.number); // newest first, so b is above a
+		// Opened from the filtered queue, not by URL: a reload would drop the search, and a ticket another test files
+		// meanwhile could sit between a and b, so j would land on it (it did, once the suite grew).
+		await row(page, b.title).click(); // newest first, so b is above a
+		await expect(page).toHaveURL(new RegExp(`/tickets/${b.reference}$`));
 		await page.keyboard.press('j');
 		await expect(page).toHaveURL(new RegExp(`/tickets/${a.reference}$`));
 		await page.keyboard.press('k');

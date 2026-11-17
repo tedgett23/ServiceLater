@@ -2,26 +2,72 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
 	import Status from '$lib/components/Status.svelte';
+	import SuggestedRecord from '$lib/components/SuggestedRecord.svelte';
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import { session } from '$lib/session.svelte';
-	import { canRecord, type Ticket } from '$lib/types';
+	import { canRecord, type Suggestion, type Ticket } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	/**
-	 * Incidents and the problems behind them. On an incident: the problem it is linked to, and (for staff) linking it to
-	 * an open problem or raising a new one from it. On a problem: the incidents linked to it and how many are still open.
-	 * The server sends the references and titles; nothing here works them out.
+	 * Incidents and changes, and the problems they belong to. On an incident: the problem behind it, and (for staff)
+	 * linking it to an open problem or raising a new one from it. On a change: the problem it fixes. On a problem: the
+	 * incidents linked to it (how many are still open) and the changes made to fix it, with raising one. The server sends
+	 * the references and titles; nothing here works them out.
 	 */
 	let { ticket, canEdit, onchange }: { ticket: Ticket; canEdit: boolean; onchange: (t: Ticket) => void } = $props();
 
 	const isProblem = $derived(ticket.type === 'problem');
 	const incidents = $derived(ticket.incidents ?? []);
+	const changes = $derived(ticket.changes ?? []);
+	const linkable = $derived(ticket.type === 'incident' || ticket.type === 'change');
+	const mayRaiseChange = $derived(
+		isProblem && canEdit && ticket.state_category !== 'closed' && lifecycle.types.some((t) => t.type === 'change' && t.can_file)
+	);
 	// Problems are in use only while an app gives them a lifecycle; a person reads them with records:read:problem.
 	const problemsInUse = $derived(lifecycle.types.some((t) => t.type === 'problem'));
-	const mayLink = $derived(ticket.type === 'incident' && canEdit && problemsInUse && canRecord(session.user, 'read', 'problem'));
-	const mayRaise = $derived(mayLink && lifecycle.types.some((t) => t.type === 'problem' && t.can_file));
+	const mayLink = $derived(linkable && canEdit && problemsInUse && canRecord(session.user, 'read', 'problem'));
+	const mayRaise = $derived(mayLink && ticket.type === 'incident' && lifecycle.types.some((t) => t.type === 'problem' && t.can_file));
 
-	let mode = $state<'' | 'link' | 'raise'>('');
+	// Records that look related and are not linked yet: problems that may be behind an incident, or incidents a problem
+	// may explain. The server finds them (similar title, same affected item); a person decides.
+	const wantsSuggestions = $derived(
+		(ticket.type === 'incident' && !ticket.problem_id && mayLink) ||
+			(isProblem && canEdit && ticket.state_category !== 'closed' && canRecord(session.user, 'update', 'incident'))
+	);
+	let suggestions = $state<Suggestion[]>([]);
+	$effect(() => {
+		const id = ticket.id;
+		void ticket.problem_id;
+		void incidents.length;
+		if (wantsSuggestions) void loadSuggestions(id);
+		else suggestions = [];
+	});
+
+	async function loadSuggestions(id: string) {
+		try {
+			const r = await api<{ items: Suggestion[] }>(`/api/v1/tickets/${id}/suggestions`);
+			if (id === ticket.id) suggestions = r.items;
+		} catch {
+			suggestions = []; // suggestions are a help, not a step
+		}
+	}
+
+	/** Links a suggested incident to this problem, then shows the problem as it now is. */
+	async function linkIncident(s: Suggestion) {
+		busy = true;
+		error = '';
+		try {
+			await api<Ticket>(`/api/v1/tickets/${s.id}`, { method: 'PATCH', body: { problem_id: ticket.id } });
+			ui.announce = `${s.reference} linked`;
+			onchange(await api<Ticket>(`/api/v1/tickets/${ticket.id}`));
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'The link wasn’t saved';
+		} finally {
+			busy = false;
+		}
+	}
+
+	let mode = $state<'' | 'link' | 'raise' | 'change'>('');
 	let open = $state<Ticket[]>([]);
 	let chosen = $state('');
 	let title = $state('');
@@ -43,6 +89,30 @@
 		mode = 'raise';
 		error = '';
 		title = ticket.title;
+	}
+
+	function startChange() {
+		mode = 'change';
+		error = '';
+		title = `Fix: ${ticket.title}`.slice(0, 200);
+	}
+
+	async function raiseChange(e: Event) {
+		e.preventDefault();
+		busy = true;
+		error = '';
+		try {
+			const c = await api<Ticket>('/api/v1/tickets', {
+				method: 'POST',
+				body: { type: 'change', title: title.trim(), description: ticket.description, problem_id: ticket.id }
+			});
+			ui.announce = `${c.reference} raised`;
+			await goto(`/tickets/${c.reference}`);
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'The change wasn’t raised';
+		} finally {
+			busy = false;
+		}
 	}
 
 	async function link(problemId: string | null) {
@@ -83,7 +153,7 @@
 	<section class="links" aria-labelledby="incidents-h">
 		<h2 id="incidents-h">Incidents</h2>
 		{#if incidents.length === 0}
-			<p class="none">No incidents are linked yet. Link one from the incident’s page.</p>
+			<p class="none">No incidents are linked yet.</p>
 		{:else}
 			<p class="summary">
 				{ticket.open_incidents ? `${ticket.open_incidents} of ${incidents.length} still open` : `All ${incidents.length} resolved`}
@@ -98,11 +168,57 @@
 				{/each}
 			</ul>
 		{/if}
+		{#if suggestions.length}
+			<div class="suggestions" role="region" aria-label="Possibly related incidents">
+				<p class="summary">These open incidents look related:</p>
+				<ul class="plain">
+					{#each suggestions as s (s.id)}
+						<SuggestedRecord {s}>
+							{#snippet action()}<button class="btn" type="button" disabled={busy} onclick={() => linkIncident(s)}>Link</button>{/snippet}
+						</SuggestedRecord>
+					{/each}
+				</ul>
+			</div>
+		{/if}
+		{#if error && mode !== 'change'}<p class="error" role="alert">{error}</p>{/if}
 	</section>
-{:else if ticket.type === 'incident' && (ticket.problem_reference || mayLink)}
+	<section class="links" aria-labelledby="changes-h">
+		<div class="head">
+			<h2 id="changes-h">Changes</h2>
+			{#if mayRaiseChange && mode !== 'change'}<button class="btn" type="button" onclick={startChange}>Raise a change</button>{/if}
+		</div>
+		{#if changes.length === 0 && mode !== 'change'}
+			<p class="none">No changes yet. A change that fixes this problem resolves it when it finishes.</p>
+		{:else}
+			<ul class="rows">
+				{#each changes as t (t.id)}
+					<li>
+						<a href="/tickets/{t.reference}"><span class="ref">{t.reference}</span> {t.title}</a>
+						<span class="who">{t.assignee_name ?? t.assignment_group_name ?? 'Unassigned'}</span>
+						<Status status={t.status} category={t.state_category} type={t.type} />
+					</li>
+				{/each}
+			</ul>
+		{/if}
+		{#if mode === 'change'}
+			<form class="add" onsubmit={raiseChange}>
+				<label class="field grow">
+					<span>Change</span>
+					<!-- svelte-ignore a11y_autofocus -->
+					<input bind:value={title} maxlength="200" required autofocus placeholder="What will be changed" />
+				</label>
+				<div class="buttons">
+					<button class="btn primary" disabled={busy || !title.trim()}>Raise</button>
+					<button class="btn" type="button" onclick={() => (mode = '')}>Cancel</button>
+				</div>
+			</form>
+			{#if error}<p class="error" role="alert">{error}</p>{/if}
+		{/if}
+	</section>
+{:else if linkable && (ticket.problem_reference || mayLink)}
 	<section class="links" aria-labelledby="problem-h">
 		<div class="head">
-			<h2 id="problem-h">Problem</h2>
+			<h2 id="problem-h">{ticket.type === 'change' ? 'Problem it fixes' : 'Problem'}</h2>
 			{#if mayLink && !mode && !ticket.problem_id}
 				<div class="buttons">
 					<button class="btn" type="button" onclick={startLink}>Link to a problem</button>
@@ -118,7 +234,19 @@
 				</li>
 			</ul>
 		{:else if !mode}
-			<p class="none">Not linked to a problem.</p>
+			<p class="none">{ticket.type === 'change' ? 'Not made to fix a problem.' : 'Not linked to a problem.'}</p>
+			{#if suggestions.length}
+				<div class="suggestions" role="region" aria-label="Possible problems">
+					<p class="summary">It may be one of these:</p>
+					<ul class="plain">
+						{#each suggestions as s (s.id)}
+							<SuggestedRecord {s}>
+								{#snippet action()}<button class="btn" type="button" disabled={busy} onclick={() => link(s.id)}>Link</button>{/snippet}
+							</SuggestedRecord>
+						{/each}
+					</ul>
+				</div>
+			{/if}
 		{/if}
 
 		{#if mode === 'link'}
@@ -204,6 +332,18 @@
 	}
 	.ref {
 		font-weight: 700;
+	}
+	.plain {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.suggestions {
+		display: grid;
+		gap: 0.25rem;
+		padding: 0.5rem 0.75rem;
+		border-left: 3px solid var(--marker);
+		background: var(--raised);
 	}
 	.add {
 		display: flex;

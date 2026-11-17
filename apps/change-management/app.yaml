@@ -1,15 +1,18 @@
 apiVersion: 1
 name: change-management
-version: 0.7.0
+version: 0.8.0
 author: ServiceLater
 description: "Change requests with approval workflows, risk assessment and change calendar."
 ServiceLater_min_version: 0.1.0
 dependencies:
   - core-itsm: ">=0.1.0"
 # What the app itself may do when its workflows act for someone: see the items a change touches (to ask their owners),
-# move changes on after a board decides, say so, and leave an internal note when nobody could decide.
+# move changes on after a board decides, say so, and leave an internal note when nobody could decide; and tell, and
+# resolve, the problem a finished change was made to fix.
 permissions:
   - cmdb:read
   - records:read:change
   - records:update:change
   - comments:internal
+  - records:read:problem
+  - records:update:problem

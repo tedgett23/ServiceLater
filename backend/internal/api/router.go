@@ -155,10 +155,12 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/", h.listTickets)
 				r.Post("/", h.createTicket)
 				r.Get("/counts", h.countTickets)
+				r.Get("/suggest", h.suggestTickets)
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.getTicket)
 					r.Get("/comments", h.listComments)
 					r.Get("/history", h.getTicketHistory)
+					r.Get("/suggestions", h.ticketSuggestions)
 					r.Post("/comments", h.createComment)
 					r.With(auth.RequireRecordPermission(authz.Update)).Patch("/", h.updateTicket)
 					r.With(auth.RequireRecordPermission(authz.Update)).Post("/transitions", h.transitionTicket)

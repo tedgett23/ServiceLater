@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -53,7 +54,18 @@ func queueLinked(ctx context.Context, q *dbgen.Queries, t records.Ticket, l rule
 	if len(l.Comment) > records.MaxComment {
 		return jobs.Permanent(fmt.Errorf("the rule wrote a comment that is too long"))
 	}
-	ids, err := q.ListOpenProblemIncidentIDs(ctx, uuid.NullUUID{UUID: t.ID, Valid: true})
+	var ids []uuid.UUID
+	var err error
+	switch l.Linked {
+	case "incidents":
+		ids, err = q.ListOpenProblemIncidentIDs(ctx, uuid.NullUUID{UUID: t.ID, Valid: true})
+	case "changes":
+		ids, err = q.ListOpenProblemChangeIDs(ctx, uuid.NullUUID{UUID: t.ID, Valid: true})
+	case "problem":
+		if t.ProblemID != nil {
+			ids = []uuid.UUID{*t.ProblemID}
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -125,8 +137,12 @@ func changeLinked(ctx context.Context, pool *pgxpool.Pool, svc *records.Service,
 		if err != nil {
 			return err
 		}
+		still, err := stillLinked(ctx, q, p, t)
+		if err != nil {
+			return err
+		}
 		switch {
-		case t.ProblemID == nil || *t.ProblemID != p.SourceID:
+		case !still:
 			skipped = "the record is no longer linked to " + p.SourceID.String()
 			return nil
 		case t.StateCategory != "open" && t.StateCategory != "waiting":
@@ -163,6 +179,20 @@ func changeLinked(ctx context.Context, pool *pgxpool.Pool, svc *records.Service,
 		return nil
 	})
 	return skipped, err
+}
+
+// stillLinked reports whether t is still linked to the record the rule ran on, as the link says.
+func stillLinked(ctx context.Context, q *dbgen.Queries, p LinkedPayload, t records.Ticket) (bool, error) {
+	if !apps.LinkedRecords[p.Linked].Pointed {
+		return t.ProblemID != nil && *t.ProblemID == p.SourceID, nil
+	}
+	src, err := records.Load(ctx, q, p.SourceID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	return src.ProblemID != nil && *src.ProblemID == t.ID, nil
 }
 
 // fromJSON turns a value read back from a payload into what a rule gave: whole numbers as int64.

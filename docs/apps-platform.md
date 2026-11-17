@@ -526,7 +526,7 @@ now). The engine is `internal/rules`; it does no database work, so the API appli
   not allowed) is recorded as failed and not retried, and undoes the run's comments too. It updates the triggering
   record only; other records arrive with `record.create` and friends.
 - **`linked.update`** (async only) changes the open and waiting records **linked** to the triggering one: `linked`
-  names the link (`apps.LinkedRecords`; today only `incidents`, from a problem), `set` takes `set` fields (not extra
+  names the link (`apps.LinkedRecords`: `incidents` and `changes` from a problem, `problem` from a change), `set` takes `set` fields (not extra
   fields yet) checked against the linked type, `status` a status of the linked type's lifecycle, `body` a comment on
   each. Values are worked out once, against the triggering record. Each linked record is its **own job**
   (`rule.linked`, `ruleworker.LinkedHandler`): comment, update and move as one save through `Service`, as the app for
@@ -1476,6 +1476,30 @@ Linking, unlinking or a linked incident's status change notifies the problem's w
 incident and `incidents` (at most 100) for a new problem, each linked as an edit of that incident in the same
 transaction. Web: `ProblemLinks.svelte` (Problem section on incidents: link to an open problem, raise one, unlink;
 Incidents section on problems).
+
+**Changes that fix a problem** (00046, decided with the user: a change records the problem it fixes, several may):
+`changes.problem_id`, same shape, same save path and API fields; problems carry `changes` (and `linked_changes` in
+lists). When a linked change reaches a `done` state (Review), **change-management's** `resolve-fixed-problem` comments
+on the problem and moves it to Resolved through its lifecycle (only from Fix in progress with root cause and fix; a
+refusal is audited). It is in change-management on purpose: an app's rules never fire on what the same app saved, so
+in problem-management it would stop the problem's own rule from resolving the incidents.
+
+**The Problems page** (`/problems`, chosen by the user over a queue type filter): Open, Known errors (with the
+workaround) and All, title search, open incidents and changes per row, New problem (opens the New dialog on the type,
+`ui.newTicketType`). It reads `GET /tickets?type=problem` with `open_incidents`/`linked_changes` and the generic
+`fields.<name>=<value>` filter (`t.fields @>`), and takes the known-error and workaround labels from the problem form.
+
+**Suggested links** (00047, the user chose suggestions over automatic linking; a person always decides):
+`app_match_score(a, b)` is the better of the share of stemmed words the shorter title has in common and trigram word
+similarity; a shared configuration item adds 0.5; the cut-off is 0.3 (one distinctive word in three). Synonyms are not
+known ("disconnects" and "drops"). Candidates come from a word index (`tasks_title_words_idx`, `app_any_word_query`),
+the trigram index or a shared item, open and waiting only, as the caller. `GET /tickets/{id}/suggestions`: an unlinked
+incident gets open problems, a problem gets open incidents not linked to any problem; each with `why` ("Same affected
+item", "Similar title") and `fields` (the known error and workaround show where it is suggested). `GET
+/tickets/suggest?type=problem&q=` is the same for text being typed: the New ticket dialog shows known problems under the
+summary (for people who read problems; end users see knowledge articles only) and can file the incident already linked
+(`problem_id`). Web `SuggestedRecord.svelte`, regions "Possible problems", "Possibly related incidents", "Known
+problems".
 
 What the link does is app content, decided with the user: **resolving a problem resolves its open incidents with a
 note** (`rules/resolve-linked-incidents.yaml`: the fix as each resolution, a comment, the Resolve move) and marking a

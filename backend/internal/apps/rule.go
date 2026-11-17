@@ -474,15 +474,21 @@ func (a *Action) structureProblems(r *Rule, _ int) (out []string) {
 	return out
 }
 
-// Linked is a kind of record linked to another that linked.update can reach: from a record of type From, the
-// records of type Type that point at it.
+// Linked is a kind of record linked to another that linked.update can reach: from a record of type From, the records
+// of type Type that point at it, or (Pointed) the one record it points at.
 type Linked struct {
 	From, Type string
+	Pointed    bool
 }
 
 // LinkedRecords are the links linked.update follows, by the name a rule gives. Each is a typed column in core, so
-// adding one is a core change: incidents point at the problem behind them (incidents.problem_id).
-var LinkedRecords = map[string]Linked{"incidents": {From: "problem", Type: "incident"}}
+// adding one is a core change: incidents point at the problem behind them (incidents.problem_id), and a change at the
+// problem it fixes (changes.problem_id).
+var LinkedRecords = map[string]Linked{
+	"incidents": {From: "problem", Type: "incident"},
+	"changes":   {From: "problem", Type: "change"},
+	"problem":   {From: "change", Type: "problem", Pointed: true},
+}
 
 // maxLinkedSet is how many fields one linked.update may set.
 const maxLinkedSet = 10
@@ -506,7 +512,7 @@ func (a *Action) linkedProblems(r *Rule) (out []string) {
 		add("linked: %q is not a link (%s)", a.Linked, linkedList())
 		return out
 	case r.RecordType != l.From:
-		add("linked: %s are linked to %s records, so the rule must be for record_type %s", a.Linked, l.From, l.From)
+		add("linked: %s is reached from %s records, so the rule must be for record_type %s", a.Linked, l.From, l.From)
 	}
 	if a.Status != "" && !statusNameRE.MatchString(a.Status) {
 		add("status %q is not a status name", a.Status)

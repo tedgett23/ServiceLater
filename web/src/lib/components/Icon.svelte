@@ -6,6 +6,7 @@
 		catalog: 'M4 4h16v16H4z M12 8v8 M8 12h8',
 		knowledge: 'M5 4h10a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z M5 17a3 3 0 0 1 3-3h10',
 		cmdb: 'M4 5h16v6H4z M4 13h16v6H4z M8 8h.01 M8 16h.01',
+		problems: 'M12 4l9 16H3z M12 10v4 M12 17h.01',
 		workflows: 'M5 5h5v5H5z M14 14h5v5h-5z M10 7.5h6.5V14',
 		runs: 'M7 5l11 7-11 7z',
 		admin: 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z M12 3v3 M12 18v3 M3 12h3 M18 12h3 M5.6 5.6l2.1 2.1 M16.3 16.3l2.1 2.1 M5.6 18.4l2.1-2.1 M16.3 7.7l2.1-2.1',

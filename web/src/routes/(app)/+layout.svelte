@@ -34,6 +34,12 @@
 				icon: 'calendar',
 				show: canRecord(session.user, 'read', 'change') && lifecycle.types.some((t) => t.type === 'change')
 			},
+			{
+				href: '/problems',
+				label: 'Problems',
+				icon: 'problems',
+				show: canRecord(session.user, 'read', 'problem') && lifecycle.types.some((t) => t.type === 'problem')
+			},
 			{ href: '/catalog', label: 'Request something', icon: 'catalog', show: true },
 			{ href: '/kb', label: 'Knowledge', icon: 'knowledge', show: true },
 			{ href: '/cmdb', label: 'CMDB', icon: 'cmdb', show: can(session.user, P.cmdbRead) },

@@ -84,7 +84,7 @@ type Record struct {
 	CatalogItem string `cel:"catalog_item"`
 	// RequesterManagerID is the requester's manager (unset when they have none): the usual first approver.
 	RequesterManagerID *string `cel:"requester_manager_id"`
-	// ProblemID is the problem an incident is linked to (unset when it has none, and for other types).
+	// ProblemID is the problem an incident is linked to, or a change fixes (unset when it has none, and for other types).
 	ProblemID *string `cel:"problem_id"`
 	// OpenIncidents is how many incidents linked to a problem are still open or waiting.
 	OpenIncidents int64 `cel:"open_incidents"`

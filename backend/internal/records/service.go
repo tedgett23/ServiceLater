@@ -547,8 +547,8 @@ func (s *Service) Update(ctx context.Context, q *dbgen.Queries, a Actor, cause r
 			if next.ProblemID, err = problemFor(ctx, q, cur.Type, *p.ProblemID); err != nil {
 				return Ticket{}, err
 			}
-		} else if cur.Type != "incident" {
-			return Ticket{}, Invalid("only an incident is linked to a problem")
+		} else if !linksToProblem(cur.Type) {
+			return Ticket{}, Invalid(notLinkable)
 		}
 	}
 	if err := s.checkReadOnly(ctx, q, a, apps.EventUpdate, &cur, next, p.touched()); err != nil {
@@ -933,7 +933,13 @@ func writeChanges(ctx context.Context, q *dbgen.Queries, cur, final Ticket) erro
 		}
 	}
 	if !sameUUID(final.ProblemID, cur.ProblemID) {
-		if err := q.SetIncidentProblem(ctx, dbgen.SetIncidentProblemParams{TaskID: cur.ID, ProblemID: nullUUID(final.ProblemID)}); err != nil {
+		var err error
+		if cur.Type == "change" {
+			err = q.SetChangeProblem(ctx, dbgen.SetChangeProblemParams{TaskID: cur.ID, ProblemID: nullUUID(final.ProblemID)})
+		} else {
+			err = q.SetIncidentProblem(ctx, dbgen.SetIncidentProblemParams{TaskID: cur.ID, ProblemID: nullUUID(final.ProblemID)})
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -1016,11 +1022,20 @@ func withRuleFields(base, from Ticket) Ticket {
 	return base
 }
 
-// problemFor checks that a record of recordType may be linked to the problem id: only incidents are, and the problem
-// must be one the person saving can see.
+// notLinkable is why a record of another type cannot be linked to a problem.
+const notLinkable = "only an incident (caused by it) or a change (fixing it) is linked to a problem"
+
+// linksToProblem reports whether records of a type point at a problem: an incident at the problem behind it, a change
+// at the problem it fixes.
+func linksToProblem(recordType string) bool {
+	return recordType == "incident" || recordType == "change"
+}
+
+// problemFor checks that a record of recordType may be linked to the problem id: only incidents and changes are, and
+// the problem must be one the person saving can see.
 func problemFor(ctx context.Context, q *dbgen.Queries, recordType string, id uuid.UUID) (*uuid.UUID, error) {
-	if recordType != "incident" {
-		return nil, Invalid("only an incident is linked to a problem")
+	if !linksToProblem(recordType) {
+		return nil, Invalid(notLinkable)
 	}
 	p, err := q.GetTask(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && p.Type != "problem") {

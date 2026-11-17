@@ -75,8 +75,18 @@ export interface Ticket {
 	/** Single-ticket responses, problems: how many linked incidents are still open or waiting, and the incidents. */
 	open_incidents?: number;
 	incidents?: ChildTask[];
+	/** Single-ticket responses, problems: the changes made to fix it. Lists, problems: how many there are. */
+	changes?: ChildTask[];
+	linked_changes?: number;
 	/** On the response to a save that routed it to a restricted group the saver is not in: the last they see of it. */
 	routed_away?: boolean;
+}
+
+/** A record suggested as related (a problem for an incident, or the reverse), with why it looks related. */
+export interface Suggestion extends ChildTask {
+	fields: Record<string, FieldValue>;
+	/** "Same affected item" or "Similar title", as the server words it. */
+	why: string;
 }
 
 /** A record under another: one team's part of the work on a request. */

@@ -1,10 +1,11 @@
 kind: role
 name: problem-manager
 label: Problem manager
-description: "Runs problem management: sees, files and edits problems, and sees and links the incidents behind them."
+description: "Runs problem management: sees, files and edits problems, sees and links the incidents behind them, and sees the changes that fix them."
 permissions:
   - records:read:problem
   - records:create:problem
   - records:update:problem
   - records:read:incident
   - records:update:incident
+  - records:read:change

@@ -4081,6 +4081,69 @@
         ],
         "type": "object"
       },
+      "Suggestion": {
+        "description": "A record suggested as related, with why.",
+        "properties": {
+          "assignee_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "assignment_group_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fields": {
+            "additionalProperties": {},
+            "description": "Its extra fields, so a known error's workaround can be shown where it is suggested.",
+            "type": "object"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "state_category": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "why": {
+            "description": "Says what makes it look related: \"Same affected item\" or \"Similar title\".",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignee_name",
+          "assignment_group_name",
+          "fields",
+          "id",
+          "reference",
+          "state_category",
+          "status",
+          "title",
+          "type",
+          "updated_at",
+          "why"
+        ],
+        "type": "object"
+      },
       "TestEmail": {
         "description": "How a test email went: sent, or failed with what the mail server said.",
         "properties": {
@@ -4165,6 +4228,13 @@
               }
             ]
           },
+          "changes": {
+            "description": "The changes made to fix a problem that the reader may see, oldest first (single-ticket responses, problems only).",
+            "items": {
+              "$ref": "#/components/schemas/ChildTask"
+            },
+            "type": "array"
+          },
           "cis": {
             "description": "The configuration items linked to it (single-ticket responses, for those who may read the CMDB).",
             "items": {
@@ -4200,6 +4270,11 @@
               "$ref": "#/components/schemas/ChildTask"
             },
             "type": "array"
+          },
+          "linked_changes": {
+            "description": "How many changes were made to fix a problem (lists, problems only).",
+            "format": "int64",
+            "type": "integer"
           },
           "moves": {
             "description": "Says what the person may do next, and why anything is blocked.",
@@ -14216,7 +14291,7 @@
     },
     "/api/v1/tickets": {
       "get": {
-        "description": "Assignee and requester accept a user id or \"me\"; assignee also accepts \"none\". assignment_group accepts a group id, \"mine\" (any group the caller is in) or \"none\". open=true hides resolved and closed. breached=true keeps tickets with a breached SLA; sort=due lists those first, then the soonest SLA due time (newest first otherwise).",
+        "description": "Assignee and requester accept a user id or \"me\"; assignee also accepts \"none\". assignment_group accepts a group id, \"mine\" (any group the caller is in) or \"none\". open=true hides resolved and closed. breached=true keeps tickets with a breached SLA; sort=due lists those first, then the soonest SLA due time (newest first otherwise). fields.\u003cname\u003e=\u003cvalue\u003e keeps records whose extra field has that value: true and false match a yes/no field, anything else matches text or a choice exactly (fields.known_error=true lists known errors).",
         "operationId": "listTickets",
         "parameters": [
           {
@@ -14488,7 +14563,7 @@
                     ]
                   },
                   "problem_id": {
-                    "description": "Links a new incident to the problem behind it.",
+                    "description": "Links a new incident to the problem behind it, or a new change to the problem it fixes.",
                     "format": "uuid",
                     "type": [
                       "string",
@@ -14706,6 +14781,130 @@
         ]
       }
     },
+    "/api/v1/tickets/suggest": {
+      "get": {
+        "description": "Open records of a type whose titles look like q (3 to 200 characters), for a record being filed: the New ticket dialog asks for problems like the incident being typed, so a known error and its workaround show before it is filed. Only what the caller may see is suggested.",
+        "operationId": "suggestTickets",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/Suggestion"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Suggest tickets",
+        "tags": [
+          "tickets"
+        ]
+      }
+    },
     "/api/v1/tickets/{id}": {
       "get": {
         "description": "One ticket, by id, reference (INC42) or incident number, with the moves the caller may make.",
@@ -14874,7 +15073,7 @@
                     ]
                   },
                   "problem_id": {
-                    "description": "Links an incident to the problem behind it; null unlinks it.",
+                    "description": "Links an incident to the problem behind it, or a change to the problem it fixes; null unlinks it.",
                     "format": "uuid",
                     "type": [
                       "string",
@@ -16111,6 +16310,124 @@
         ],
         "x-permissions": [
           "cmdb:read"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/suggestions": {
+      "get": {
+        "description": "Records that look related to this one and are not linked to it yet. For an incident not linked to a problem, the open problems that may be behind it; for a problem, the open incidents not linked to any problem that it may explain. A record looks related when its title is alike, or it is linked to one of the same configuration items, which counts for more. Other types get none. Only what the caller may see is suggested.",
+        "operationId": "ticketSuggestions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/Suggestion"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "summary": "Ticket suggestions",
+        "tags": [
+          "tickets"
         ]
       }
     },

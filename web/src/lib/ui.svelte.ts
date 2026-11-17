@@ -11,6 +11,8 @@ function storedCollapsed() {
 /** App-wide UI state that more than one component needs. */
 export const ui = $state({
 	newTicketOpen: false,
+	/** The type the New ticket dialog opens on, when a page asks for one (New problem); empty for the usual. */
+	newTicketType: '',
 	/** The global search palette is open (Ctrl or Cmd + K). */
 	searchOpen: false,
 	announce: '',

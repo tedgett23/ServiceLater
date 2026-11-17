@@ -1,6 +1,6 @@
 apiVersion: 1
 name: problem-management
-version: 0.1.0
+version: 0.2.0
 author: ServiceLater
 description: "Problems behind incidents: root cause, workarounds and known errors, and resolving linked incidents with the fix."
 ServiceLater_min_version: 0.1.0

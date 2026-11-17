@@ -414,7 +414,7 @@ SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester
        COALESCE(c.backout_plan, '')::text AS backout_plan, COALESCE(c.test_plan, '')::text AS test_plan,
        COALESCE(rq.catalog_item, '')::text AS catalog_item, r.manager_id AS requester_manager_id, COALESCE(pt.prefix || p.number, '')::text AS parent_reference,
        (SELECT count(*) FROM tasks k WHERE k.parent_id = t.id AND k.state_category IN ('open', 'waiting')) AS open_tasks,
-       i.problem_id, COALESCE(prt.prefix || pr.number, '')::text AS problem_reference, COALESCE(pr.title, '')::text AS problem_title,
+       COALESCE(i.problem_id, c.problem_id) AS problem_id, COALESCE(prt.prefix || pr.number, '')::text AS problem_reference, COALESCE(pr.title, '')::text AS problem_title,
        (SELECT count(*) FROM incidents x JOIN tasks y ON y.id = x.task_id
          WHERE x.problem_id = t.id AND y.state_category IN ('open', 'waiting')) AS open_incidents
 FROM tasks t
@@ -427,7 +427,7 @@ LEFT JOIN changes c ON c.task_id = t.id
 LEFT JOIN requests rq ON rq.task_id = t.id
 LEFT JOIN tasks p ON p.id = t.parent_id
 LEFT JOIN task_types pt ON pt.type = p.type
-LEFT JOIN tasks pr ON pr.id = i.problem_id
+LEFT JOIN tasks pr ON pr.id = COALESCE(i.problem_id, c.problem_id)
 LEFT JOIN task_types prt ON prt.type = pr.type
 WHERE t.id = $1
 `
@@ -607,6 +607,35 @@ func (q *Queries) ListComments(ctx context.Context, taskID uuid.UUID) ([]ListCom
 	return items, nil
 }
 
+const listOpenProblemChangeIDs = `-- name: ListOpenProblemChangeIDs :many
+SELECT t.id
+FROM changes c
+JOIN tasks t ON t.id = c.task_id
+WHERE c.problem_id = $1 AND t.state_category IN ('open', 'waiting')
+ORDER BY t.number
+`
+
+// The open and waiting incidents linked to a problem, as the reader may see them: what resolving it acts on.
+func (q *Queries) ListOpenProblemChangeIDs(ctx context.Context, problemID uuid.NullUUID) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, listOpenProblemChangeIDs, problemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenProblemIncidentIDs = `-- name: ListOpenProblemIncidentIDs :many
 SELECT t.id
 FROM incidents i
@@ -615,7 +644,6 @@ WHERE i.problem_id = $1 AND t.state_category IN ('open', 'waiting')
 ORDER BY t.number
 `
 
-// The open and waiting incidents linked to a problem, as the reader may see them: what resolving it acts on.
 func (q *Queries) ListOpenProblemIncidentIDs(ctx context.Context, problemID uuid.NullUUID) ([]uuid.UUID, error) {
 	rows, err := q.db.Query(ctx, listOpenProblemIncidentIDs, problemID)
 	if err != nil {
@@ -698,6 +726,65 @@ func (q *Queries) ListPlannedWindows(ctx context.Context, arg ListPlannedWindows
 			&i.Risk,
 			&i.PlannedStart,
 			&i.PlannedEnd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listProblemChanges = `-- name: ListProblemChanges :many
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, (tt.prefix || t.number::text)::text AS reference, a.name AS assignee_name, g.name AS assignment_group_name
+FROM changes c
+JOIN tasks t ON t.id = c.task_id
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN users a ON a.id = t.assignee_id
+LEFT JOIN groups g ON g.id = t.assignment_group_id
+WHERE c.problem_id = $1
+ORDER BY t.created_at, t.number
+LIMIT 500
+`
+
+type ListProblemChangesRow struct {
+	Task                Task        `json:"task"`
+	Reference           string      `json:"reference"`
+	AssigneeName        pgtype.Text `json:"assignee_name"`
+	AssignmentGroupName pgtype.Text `json:"assignment_group_name"`
+}
+
+// The changes made to fix a problem, as the reader may see them, oldest first.
+func (q *Queries) ListProblemChanges(ctx context.Context, problemID uuid.NullUUID) ([]ListProblemChangesRow, error) {
+	rows, err := q.db.Query(ctx, listProblemChanges, problemID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListProblemChangesRow
+	for rows.Next() {
+		var i ListProblemChangesRow
+		if err := rows.Scan(
+			&i.Task.ID,
+			&i.Task.Number,
+			&i.Task.Title,
+			&i.Task.Description,
+			&i.Task.Status,
+			&i.Task.Priority,
+			&i.Task.RequesterID,
+			&i.Task.AssigneeID,
+			&i.Task.CreatedAt,
+			&i.Task.UpdatedAt,
+			&i.Task.StateCategory,
+			&i.Task.Type,
+			&i.Task.AssignmentGroupID,
+			&i.Task.Fields,
+			&i.Task.ParentID,
+			&i.Reference,
+			&i.AssigneeName,
+			&i.AssignmentGroupName,
 		); err != nil {
 			return nil, err
 		}
@@ -831,7 +918,12 @@ func (q *Queries) ListTaskTypes(ctx context.Context) ([]TaskType, error) {
 
 const listTickets = `-- name: ListTickets :many
 SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, tt.prefix AS type_prefix, (tt.prefix || t.number::text)::text AS reference, r.name AS requester_name, a.name AS assignee_name,
-       g.name AS assignment_group_name, sla.due_at::timestamptz AS sla_due_at, COALESCE(sla.breached, false)::bool AS sla_breached
+       g.name AS assignment_group_name, sla.due_at::timestamptz AS sla_due_at, COALESCE(sla.breached, false)::bool AS sla_breached,
+       -- A problem's open incidents and the changes made to fix it (the CASE keeps other rows from counting).
+       (CASE WHEN t.type = 'problem' THEN (SELECT count(*) FROM incidents x JOIN tasks y ON y.id = x.task_id
+              WHERE x.problem_id = t.id AND y.state_category IN ('open', 'waiting')) ELSE 0 END)::bigint AS open_incidents,
+       (CASE WHEN t.type = 'problem' THEN (SELECT count(*) FROM changes x JOIN tasks y ON y.id = x.task_id
+              WHERE x.problem_id = t.id) ELSE 0 END)::bigint AS linked_changes
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 JOIN users r ON r.id = t.requester_id
@@ -856,9 +948,10 @@ WHERE tt.retired_at IS NULL
        (SELECT m.group_id FROM group_members m WHERE m.user_id = app_current_user_id()))
   AND ($11::text IS NULL OR t.title ILIKE '%' || $11 || '%' ESCAPE '\')
   AND (NOT $12::bool OR sla.breached)
-ORDER BY CASE WHEN $13::bool THEN NOT COALESCE(sla.breached, false) END,
-         CASE WHEN $13::bool THEN sla.due_at END ASC NULLS LAST, t.created_at DESC, t.id DESC
-LIMIT $15 OFFSET $14
+  AND ($13::jsonb IS NULL OR t.fields @> $13::jsonb)
+ORDER BY CASE WHEN $14::bool THEN NOT COALESCE(sla.breached, false) END,
+         CASE WHEN $14::bool THEN sla.due_at END ASC NULLS LAST, t.created_at DESC, t.id DESC
+LIMIT $16 OFFSET $15
 `
 
 type ListTicketsParams struct {
@@ -874,6 +967,7 @@ type ListTicketsParams struct {
 	MyGroups          bool          `json:"my_groups"`
 	Search            pgtype.Text   `json:"search"`
 	Breached          bool          `json:"breached"`
+	Fields            []byte        `json:"fields"`
 	ByDue             bool          `json:"by_due"`
 	Offset            int32         `json:"offset"`
 	Limit             int32         `json:"limit"`
@@ -888,6 +982,8 @@ type ListTicketsRow struct {
 	AssignmentGroupName pgtype.Text        `json:"assignment_group_name"`
 	SlaDueAt            pgtype.Timestamptz `json:"sla_due_at"`
 	SlaBreached         bool               `json:"sla_breached"`
+	OpenIncidents       int64              `json:"open_incidents"`
+	LinkedChanges       int64              `json:"linked_changes"`
 }
 
 // The queue works on tasks alone, whatever their type, so it never needs the extension tables.
@@ -909,6 +1005,7 @@ func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]Lis
 		arg.MyGroups,
 		arg.Search,
 		arg.Breached,
+		arg.Fields,
 		arg.ByDue,
 		arg.Offset,
 		arg.Limit,
@@ -943,6 +1040,8 @@ func (q *Queries) ListTickets(ctx context.Context, arg ListTicketsParams) ([]Lis
 			&i.AssignmentGroupName,
 			&i.SlaDueAt,
 			&i.SlaBreached,
+			&i.OpenIncidents,
+			&i.LinkedChanges,
 		); err != nil {
 			return nil, err
 		}
@@ -996,6 +1095,20 @@ func (q *Queries) RetireAppTaskTypes(ctx context.Context, arg RetireAppTaskTypes
 	return items, nil
 }
 
+const setChangeProblem = `-- name: SetChangeProblem :exec
+UPDATE changes SET problem_id = $1 WHERE task_id = $2
+`
+
+type SetChangeProblemParams struct {
+	ProblemID uuid.NullUUID `json:"problem_id"`
+	TaskID    uuid.UUID     `json:"task_id"`
+}
+
+func (q *Queries) SetChangeProblem(ctx context.Context, arg SetChangeProblemParams) error {
+	_, err := q.db.Exec(ctx, setChangeProblem, arg.ProblemID, arg.TaskID)
+	return err
+}
+
 const setIncidentProblem = `-- name: SetIncidentProblem :exec
 UPDATE incidents SET problem_id = $1 WHERE task_id = $2
 `
@@ -1022,6 +1135,91 @@ func (q *Queries) StillSees(ctx context.Context, id uuid.UUID) (bool, error) {
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const suggestRecords = `-- name: SuggestRecords :many
+SELECT t.id, t.number, t.title, t.description, t.status, t.priority, t.requester_id, t.assignee_id, t.created_at, t.updated_at, t.state_category, t.type, t.assignment_group_id, t.fields, t.parent_id, (tt.prefix || t.number::text)::text AS reference, a.name AS assignee_name, g.name AS assignment_group_name,
+       shared.yes::bool AS shared_item,
+       (app_match_score($1::text, t.title) + CASE WHEN shared.yes THEN 0.5 ELSE 0 END)::float8 AS score
+FROM tasks t
+JOIN task_types tt ON tt.type = t.type
+LEFT JOIN users a ON a.id = t.assignee_id
+LEFT JOIN groups g ON g.id = t.assignment_group_id
+CROSS JOIN LATERAL (SELECT EXISTS (SELECT 1 FROM task_cis x WHERE x.task_id = t.id AND x.ci_id = ANY ($2::uuid[])) AS yes) shared
+WHERE t.type = $3::text AND t.state_category IN ('open', 'waiting')
+  AND t.id <> $4::uuid
+  AND (NOT $5::bool OR NOT EXISTS (SELECT 1 FROM incidents i WHERE i.task_id = t.id AND i.problem_id IS NOT NULL))
+  AND (to_tsvector('english'::regconfig, t.title) @@ app_any_word_query($1::text)
+       OR t.title % $1::text OR shared.yes)
+ORDER BY score DESC, t.number DESC
+LIMIT 20
+`
+
+type SuggestRecordsParams struct {
+	Text     string      `json:"text"`
+	Cis      []uuid.UUID `json:"cis"`
+	Type     string      `json:"type"`
+	Exclude  uuid.UUID   `json:"exclude"`
+	Unlinked bool        `json:"unlinked"`
+}
+
+type SuggestRecordsRow struct {
+	Task                Task        `json:"task"`
+	Reference           string      `json:"reference"`
+	AssigneeName        pgtype.Text `json:"assignee_name"`
+	AssignmentGroupName pgtype.Text `json:"assignment_group_name"`
+	SharedItem          bool        `json:"shared_item"`
+	Score               float64     `json:"score"`
+}
+
+// Open records of a type that look related to a text (and, optionally, to some configuration items): candidates share
+// a word, a near spelling or an item; each is scored by app_match_score plus 0.5 for a shared item. Runs as the
+// caller, so it suggests only what they may see. unlinked keeps incidents not linked to a problem yet.
+func (q *Queries) SuggestRecords(ctx context.Context, arg SuggestRecordsParams) ([]SuggestRecordsRow, error) {
+	rows, err := q.db.Query(ctx, suggestRecords,
+		arg.Text,
+		arg.Cis,
+		arg.Type,
+		arg.Exclude,
+		arg.Unlinked,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SuggestRecordsRow
+	for rows.Next() {
+		var i SuggestRecordsRow
+		if err := rows.Scan(
+			&i.Task.ID,
+			&i.Task.Number,
+			&i.Task.Title,
+			&i.Task.Description,
+			&i.Task.Status,
+			&i.Task.Priority,
+			&i.Task.RequesterID,
+			&i.Task.AssigneeID,
+			&i.Task.CreatedAt,
+			&i.Task.UpdatedAt,
+			&i.Task.StateCategory,
+			&i.Task.Type,
+			&i.Task.AssignmentGroupID,
+			&i.Task.Fields,
+			&i.Task.ParentID,
+			&i.Reference,
+			&i.AssigneeName,
+			&i.AssignmentGroupName,
+			&i.SharedItem,
+			&i.Score,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const taskAudience = `-- name: TaskAudience :one
