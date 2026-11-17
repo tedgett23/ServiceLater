@@ -30,6 +30,7 @@ This document settles how apps are structured, how their logic runs, and how we 
 | D16 | The first-party apps are **embedded in the binary** and installed and upgraded at startup. An instance keeps its own changes to them in a local directory outside the binary (§4.5). | Decided |
 | D14 | Record types **extend a shared `task` base** (class-table inheritance): common columns live in `tasks`, type-specific columns in an extension table per type. Rules, lifecycles, forms and SLAs defined on `task` apply to every type. | Decided |
 | D17 | Apps define **record types of their own** (`record_type` definitions, §9.5): a `task_types` row with its own prefix and numbering, whose fields are `fields jsonb` declared by a form. Apps still never create tables or run DDL; typed extension tables stay core-only. | Built. References are never zero-padded, for any type (decided 2026-11-17: no width to estimate, and INC42 reads better than INC0000042). |
+| D18 | **Each app is its own section in the navigation** (§9.6): an accordion at the left, one line per app the person can use, the open one showing its views; each section's queue holds only that app's record types. Custom apps' records are **private to the app's role holders** by default, not visible to every agent. | Decided 2026-11-17, not built |
 
 Open questions are in §13.
 
@@ -1449,6 +1450,96 @@ and `syncTaskTypes` in `install.go`, the registry's `types` and `retired`, migra
 for tests only is `backend/internal/apps/testdata/tyler` (Things, TYL1).
 Tests: `internal/apps/recordtype_test.go`, `internal/api/app_record_types_test.go`, `web/e2e/record-types.spec.ts`.
 
+### 9.6 App sections in the navigation (decided, not built)
+
+Decided with the user on 2026-11-17 from three mockups (accordion, icon rail with a panel, app switcher): **the
+accordion**. Not built: build it only when asked. Two things are wanted, on top of row-level security: custom apps
+must not be bundled in with the out-of-the-box ones, and each app is its own section in the navigation, as in
+ServiceNow, without that product's clutter.
+
+**The navigation.**
+
+```
+Search                      Ctrl K
++ New incident                         <- follows the section (below)
+
+My work                          7     <- everything assigned to me, across apps
+Approvals                        2
+
+APPS
+v Incidents                            <- the section you are in is open
+    Mine                         3
+    My groups                    6
+    Unassigned                   4
+    Due                          3
+    Open                        23
+    All
+> Changes                              <- includes the change calendar
+> Requests                             <- includes the catalog
+> Knowledge
+> CMDB
+> Things                               <- a custom app, only for those who hold its role
+
+PLATFORM
+  Workflows, Runs, Admin
+```
+
+- **One line per app, one level deep.** Opening a section closes the one that was open. Its views are the queue's
+  views (Mine, My groups, Unassigned, Due, Open, All) with their counts, limited to that app's record types.
+- **Only apps you can use.** A section shows only to someone who holds a permission on that app's records, so most
+  end users see nothing new.
+- **Each out-of-the-box app is its own section** (Incidents, Changes, Requests, Knowledge, CMDB), by the same rule as
+  custom apps, not one "Service Desk" section. `core-itsm` is plumbing and has none.
+- **Sections are automatic.** An app that defines a record type (or, for a core type, provides its lifecycle) gets a
+  section named by the type's plural; no menu to declare. The manifest may set a label, an order and an icon, and an
+  operator may override them in the local layer. App-declared menu entries (saved filters, links) are a later addition.
+- **"My work" stays cross-app** at the top, with Approvals: someone who works incidents and changes sees what is
+  theirs in one place. Everything else is per app.
+- **Platform tools are not apps**: Workflows, Runs and Admin sit in their own group at the bottom.
+- Collapsed to icons, the navigation shows one icon per app. If an instance grows many apps, pinning and hiding apps
+  per person is the follow-up (the rail-and-panel variant was the alternative for that case).
+
+**The New button follows the section**, and the `c` shortcut does the same:
+
+| Where | Button | Does |
+|---|---|---|
+| Incidents, Changes, a custom app | New incident, New change, New thing (the type's label) | The new-record dialog, starting on that type; the type can still be changed in it |
+| Requests | Request something | Opens the catalog |
+| Knowledge | New article | Opens the article editor |
+| CMDB | New item | Opens the new item page |
+| My work, Approvals, platform tools | New ticket | The dialog with its type choice, as today |
+
+Someone who may read a section but not create in it gets New ticket with the types they may file, or no button when
+there are none. An app with several record types starts on its first; the dialog offers the others.
+
+**Keeping custom apps apart (visibility).** Today the built-in agent role holds `records:<verb>:*`, so a custom
+app's records show to every agent the moment it is installed. Decided: **a custom app's record types are private by
+default.** The wildcard covers the out-of-the-box types; an app's own types are seen only by people granted that
+app's role (and admins). A type may opt out in its `record_type` definition when every agent should see it. This is
+the per-type layer; group-scoped visibility within a type (records limited to the teams they are routed to) is the
+second layer and a separate piece of work.
+
+**Open: how an app chooses its icon.** The user wants to think about this before it is designed. The requirements:
+apps must not all share one generic icon, and an app must not be able to ship an ugly one or a photograph shrunk to
+icon size. Nothing is decided. Options to weigh:
+
+1. *A curated set, chosen by name* (as catalog items do with `apps.CatalogIcons`): the app writes `icon: box`. Always
+   consistent, nothing loaded from an app, but an app may not find one that fits; the set would have to be large.
+2. *The app ships an SVG that the platform checks strictly*: one colour (drawn with the text colour), a fixed grid and
+   stroke, a size and complexity limit, no raster images, scripts or external references. Distinct icons in one style,
+   at the cost of a validator and of trusting authors to draw to the grid.
+3. *A generated mark*: the app's initials on a tint derived from its name (what `Avatar` does for people), with an
+   optional colour from a fixed palette. Never ugly and needs nothing from the author, but less recognisable than a
+   drawn icon.
+4. *A mix*: the curated set first, a generated mark when an app names none, and a checked SVG only for apps that need
+   their own.
+
+**Work when it is built:** the section list from the registry (apps, their types, labels, order, icon) served with
+what the caller may use; per-section queue filtering by type and per-section counts; the accordion and the New button
+in the web navigation; routes per section; the private-by-default rule in `app_can_record` and the Go checks, with a
+migration of the built-in agent's grants; tests that an agent without the app's role sees neither the section nor its
+records. Mockups: the accordion variant shown to the user on 2026-11-17.
+
 ## 10. Install, update, uninstall
 
 **Install** (`servicelater app install ./my-app` or `my-app.swapp`):
@@ -1632,6 +1723,7 @@ Each slice is shippable and leaves the product working.
 | **9. Visual builder** (done, §7.7) | The Svelte Flow builder editing the same workflow definitions, saved in the database-kept studio layer, with live highlighting of where runs are. | Slice 6 |
 
 | **10. App-defined record types** (done, §9.5) | `record_type` definitions: an app's own types with their prefix and numbering, fields in `fields jsonb`, retired (not deleted) on uninstall. | Slices 3 and 4 |
+| **11. App sections** (decided, §9.6, not built) | Each app as its own section in the navigation (accordion), a New button that follows the section, and custom apps' records private to their role holders. How an app picks its icon is still open. | Slice 10 |
 
 Later: script steps (Starlark, Lua or WASM), app-defined tables and migrations, custom UI components, signing and
 a marketplace.
