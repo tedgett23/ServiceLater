@@ -171,16 +171,16 @@
 	<header class="top">
 		<h1>Change calendar</h1>
 		<div class="controls">
-			<div class="seg" role="group" aria-label="Range">
-				<button class="btn" aria-pressed={view === 'week'} onclick={() => go({ view: 'week', date: anchor })}>Week</button>
-				<button class="btn" aria-pressed={view === 'month'} onclick={() => go({ view: 'month', date: anchor })}>Month</button>
+			<div class="segmented" role="group" aria-label="Range">
+				<button aria-pressed={view === 'week'} onclick={() => go({ view: 'week', date: anchor })}>Week</button>
+				<button aria-pressed={view === 'month'} onclick={() => go({ view: 'month', date: anchor })}>Month</button>
 			</div>
-			<div class="nav">
-				<button class="btn" onclick={() => step(-1)} aria-label="Previous {view}">
+			<div class="segmented" role="group" aria-label="Move">
+				<button onclick={() => step(-1)} aria-label="Previous {view}">
 					<svg viewBox="0 0 8 12" width="8" height="12" aria-hidden="true"><path d="M6 1 1.5 6 6 11" fill="none" stroke="currentColor" stroke-width="2" /></svg>
 				</button>
-				<button class="btn" onclick={() => go({})}>Today</button>
-				<button class="btn" onclick={() => step(1)} aria-label="Next {view}">
+				<button onclick={() => go({})}>Today</button>
+				<button onclick={() => step(1)} aria-label="Next {view}">
 					<svg viewBox="0 0 8 12" width="8" height="12" aria-hidden="true"><path d="M2 1 6.5 6 2 11" fill="none" stroke="currentColor" stroke-width="2" /></svg>
 				</button>
 			</div>
@@ -295,22 +295,12 @@
 		gap: 0.75rem;
 	}
 	h1 {
-		font: 650 1.5rem/1.3 var(--font-display);
-	}
-	.controls,
-	.nav,
-	.seg {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem;
+		font: 650 1.375rem/1.3 var(--font-display);
 	}
 	.controls {
-		gap: 0.75rem;
-	}
-	.seg .btn[aria-pressed='true'] {
-		border-color: var(--blue);
-		box-shadow: inset 0 0 0 1px var(--blue);
-		font-weight: 700;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
 	}
 	.range {
 		margin: 0.5rem 0 1rem;

@@ -16,8 +16,8 @@ test('on a phone the header fits and the ticket reads problem, then actions, the
 	expect(await y('.desc')).toBeLessThan(await y('.meta'));
 	expect(await y('.meta')).toBeLessThan(await y('.activity'));
 
-	// One pane at a time: the back link returns to the queue.
-	await page.getByRole('link', { name: 'Queue', exact: true }).click();
+	// One pane at a time: the breadcrumb's first link returns to the queue.
+	await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Tickets' }).click();
 	await expect(page).toHaveURL(/\/tickets$/);
 	await expect(page.getByLabel('Search ticket titles')).toBeVisible();
 });

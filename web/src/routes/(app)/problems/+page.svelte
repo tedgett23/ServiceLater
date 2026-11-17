@@ -111,7 +111,7 @@
 	</div>
 
 	<div class="filters" role="search">
-		<div class="seg" role="group" aria-label="Show">
+		<div class="segmented" role="group" aria-label="Show">
 			{#each shows as s (s.id)}
 				{#if s.id !== 'known' || knownField}
 					<button type="button" class:on={show === s.id} aria-pressed={show === s.id} onclick={() => choose(s.id)}>{s.label}</button>
@@ -194,30 +194,6 @@
 	}
 	.grow {
 		flex: 1 1 14rem;
-	}
-	.seg {
-		display: inline-flex;
-		border: 1px solid var(--rule);
-		border-radius: 8px;
-		background: var(--raised);
-		padding: 2px;
-		min-height: 2.5rem;
-	}
-	.seg button {
-		border: 0;
-		background: none;
-		color: var(--ink-2);
-		font: inherit;
-		font-size: 0.875rem;
-		padding: 0.35rem 0.8rem;
-		border-radius: 6px;
-		cursor: pointer;
-	}
-	.seg button.on {
-		background: var(--surface);
-		color: var(--ink);
-		font-weight: 600;
-		box-shadow: var(--shadow);
 	}
 	.items {
 		list-style: none;

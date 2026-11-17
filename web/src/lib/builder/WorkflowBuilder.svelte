@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { untrack } from 'svelte';
 	import { Background, Controls, MarkerType, Position, SvelteFlow, type Connection, type Edge, type Node, type Viewport } from '@xyflow/svelte';
 	import '@xyflow/svelte/dist/style.css';
@@ -18,13 +19,16 @@
 		def,
 		editable,
 		activity = null,
-		onsave
+		onsave,
+		tools
 	}: {
 		def: WorkflowDef;
 		editable: boolean;
 		/** Where the workflow's runs are, live; null hides it. */
 		activity?: WorkflowActivity | null;
 		onsave: (body: { record_type: string; start: string; steps: Step[]; layout: Record<string, { x: number; y: number }> }) => Promise<boolean>;
+		/** More controls for the toolbar, before Save (the page's "Show where its runs are"). */
+		tools?: Snippet;
 	} = $props();
 
 	let steps = $state<Step[]>(untrack(() => structuredClone($state.snapshot(def.steps) as Step[])));
@@ -214,15 +218,20 @@
 </script>
 
 <div class="builder">
-	{#if editable}
+	{#if editable || tools}
 		<div class="toolbar" role="toolbar" aria-label="Workflow">
-			<label class="sr-only" for="add-step">Add a step</label>
-			<select id="add-step" bind:value={adding} onchange={() => adding && add(adding)}>
-				<option value="">Add a step…</option>
-				{#each stepTypes as t (t.type)}<option value={t.type}>{t.label}</option>{/each}
-			</select>
-			<span class="hint">Drag from a dot on the right of a step to another step to connect them. Select a step or a connection and press Delete to remove it.</span>
-			<button class="btn primary" disabled={!dirty || saving} onclick={save}>{saving ? 'Saving…' : 'Save'}</button>
+			{#if editable}
+				<label class="sr-only" for="add-step">Add a step</label>
+				<select id="add-step" bind:value={adding} onchange={() => adding && add(adding)}>
+					<option value="">Add a step…</option>
+					{#each stepTypes as t (t.type)}<option value={t.type}>{t.label}</option>{/each}
+				</select>
+				<span class="hint">Drag from a step’s right-hand dot to another step to connect them. Select a step or connection and press Delete to remove it.</span>
+			{/if}
+			<div class="end">
+				{@render tools?.()}
+				{#if editable}<button class="btn primary" disabled={!dirty || saving} onclick={save}>{saving ? 'Saving…' : 'Save'}</button>{/if}
+			</div>
 		</div>
 	{/if}
 
@@ -332,25 +341,40 @@
 </div>
 
 <style>
+	/* The builder fills what the page leaves it: the toolbar, then the canvas and panel to the bottom of the window. */
 	.builder {
-		display: grid;
+		flex: 1 1 auto;
+		min-height: 30rem;
+		display: flex;
+		flex-direction: column;
 		gap: 0.75rem;
 	}
 	.toolbar {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
+		gap: 0.6rem 0.75rem;
+		padding: 0.45rem 0.5rem 0.45rem 0.45rem;
+		border: 1px solid var(--rule);
+		border-radius: var(--radius);
+		background: var(--surface);
+	}
+	.toolbar .hint {
+		flex: 1 1 16rem;
+		min-width: 0;
+	}
+	.end {
+		display: flex;
+		align-items: center;
 		gap: 0.75rem;
+		margin-left: auto;
 	}
 	.toolbar select {
-		min-height: 2.5rem;
+		min-height: 2.25rem;
 		padding: 0.4rem 0.6rem;
 		border: 1px solid var(--rule);
 		border-radius: var(--radius);
 		background: var(--raised);
-	}
-	.toolbar .btn {
-		margin-left: auto;
 	}
 	.hint {
 		color: var(--ink-2);
@@ -371,17 +395,21 @@
 		font-size: 0.9rem;
 	}
 	.work {
+		flex: 1 1 auto;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) 22rem;
+		grid-template-rows: minmax(0, 1fr);
 		gap: 1rem;
-		align-items: start;
+		min-height: 0;
 	}
 	.canvas {
-		height: min(36rem, calc(100dvh - 14rem));
 		min-height: 22rem;
 		border: 1px solid var(--rule);
 		border-radius: var(--radius);
 		background: var(--surface);
+		/* Connections that read in both themes. */
+		--xy-edge-stroke-default: color-mix(in srgb, var(--ink-2) 75%, transparent);
+		--xy-edge-stroke-width-default: 1.4;
 	}
 	.panel {
 		display: grid;
@@ -390,8 +418,9 @@
 		border: 1px solid var(--rule);
 		border-radius: var(--radius);
 		background: var(--surface);
-		max-height: min(36rem, calc(100dvh - 14rem));
+		max-height: 100%;
 		overflow-y: auto;
+		align-self: start;
 	}
 	.panel h2 {
 		font: 650 1.0625rem/1.3 var(--font-display);
@@ -442,7 +471,12 @@
 	}
 	@media (max-width: 62rem) {
 		.work {
+			flex: none;
 			grid-template-columns: minmax(0, 1fr);
+			grid-template-rows: auto;
+		}
+		.canvas {
+			height: min(32rem, calc(100dvh - 12rem));
 		}
 		.panel {
 			max-height: none;

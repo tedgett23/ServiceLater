@@ -33,6 +33,9 @@
 		newApp = apps.includes('core-itsm') ? 'core-itsm' : (apps[0] ?? '');
 	});
 
+	// An app's name, readable: change-management is "Change management".
+	const appLabel = (name: string) => (name.charAt(0).toUpperCase() + name.slice(1)).replaceAll('-', ' ').replace(/\bitsm\b/i, 'ITSM').replace(/\bcmdb\b/i, 'CMDB');
+
 	const byApp = $derived(
 		Object.entries(items.reduce<Record<string, Item[]>>((acc, i) => ((acc[i.app] ??= []).push(i), acc), {})).sort(([a], [b]) => a.localeCompare(b))
 	);
@@ -66,12 +69,16 @@
 
 	{#each byApp as [app, list] (app)}
 		<section aria-labelledby="app-{app}">
-			<h2 id="app-{app}">{app}</h2>
+			<h2 id="app-{app}">{appLabel(app)} <span class="app">{app}</span></h2>
 			<ul class="rows">
 				{#each list as w (w.name)}
 					<li>
-						<a href="/workflows/{w.app}/{w.name}"><strong>{w.name}</strong></a>
-						<span class="meta">{lifecycle.typeLabel(w.record_type)} · {w.steps} steps{#if w.edited}<span class="badge">Edited here</span>{/if}</span>
+						<!-- Workflows are named, not labelled: the name is what rules start them by. -->
+						<a href="/workflows/{w.app}/{w.name}">
+							<span class="name">{w.name}</span>
+							{#if w.edited}<span class="badge">Edited here</span>{/if}
+							<span class="meta">{lifecycle.typeLabel(w.record_type)} · {w.steps} steps</span>
+						</a>
 					</li>
 				{/each}
 			</ul>
@@ -117,8 +124,15 @@
 		font: 650 1.375rem/1.3 var(--font-display);
 	}
 	h2 {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
 		font: 650 1.0625rem/1.3 var(--font-display);
 		margin-bottom: 0.4rem;
+	}
+	h2 .app {
+		font: 500 0.75rem/1 var(--font-mono);
+		color: var(--ink-2);
 	}
 	.lede {
 		margin: 0.25rem 0 1rem;
@@ -133,16 +147,25 @@
 		padding: 0;
 	}
 	.rows li {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: 0.25rem 1rem;
-		padding: 0.55rem 0.25rem;
 		border-bottom: 1px solid var(--rule);
 	}
 	.rows a {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 0.25rem 0.75rem;
+		padding: 0.65rem 0.25rem;
 		color: var(--ink);
+		text-decoration: none;
+	}
+	.rows a:hover .name {
+		text-decoration: underline;
+	}
+	.name {
+		font: 600 0.875rem/1.3 var(--font-mono);
+	}
+	.rows .meta {
+		margin-left: auto;
 	}
 	.meta,
 	.hint,
@@ -151,13 +174,12 @@
 		font-size: 0.875rem;
 	}
 	.badge {
-		margin-left: 0.5rem;
-		padding: 0.05rem 0.4rem;
-		border-radius: var(--radius);
-		background: var(--marker);
-		color: var(--on-marker);
+		padding: 0 0.4rem;
+		border-radius: 4px;
+		background: var(--marker-soft);
+		color: var(--marker-ink);
 		font-size: 0.75rem;
-		font-weight: 700;
+		font-weight: 600;
 	}
 	.new {
 		display: grid;
