@@ -94,6 +94,21 @@ func (e *Engine) run(ctx context.Context, q *dbgen.Queries, ex dbgen.WorkflowExe
 			return out, failf("task.create needs a record to put the task under, and this execution has none")
 		}
 		return e.doTaskCreate(ctx, q, ex, st, in, *ticket, out)
+	case apps.StepScript:
+		return e.doScript(ctx, q, ex, st, in, ticket, out)
+	case apps.StepSubflow, apps.StepForeach:
+		return e.doChildren(ctx, q, ex, st, in, ticket, out)
+	case apps.StepHTTP:
+		return e.doHTTP(ctx, ex, st, in, out)
+	case apps.StepQuery:
+		return e.doQuery(ctx, q, st, in, out)
+	case apps.StepRecordCreate:
+		return e.doRecordCreate(ctx, q, ex, st, in, out)
+	case apps.StepNotify:
+		if ticket == nil {
+			return out, failf("notify needs a record to tell people about, and this run has none")
+		}
+		return e.doNotify(ctx, q, ex, st, in, *ticket, out)
 	case apps.StepEnd:
 		out.next = ""
 		return out, nil

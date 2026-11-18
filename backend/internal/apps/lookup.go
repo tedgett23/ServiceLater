@@ -33,6 +33,8 @@ type Lookup struct {
 
 	filters []lookupFilter // Where in a fixed order, with each value compiled
 	err     error          // why the lookup cannot run (only seen when a stored definition no longer validates)
+	// query is a query step's or a schedule's find, which may filter by a few more fields (QueryFields).
+	query bool
 }
 
 type lookupFilter struct {
@@ -135,6 +137,9 @@ func (ls Lookups) validate(env *expr.Env, envErr error) (out []string) {
 		before := len(out)
 		l.filters, l.err = nil, nil
 		fields, ok := lookupFields(l.Count)
+		if l.query {
+			fields, ok = QueryFields(l.Count)
+		}
 		if !ok {
 			add("%s: count %q is not something a lookup can count (available: %s)", at, l.Count, strings.Join(sortedKeys(LookupTargets), ", "))
 		}

@@ -105,8 +105,13 @@ func parseManifest(data []byte, p *Problems) *Manifest {
 		switch {
 		case seenPerm[perm]:
 			p.add(file, "permission %q is listed twice", perm)
-		case strings.HasPrefix(perm, "notify:") || strings.HasPrefix(perm, "http:"):
-			// Capabilities for steps that are not built yet (notify.email, http.request); declared now, checked then.
+		case strings.HasPrefix(perm, "http:"):
+			// A host the app's http.request steps may call: http:api.example.com, or http:*.example.com.
+			if !hostPermRE.MatchString(strings.TrimPrefix(perm, "http:")) {
+				p.add(file, "permissions: %q is not a host to allow (such as http:api.example.com or http:*.example.com)", perm)
+			}
+		case strings.HasPrefix(perm, "notify:"):
+			// A capability for a step that is not built yet; declared now, checked then.
 		default:
 			if msg := checkPermission(perm); msg != "" {
 				p.add(file, "permissions: %s", msg)

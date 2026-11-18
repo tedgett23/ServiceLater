@@ -131,6 +131,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 			worker.Register(ruleworker.LinkedKind, ruleworker.LinkedHandler(workerPool, workerApps))
 			// Workflows: the handler moves an execution one step; the timer wakes sleeping ones when they are due.
 			engine := workflowengine.New(workerPool, &records.Service{Apps: workerApps, Pool: workerPool})
+			engine.Keys, engine.AllowPrivateHTTP = keys, cfg.HTTPAllowPrivate
 			worker.Register(workflow.RunKind, engine.Handler())
 			worker.Register(slaclock.AlertKind, slatimer.Handler(workerPool, workerApps))
 			worker.Register(notify.EmailKind, (&notify.Mailer{Pool: workerPool, Apps: workerApps, Keys: keys}).Handler())
@@ -146,10 +147,11 @@ func Run(ctx context.Context, cfg config.Config) error {
 			go func() {
 				defer background.Done()
 				var timer sync.WaitGroup
-				timer.Add(3)
+				timer.Add(4)
 				go func() { defer timer.Done(); engine.RunTimer(ctx, time.Second) }()
 				go func() { defer timer.Done(); slatimer.Run(ctx, workerPool, time.Second) }()
 				go func() { defer timer.Done(); inbound.RunTimer(ctx, workerPool, cfg.MailPoll) }()
+				go func() { defer timer.Done(); engine.RunSchedules(ctx, 30*time.Second) }()
 				worker.Run(ctx)
 				timer.Wait() // both use the pool, so it closes only when both have stopped
 				workerPool.Close()

@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/servicelater/servicelater/backend/internal/expr"
+	"github.com/servicelater/servicelater/backend/internal/script"
 )
 
 // Step types of this version. More arrive with what they depend on (mail, lists).
@@ -27,7 +28,22 @@ const (
 	// StepTaskCreate files a task under the record for a team, and (unless wait: false) waits until it is done or
 	// cancelled. The result is vars.<id>_outcome: done, cancelled or timeout.
 	StepTaskCreate = "task.create"
-	StepEnd        = "end"
+	// StepScript runs a Starlark script (docs/apps-platform.md §6.7): it reads the record and other records, asks for
+	// changes and comments, and may set vars and choose one of its branches.
+	StepScript = "script"
+	// StepSubflow runs another workflow of the same app and waits for it; its variables come back.
+	StepSubflow = "subflow"
+	// StepForeach runs another workflow of the same app once per item of a list (or per record), some at a time.
+	StepForeach = "foreach"
+	// StepHTTP calls an outside API, at a host the app's manifest allows, with a secret the app declares.
+	StepHTTP = "http.request"
+	// StepQuery finds records of a type matching filters, as the run's actor: their ids for later steps.
+	StepQuery = "query"
+	// StepRecordCreate files a record of any type, through the save path.
+	StepRecordCreate = "record.create"
+	// StepNotify sends one of the app's notification templates, like a rule's notify action.
+	StepNotify = "notify"
+	StepEnd    = "end"
 
 	maxWorkflowSteps = 50
 	maxStepAssigns   = 20
@@ -45,7 +61,7 @@ const (
 
 var approvalRules = []string{RuleAny, RuleAll, RuleMajority}
 
-var stepTypes = []string{StepSet, StepCondition, StepWait, StepRecordUpdate, StepRecordTransition, StepCommentAdd, StepApproval, StepTaskCreate, StepEnd}
+var stepTypes = []string{StepSet, StepCondition, StepWait, StepRecordUpdate, StepRecordTransition, StepCommentAdd, StepApproval, StepTaskCreate, StepScript, StepSubflow, StepForeach, StepHTTP, StepQuery, StepRecordCreate, StepNotify, StepEnd}
 
 var stepIDRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,39}$`)
 
@@ -94,6 +110,51 @@ type Step struct {
 	Group       *Value `json:"group,omitempty"`
 	Wait        *bool  `json:"wait,omitempty"`
 
+	// script: the Starlark to run, and the exits it may take besides next (by name, to a step).
+	Script   string            `json:"script,omitempty"`
+	Branches map[string]string `json:"branches,omitempty"`
+
+	// subflow and foreach: the workflow (of this app) to run, and values for its variables. Record is the record a
+	// subflow's run is for (an id; this run's when left out). Items is a foreach's list (an expression); Each says
+	// whether they are records to run on ("record") or values (the default), each run getting vars.item and
+	// vars.index; Parallel how many run at once (1 to 10); KeepGoing carries on after one fails.
+	Workflow  string       `json:"workflow,omitempty"`
+	Inputs    []NamedValue `json:"inputs,omitempty"`
+	Record    *Value       `json:"record,omitempty"`
+	Items     string       `json:"items,omitempty"`
+	Each      string       `json:"each,omitempty"`
+	Parallel  int          `json:"parallel,omitempty"`
+	KeepGoing bool         `json:"keep_going,omitempty"`
+	// OnError is where subflow, foreach and http.request go when they fail; without it the run fails.
+	OnError string `json:"on_error,omitempty"`
+
+	// http.request: the method, URL, headers and body (Body), with a secret the app declares sent as Auth (bearer,
+	// basic or header, AuthHeader naming the header), and how many times to try again on a network fault or a 5xx.
+	Method     string       `json:"method,omitempty"`
+	URL        *Value       `json:"url,omitempty"`
+	Headers    []NamedValue `json:"headers,omitempty"`
+	Secret     string       `json:"secret,omitempty"`
+	Auth       string       `json:"auth,omitempty"`
+	AuthHeader string       `json:"auth_header,omitempty"`
+	Retries    int          `json:"retries,omitempty"`
+
+	// query: what to find.
+	Find *RecordQuery `json:"find,omitempty"`
+
+	// record.create: the type, its extra fields and the record it goes under (Title, Description and Group as for
+	// task.create).
+	RecordType string       `json:"record_type,omitempty"`
+	Fields     []NamedValue `json:"fields,omitempty"`
+	Parent     *Value       `json:"parent,omitempty"`
+
+	// notify: one of the app's notification templates, to people named as a rule's notify names them (assignee,
+	// requester, assignment_group, or =an expression giving user ids).
+	Template   string   `json:"template,omitempty"`
+	Recipients []string `json:"recipients,omitempty"`
+	recipients []*expr.Program
+	items      *Value
+
+	program   *script.Program
 	cond      *expr.Program
 	until     *expr.Program
 	approvers *expr.Program
@@ -111,9 +172,14 @@ type Workflow struct {
 	Steps      []Step `json:"steps"`
 	// Fields are the extra fields of the app's form the workflow reads or sets, with their types when it was installed.
 	Fields expr.FieldTypes `json:"fields,omitempty"`
+	// Schedule starts the workflow on its own, by the clock (as the app): once, or once per record a query finds.
+	Schedule *Schedule `json:"schedule,omitempty"`
 	// Layout is where each step sits in the builder's diagram. The engine ignores it; without it the diagram is laid
 	// out from the graph.
 	Layout map[string]Point `json:"layout,omitempty"`
+	// Modules are the app's script files its script steps load (name to source), as they were at install: a run in
+	// flight keeps the code it started with.
+	Modules map[string]string `json:"modules,omitempty"`
 
 	// App and Version say where the workflow came from. They are set at runtime and are not part of the definition.
 	App     string `json:"-"`
@@ -129,6 +195,7 @@ type workflowFile struct {
 	Start      string           `yaml:"start"`
 	Steps      orderedSteps     `yaml:"steps"`
 	Layout     map[string]Point `yaml:"layout"`
+	Schedule   *Schedule        `yaml:"schedule"`
 }
 
 // Point is a position in the builder's diagram.
@@ -138,27 +205,50 @@ type Point struct {
 }
 
 type stepFile struct {
-	Type      string        `yaml:"type"`
-	Next      string        `yaml:"next"`
-	Vars      orderedValues `yaml:"vars"`
-	If        string        `yaml:"if"`
-	Then      string        `yaml:"then"`
-	Else      string        `yaml:"else"`
-	For       string        `yaml:"for"`
-	Until     string        `yaml:"until"`
-	Timeout   string        `yaml:"timeout"`
-	OnTimeout string        `yaml:"on_timeout"`
-	Set       orderedValues `yaml:"set"`
-	To        string        `yaml:"to"`
-	Body      *Value        `yaml:"body"`
-	Internal  bool          `yaml:"internal"`
-	Approvers string        `yaml:"approvers"`
-	Groups    string        `yaml:"groups"`
-	Rule      string        `yaml:"rule"`
-	Title     *Value        `yaml:"title"`
-	Desc      *Value        `yaml:"description"`
-	Group     *Value        `yaml:"group"`
-	Wait      *bool         `yaml:"wait"`
+	Type       string            `yaml:"type"`
+	Next       string            `yaml:"next"`
+	Vars       orderedValues     `yaml:"vars"`
+	If         string            `yaml:"if"`
+	Then       string            `yaml:"then"`
+	Else       string            `yaml:"else"`
+	For        string            `yaml:"for"`
+	Until      string            `yaml:"until"`
+	Timeout    string            `yaml:"timeout"`
+	OnTimeout  string            `yaml:"on_timeout"`
+	Set        orderedValues     `yaml:"set"`
+	To         string            `yaml:"to"`
+	Body       *Value            `yaml:"body"`
+	Internal   bool              `yaml:"internal"`
+	Approvers  string            `yaml:"approvers"`
+	Groups     string            `yaml:"groups"`
+	Rule       string            `yaml:"rule"`
+	Title      *Value            `yaml:"title"`
+	Desc       *Value            `yaml:"description"`
+	Group      *Value            `yaml:"group"`
+	Wait       *bool             `yaml:"wait"`
+	Script     string            `yaml:"script"`
+	Branches   map[string]string `yaml:"branches"`
+	Workflow   string            `yaml:"workflow"`
+	Inputs     orderedValues     `yaml:"inputs"`
+	Record     *Value            `yaml:"record"`
+	Items      string            `yaml:"items"`
+	Each       string            `yaml:"each"`
+	Parallel   int               `yaml:"parallel"`
+	KeepGoing  bool              `yaml:"keep_going"`
+	OnError    string            `yaml:"on_error"`
+	Method     string            `yaml:"method"`
+	URL        *Value            `yaml:"url"`
+	Headers    orderedValues     `yaml:"headers"`
+	Secret     string            `yaml:"secret"`
+	Auth       string            `yaml:"auth"`
+	AuthHeader string            `yaml:"auth_header"`
+	Retries    int               `yaml:"retries"`
+	Find       *RecordQuery      `yaml:"find"`
+	RecordType string            `yaml:"record_type"`
+	Fields     orderedValues     `yaml:"fields"`
+	Parent     *Value            `yaml:"parent"`
+	Template   string            `yaml:"template"`
+	Recipients []string          `yaml:"recipients"`
 }
 
 // orderedSteps reads the steps map keeping the author's order, which is the order the viewer lists them in.
@@ -177,7 +267,11 @@ func (o *orderedSteps) UnmarshalYAML(n *yaml.Node) error {
 		}
 		*o = append(*o, Step{ID: key.Value, Type: f.Type, Next: f.Next, Vars: f.Vars, If: f.If, Then: f.Then, Else: f.Else,
 			For: f.For, Until: f.Until, Timeout: f.Timeout, OnTimeout: f.OnTimeout, Set: f.Set, To: f.To, Body: f.Body, Internal: f.Internal,
-			Approvers: f.Approvers, Groups: f.Groups, Rule: f.Rule, Title: f.Title, Description: f.Desc, Group: f.Group, Wait: f.Wait})
+			Approvers: f.Approvers, Groups: f.Groups, Rule: f.Rule, Title: f.Title, Description: f.Desc, Group: f.Group, Wait: f.Wait,
+			Script: strings.TrimRight(f.Script, "\n"), Branches: f.Branches,
+			Workflow: f.Workflow, Inputs: f.Inputs, Record: f.Record, Items: f.Items, Each: f.Each, Parallel: f.Parallel, KeepGoing: f.KeepGoing,
+			OnError: f.OnError, Method: f.Method, URL: f.URL, Headers: f.Headers, Secret: f.Secret, Auth: f.Auth, AuthHeader: f.AuthHeader,
+			Retries: f.Retries, Find: f.Find, RecordType: f.RecordType, Fields: f.Fields, Parent: f.Parent, Template: f.Template, Recipients: f.Recipients})
 	}
 	return nil
 }
@@ -207,7 +301,7 @@ func (o *orderedValues) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
-func parseWorkflow(file string, data []byte, forms formSet, p *Problems) *Workflow {
+func parseWorkflow(file string, data []byte, forms formSet, scripts map[string]string, p *Problems) *Workflow {
 	var f workflowFile
 	if err := decodeStrict(data, &f); err != nil {
 		p.add(file, "%v", err)
@@ -217,7 +311,12 @@ func parseWorkflow(file string, data []byte, forms formSet, p *Problems) *Workfl
 		p.add(file, "kind must be workflow in this folder, got %q", f.Kind)
 		return nil
 	}
-	w := &Workflow{Name: f.Name, RecordType: f.RecordType, Start: f.Start, Steps: f.Steps, Fields: forms.fieldsUsed(f.RecordType, data)}
+	w := &Workflow{Name: f.Name, RecordType: f.RecordType, Start: f.Start, Steps: f.Steps, Schedule: f.Schedule, Fields: forms.fieldsUsed(f.RecordType, data)}
+	var sources []string
+	for _, st := range w.Steps {
+		sources = append(sources, st.Script)
+	}
+	w.Modules = modulesFor(scripts, sources...)
 	// Positions of steps that no longer exist are dropped rather than refused: they only place boxes on a screen.
 	for id := range f.Layout {
 		if slices.ContainsFunc(f.Steps, func(s Step) bool { return s.ID == id }) {
@@ -245,6 +344,18 @@ func (w *Workflow) validate(file string, p *Problems) {
 			p.add(file, "step %s: %v", w.Steps[i].ID, err)
 		}
 	}
+	for _, msg := range w.scheduleProblems() {
+		p.add(file, "schedule: %s", msg)
+	}
+}
+
+// scheduleProblems compiles the workflow's schedule, if it has one.
+func (w *Workflow) scheduleProblems() []string {
+	if w.Schedule == nil {
+		return nil
+	}
+	env, envErr := expr.WorkflowFor(w.Fields)
+	return w.Schedule.compile(w, env, envErr)
 }
 
 // ParseDuration reads a duration such as 30s, 15m, 2h or 7d (days are the one unit Go does not have).
@@ -304,12 +415,25 @@ func (w *Workflow) validateStructure(file string, p *Problems) {
 // edges are the steps this step can go to next.
 func (s *Step) edges() []string {
 	var out []string
-	for _, t := range []string{s.Next, s.Then, s.Else, s.OnTimeout} {
+	for _, t := range []string{s.Next, s.Then, s.Else, s.OnTimeout, s.OnError} {
 		if t != "" {
 			out = append(out, t)
 		}
 	}
+	for _, name := range s.BranchNames() {
+		out = append(out, s.Branches[name])
+	}
 	return out
+}
+
+// BranchNames are a script step's exits besides next, in order.
+func (s *Step) BranchNames() []string {
+	names := make([]string, 0, len(s.Branches))
+	for name := range s.Branches {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }
 
 func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []string) {
@@ -334,11 +458,19 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 		all := map[string]bool{"next": s.Next != "", "vars": len(s.Vars) > 0, "if": s.If != "", "then": s.Then != "", "else": s.Else != "",
 			"for": s.For != "", "until": s.Until != "", "timeout": s.Timeout != "", "on_timeout": s.OnTimeout != "",
 			"set": len(s.Set) > 0, "to": s.To != "", "body": s.Body != nil, "internal": s.Internal, "approvers": s.Approvers != "", "groups": s.Groups != "", "rule": s.Rule != "",
-			"title": s.Title != nil, "description": s.Description != nil, "group": s.Group != nil, "wait": s.Wait != nil}
+			"title": s.Title != nil, "description": s.Description != nil, "group": s.Group != nil, "wait": s.Wait != nil,
+			"script": s.Script != "", "branches": len(s.Branches) > 0,
+			"workflow": s.Workflow != "", "inputs": len(s.Inputs) > 0, "record": s.Record != nil, "items": s.Items != "", "each": s.Each != "",
+			"parallel": s.Parallel != 0, "keep_going": s.KeepGoing, "on_error": s.OnError != "", "method": s.Method != "", "url": s.URL != nil,
+			"headers": len(s.Headers) > 0, "secret": s.Secret != "", "auth": s.Auth != "", "auth_header": s.AuthHeader != "", "retries": s.Retries != 0,
+			"find": s.Find != nil, "record_type": s.RecordType != "", "fields": len(s.Fields) > 0, "parent": s.Parent != nil,
+			"template": s.Template != "", "recipients": len(s.Recipients) > 0}
 		for _, u := range used {
 			delete(all, u)
 		}
-		for _, name := range []string{"next", "vars", "if", "then", "else", "for", "until", "timeout", "on_timeout", "set", "to", "body", "internal", "approvers", "groups", "rule", "title", "description", "group", "wait"} {
+		for _, name := range []string{"next", "vars", "if", "then", "else", "for", "until", "timeout", "on_timeout", "set", "to", "body", "internal", "approvers", "groups", "rule", "title", "description", "group", "wait", "script", "branches",
+			"workflow", "inputs", "record", "items", "each", "parallel", "keep_going", "on_error", "method", "url", "headers", "secret", "auth",
+			"auth_header", "retries", "find", "record_type", "fields", "parent", "template", "recipients"} {
 			forbid(name, all[name])
 		}
 	}
@@ -456,6 +588,20 @@ func (s *Step) structureProblems(w *Workflow, byID map[string]*Step) (out []stri
 				add("timeout must be between %s and 30d", minWait)
 			}
 		}
+	case StepScript:
+		unused("next", "script", "branches")
+		target("next", s.Next, true)
+		if strings.TrimSpace(s.Script) == "" {
+			add("script needs script: the Starlark to run")
+		}
+		for _, name := range s.BranchNames() {
+			if !varNameRE.MatchString(name) {
+				add("branches: %q is not a name (lowercase letters, digits and underscores)", name)
+			}
+			target("branches."+name, s.Branches[name], true)
+		}
+	case StepSubflow, StepForeach, StepHTTP, StepQuery, StepRecordCreate, StepNotify:
+		s.moreProblems(w, unused, target, add, forbid)
 	case StepTaskCreate:
 		unused("next", "title", "description", "group", "wait", "timeout", "on_timeout")
 		target("next", s.Next, true)
@@ -558,15 +704,22 @@ func (w *Workflow) graphProblems(file string, byID map[string]*Step, p *Problems
 // the step fails (and the execution with it) instead of being silently skipped.
 func (w *Workflow) compile() {
 	env, envErr := expr.WorkflowFor(w.Fields)
+	if w.Schedule != nil {
+		_ = w.Schedule.compile(w, env, envErr) // its problems are reported by validate
+	}
 	for i := range w.Steps {
 		s := &w.Steps[i]
-		s.cond, s.until, s.approvers, s.groups, s.compileEr = nil, nil, nil, nil, envErr
+		s.cond, s.until, s.approvers, s.groups, s.program, s.compileEr = nil, nil, nil, nil, nil, envErr
 		if envErr != nil {
 			continue
 		}
 		var problems []string
 		fail := func(what string, err error) {
-			if err != nil {
+			switch {
+			case err == nil:
+			case what == "":
+				problems = append(problems, err.Error())
+			default:
 				problems = append(problems, fmt.Sprintf("%s: %v", what, err))
 			}
 		}
@@ -574,6 +727,11 @@ func (w *Workflow) compile() {
 			var err error
 			s.cond, err = env.Compile(s.If)
 			fail("if", err)
+		}
+		if s.Script != "" {
+			var err error
+			s.program, err = script.Compile(s.Script, w.Modules)
+			fail("script", err)
 		}
 		if s.Until != "" {
 			var err error
@@ -615,7 +773,12 @@ func (w *Workflow) compile() {
 			nv.Value.compile(env, envErr, want)
 			fail("set."+nv.Name, nv.Value.err)
 		}
-		s.Body.compile(env, envErr, expr.String)
+		if s.Type == StepHTTP {
+			s.Body.compileAny(env, envErr) // a request's body may be any JSON
+		} else {
+			s.Body.compile(env, envErr, expr.String)
+		}
+		s.compileMore(env, envErr, fail)
 		if s.Body != nil {
 			fail("body", s.Body.err)
 		}
@@ -662,6 +825,9 @@ func (w *Workflow) Step(id string) *Step {
 
 // Condition returns a condition step's compiled test, or why it cannot run.
 func (s *Step) Condition() (*expr.Program, error) { return s.cond, s.compileEr }
+
+// Program is a script step's compiled script.
+func (s *Step) Program() (*script.Program, error) { return s.program, s.compileEr }
 
 // UntilCondition returns a wait step's compiled `until`, or why it cannot run.
 func (s *Step) UntilCondition() (*expr.Program, error) { return s.until, s.compileEr }

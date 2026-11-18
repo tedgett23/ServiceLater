@@ -160,7 +160,7 @@ func TestCompileRejectsBadApps(t *testing.T) {
 		{"state field typo", withLifecycle("label: New", "lable: New"), "unknown field \"lable\""},
 		{"wrong kind", withLifecycle("kind: lifecycle", "kind: rule"), "kind must be lifecycle"},
 		{"stale rename", withLifecycle("active: { label: Active,", "active: { renamed_from: done, label: Active,"), "renamed_from \"done\" is still a state"},
-		{"scripts are gone", map[string]string{"app.yaml": goodManifest, "default/scripts/x.star": "x"}, "apps contain no code"},
+		{"a script file that does not compile", map[string]string{"app.yaml": goodManifest, "default/scripts/x.star": "x"}, "x.star line 1: undefined: x"},
 		{"migrations are reserved", map[string]string{"app.yaml": goodManifest, "default/migrations/1.sql": "x"}, "migrations are reserved"},
 		{"knowledge not yet", map[string]string{"app.yaml": goodManifest, "default/knowledge/a.yaml": "kind: article"}, "knowledge articles are not supported yet"},
 		{"unknown folder", map[string]string{"app.yaml": goodManifest, "default/widgets/a.yaml": "x"}, "unknown folder"},

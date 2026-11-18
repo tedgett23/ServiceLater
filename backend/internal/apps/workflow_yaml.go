@@ -27,7 +27,9 @@ func WorkflowYAML(w *Workflow, replace bool) ([]byte, error) {
 		step := &yaml.Node{Kind: yaml.MappingNode}
 		addScalar(step, "type", s.Type)
 		for _, f := range []struct{ key, val string }{{"if", s.If}, {"for", s.For}, {"until", s.Until}, {"to", s.To},
-			{"approvers", s.Approvers}, {"groups", s.Groups}, {"rule", s.Rule}, {"timeout", s.Timeout}} {
+			{"approvers", s.Approvers}, {"groups", s.Groups}, {"rule", s.Rule}, {"workflow", s.Workflow}, {"items", s.Items}, {"each", s.Each},
+			{"method", s.Method}, {"secret", s.Secret}, {"auth", s.Auth}, {"auth_header", s.AuthHeader}, {"record_type", s.RecordType},
+			{"template", s.Template}, {"timeout", s.Timeout}} {
 			if f.val != "" {
 				addScalar(step, f.key, f.val)
 			}
@@ -35,7 +37,7 @@ func WorkflowYAML(w *Workflow, replace bool) ([]byte, error) {
 		for _, list := range []struct {
 			key  string
 			vals []NamedValue
-		}{{"vars", s.Vars}, {"set", s.Set}} {
+		}{{"vars", s.Vars}, {"set", s.Set}, {"inputs", s.Inputs}, {"headers", s.Headers}, {"fields", s.Fields}} {
 			if len(list.vals) == 0 {
 				continue
 			}
@@ -52,7 +54,7 @@ func WorkflowYAML(w *Workflow, replace bool) ([]byte, error) {
 		for _, f := range []struct {
 			key string
 			val *Value
-		}{{"title", s.Title}, {"description", s.Description}, {"group", s.Group}, {"body", s.Body}} {
+		}{{"title", s.Title}, {"description", s.Description}, {"group", s.Group}, {"body", s.Body}, {"record", s.Record}, {"url", s.URL}, {"parent", s.Parent}} {
 			if f.val == nil {
 				continue
 			}
@@ -68,12 +70,60 @@ func WorkflowYAML(w *Workflow, replace bool) ([]byte, error) {
 		if s.Internal {
 			step.Content = append(step.Content, scalar("internal"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
 		}
-		for _, f := range []struct{ key, val string }{{"next", s.Next}, {"then", s.Then}, {"else", s.Else}, {"on_timeout", s.OnTimeout}} {
+		if s.KeepGoing {
+			step.Content = append(step.Content, scalar("keep_going"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
+		}
+		for _, f := range []struct {
+			key string
+			val int
+		}{{"parallel", s.Parallel}, {"retries", s.Retries}} {
+			if f.val != 0 {
+				step.Content = append(step.Content, scalar(f.key), intNode(f.val))
+			}
+		}
+		if len(s.Recipients) > 0 {
+			step.Content = append(step.Content, scalar("recipients"), stringList(s.Recipients))
+		}
+		if s.Find != nil {
+			n, err := queryNode(s.Find)
+			if err != nil {
+				return nil, fmt.Errorf("step %s: find: %w", s.ID, err)
+			}
+			step.Content = append(step.Content, scalar("find"), n)
+		}
+		if s.Script != "" {
+			// A block, so the script reads in the file as it was written.
+			step.Content = append(step.Content, scalar("script"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Style: yaml.LiteralStyle,
+				Value: strings.TrimRight(s.Script, "\n") + "\n"})
+		}
+		for _, f := range []struct{ key, val string }{{"next", s.Next}, {"then", s.Then}, {"else", s.Else}, {"on_timeout", s.OnTimeout}, {"on_error", s.OnError}} {
 			if f.val != "" {
 				addScalar(step, f.key, f.val)
 			}
 		}
+		if len(s.Branches) > 0 {
+			b := &yaml.Node{Kind: yaml.MappingNode}
+			for _, name := range s.BranchNames() {
+				b.Content = append(b.Content, scalar(name), scalar(s.Branches[name]))
+			}
+			step.Content = append(step.Content, scalar("branches"), b)
+		}
 		steps.Content = append(steps.Content, scalar(s.ID), step)
+	}
+	if sc := w.Schedule; sc != nil {
+		n := &yaml.Node{Kind: yaml.MappingNode}
+		addScalar(n, "cron", sc.Cron)
+		if sc.Timezone != "" {
+			addScalar(n, "timezone", sc.Timezone)
+		}
+		if sc.ForEach != nil {
+			q, err := queryNode(sc.ForEach)
+			if err != nil {
+				return nil, fmt.Errorf("schedule: for_each: %w", err)
+			}
+			n.Content = append(n.Content, scalar("for_each"), q)
+		}
+		doc.Content = append(doc.Content, scalar("schedule"), n)
 	}
 	doc.Content = append(doc.Content, scalar("steps"), steps)
 	if len(w.Layout) > 0 {
@@ -157,4 +207,29 @@ func sameWorkflow(a, b []byte) bool {
 	x, ok1 := norm(a)
 	y, ok2 := norm(b)
 	return ok1 && ok2 && x == y
+}
+
+// queryNode writes a query's type, filters (in a fixed order) and limit.
+func queryNode(q *RecordQuery) (*yaml.Node, error) {
+	n := &yaml.Node{Kind: yaml.MappingNode}
+	addScalar(n, "type", q.Type)
+	if len(q.Where) > 0 {
+		where := &yaml.Node{Kind: yaml.MappingNode}
+		for _, field := range sortedKeys(q.Where) {
+			ops := &yaml.Node{Kind: yaml.MappingNode, Style: yaml.FlowStyle}
+			for _, op := range sortedKeys(q.Where[field]) {
+				v, err := valueNode(q.Where[field][op])
+				if err != nil {
+					return nil, fmt.Errorf("where.%s.%s: %w", field, op, err)
+				}
+				ops.Content = append(ops.Content, scalar(op), v)
+			}
+			where.Content = append(where.Content, scalar(field), ops)
+		}
+		n.Content = append(n.Content, scalar("where"), where)
+	}
+	if q.Limit != 0 {
+		n.Content = append(n.Content, scalar("limit"), intNode(q.Limit))
+	}
+	return n, nil
 }

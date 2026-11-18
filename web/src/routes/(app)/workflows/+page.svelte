@@ -6,10 +6,15 @@
 	import { can, P } from '$lib/types';
 
 	type Item = { app: string; name: string; version: string; record_type: string; steps: number; edited: boolean };
+	type ScriptFile = { app: string; name: string; edited: boolean; shipped: boolean; used_by: string[] };
 
 	let { data } = $props();
 	const editor = $derived(can(data.user, P.workflowsEdit));
+	const scripter = $derived(can(data.user, P.scriptsEdit));
 	let items = $state<Item[]>([]);
+	let scripts = $state<ScriptFile[]>([]);
+	let newScriptApp = $state('');
+	let newScriptName = $state('');
 	let error = $state('');
 	let loading = $state(true);
 	let apps = $state<string[]>([]);
@@ -25,12 +30,17 @@
 			const r = await api<{ items: Item[]; apps: { name: string }[] }>('/api/v1/workflows');
 			items = r.items;
 			apps = r.apps.map((a) => a.name);
+			// Script files load on their own, so choosing an app below never waits for them (nor is undone by them).
+			api<{ items: ScriptFile[] }>('/api/v1/scripts')
+				.then((x) => (scripts = x.items))
+				.catch(() => {});
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Could not load workflows';
 		} finally {
 			loading = false;
 		}
 		newApp = apps.includes('core-itsm') ? 'core-itsm' : (apps[0] ?? '');
+		newScriptApp = newApp;
 	});
 
 	// An app's name, readable: change-management is "Change management".
@@ -39,6 +49,17 @@
 	const byApp = $derived(
 		Object.entries(items.reduce<Record<string, Item[]>>((acc, i) => ((acc[i.app] ??= []).push(i), acc), {})).sort(([a], [b]) => a.localeCompare(b))
 	);
+	// Apps with script files but no workflows still get a section.
+	const sections = $derived([...new Set([...byApp.map(([a]) => a), ...scripts.map((s) => s.app)])].sort());
+	const workflowsOf = (app: string) => byApp.find(([a]) => a === app)?.[1] ?? [];
+	const scriptsOf = (app: string) => scripts.filter((s) => s.app === app);
+
+	function createScript(e: Event) {
+		e.preventDefault();
+		const name = newScriptName.trim().toLowerCase().replace(/\.star$/, '');
+		if (!name || !newScriptApp) return;
+		void goto(`/workflows/${newScriptApp}/scripts/${name}?new=1`);
+	}
 
 	// The app that looks after the chosen type (the one whose lifecycle it uses) is the natural owner: it can read
 	// those records, and its rules can start the workflow.
@@ -67,7 +88,8 @@
 
 	{#if error}<p class="error" role="alert">{error}</p>{:else if !loading && items.length === 0}<p class="msg">No workflows are installed.</p>{/if}
 
-	{#each byApp as [app, list] (app)}
+	{#each sections as app (app)}
+		{@const list = workflowsOf(app)}
 		<section aria-labelledby="app-{app}">
 			<h2 id="app-{app}">{appLabel(app)} <span class="app">{app}</span></h2>
 			<ul class="rows">
@@ -78,6 +100,15 @@
 							<span class="name">{w.name}</span>
 							{#if w.edited}<span class="badge">Edited here</span>{/if}
 							<span class="meta">{lifecycle.typeLabel(w.record_type)} · {w.steps} steps</span>
+						</a>
+					</li>
+				{/each}
+				{#each scriptsOf(app) as f (f.name)}
+					<li>
+						<a href="/workflows/{f.app}/scripts/{f.name.replace(/\.star$/, '')}">
+							<span class="name">{f.name}</span>
+							{#if f.edited}<span class="badge">{f.shipped ? 'Edited here' : 'Added here'}</span>{/if}
+							<span class="meta">Script file · {f.used_by.length ? `loaded by ${f.used_by.length}` : 'not loaded yet'}</span>
 						</a>
 					</li>
 				{/each}
@@ -109,6 +140,27 @@
 				</label>
 			</div>
 			<div><button class="btn primary" disabled={!newName.trim() || !newApp}>Create workflow</button></div>
+		</form>
+	{/if}
+
+	{#if scripter}
+		<form class="new" onsubmit={createScript} aria-labelledby="new-script-h">
+			<h2 id="new-script-h">New script file</h2>
+			<p class="hint">
+				Functions in Starlark that the app's script steps and rules load, so one piece of logic can be used in many places:
+				load("helpers.star", "cancel_open_tasks"). Only the same app's scripts can load it.
+			</p>
+			<div class="grid">
+				<label class="field">
+					<span>App</span>
+					<select bind:value={newScriptApp}>{#each apps as a (a)}<option value={a}>{a}</option>{/each}</select>
+				</label>
+				<label class="field">
+					<span>File name</span>
+					<input bind:value={newScriptName} placeholder="helpers" pattern={'[a-z][a-z0-9_]{0,40}(\\.star)?'} title="Lowercase letters, digits and underscores" required />
+				</label>
+			</div>
+			<div><button class="btn primary" disabled={!newScriptName.trim() || !newScriptApp}>Create script file</button></div>
 		</form>
 	{/if}
 </div>

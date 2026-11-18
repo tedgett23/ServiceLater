@@ -15,6 +15,7 @@ import (
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 )
@@ -29,6 +30,13 @@ type workflowDefDTO struct {
 	Steps []apps.Step `json:"steps"`
 	// Layout is where each step sits in the diagram; steps without a place are laid out from the graph.
 	Layout map[string]apps.Point `json:"layout"`
+	// Schedule starts it by the clock, if it has one.
+	Schedule *apps.Schedule `json:"schedule,omitempty"`
+	// AppWorkflows are the app's workflows (what subflow and foreach may run); AppSecrets the secrets and AppHosts
+	// the hosts its http.request steps may use.
+	AppWorkflows []string `json:"app_workflows"`
+	AppSecrets   []string `json:"app_secrets"`
+	AppHosts     []string `json:"app_hosts"`
 	// Edited says it was changed in ServiceLater (the app's studio layer); Shipped that the app itself defines it, so
 	// resetting an edited one goes back to the app's version rather than removing it.
 	Edited   bool       `json:"edited"`
@@ -55,6 +63,8 @@ type workflowSaveRequest struct {
 	Start      string                `json:"start"`
 	Steps      []apps.Step           `json:"steps"`
 	Layout     map[string]apps.Point `json:"layout"`
+	// Schedule starts it by the clock: cron, timezone and, to run once per record, for_each.
+	Schedule *apps.Schedule `json:"schedule"`
 }
 
 // problemsError is an app that does not compile with an edit: every problem, as `servicelater app validate` would say.
@@ -142,6 +152,22 @@ func (h *handlers) toWorkflowDef(ctx context.Context, c *apps.Compiled, d apps.D
 	if out.Layout == nil {
 		out.Layout = map[string]apps.Point{}
 	}
+	out.Schedule = wf.Schedule
+	out.AppWorkflows, out.AppSecrets, out.AppHosts = []string{}, []string{}, apps.HTTPHosts(c.Manifest.Permissions)
+	if out.AppHosts == nil {
+		out.AppHosts = []string{}
+	}
+	for _, x := range c.Definitions {
+		if x.Workflow != nil {
+			out.AppWorkflows = append(out.AppWorkflows, x.Workflow.Name)
+		}
+	}
+	slices.Sort(out.AppWorkflows)
+	for _, item := range c.Manifest.Config {
+		if item.Type == "secret" {
+			out.AppSecrets = append(out.AppSecrets, item.Key)
+		}
+	}
 	data, err := apps.WorkflowYAML(wf, false)
 	if err != nil {
 		return out, err
@@ -222,10 +248,16 @@ func (h *handlers) putWorkflowDef(w http.ResponseWriter, r *http.Request) {
 		writeStudioError(w, err)
 		return
 	}
-	wf := &apps.Workflow{Name: name, RecordType: req.RecordType, Start: req.Start, Steps: req.Steps, Layout: req.Layout}
+	wf := &apps.Workflow{Name: name, RecordType: req.RecordType, Start: req.Start, Steps: req.Steps, Layout: req.Layout, Schedule: req.Schedule}
 	path := "workflows/" + name + ".yaml"
+	var current *apps.Workflow
 	if d, ok := s.definition(name); ok {
-		path = d.Path
+		path, current = d.Path, d.Workflow
+	}
+	// Workflows are not scripts: a new or changed script needs scripts:edit as well.
+	if p, _ := auth.PrincipalFrom(r.Context()); scriptsChanged(current, wf) && !p.Can(authz.ScriptsEdit) {
+		writeError(w, http.StatusForbidden, "changing a script needs the scripts:edit permission as well as workflows:edit")
+		return
 	}
 	// Over a workflow the app (or a local file) defines, only what changed is kept, so the app's later changes to
 	// the rest still arrive; a new one is kept whole.
@@ -398,4 +430,20 @@ func (h *handlers) getWorkflowActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// scriptsChanged reports whether a save adds or changes the Starlark of any step (taking one out does not).
+func scriptsChanged(before, after *apps.Workflow) bool {
+	was := map[string]string{}
+	if before != nil {
+		for _, st := range before.Steps {
+			was[st.ID] = st.Script
+		}
+	}
+	for _, st := range after.Steps {
+		if st.Script != "" && strings.TrimRight(st.Script, "\n") != strings.TrimRight(was[st.ID], "\n") {
+			return true
+		}
+	}
+	return false
 }

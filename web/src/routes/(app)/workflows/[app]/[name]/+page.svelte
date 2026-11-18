@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import WorkflowBuilder from '$lib/builder/WorkflowBuilder.svelte';
-	import type { Step, WorkflowActivity, WorkflowDef } from '$lib/builder/workflow';
+	import type { Schedule, Step, WorkflowActivity, WorkflowDef } from '$lib/builder/workflow';
 	import { realtime } from '$lib/realtime.svelte';
 	import { when } from '$lib/format';
 	import { lifecycle } from '$lib/lifecycle.svelte';
@@ -12,6 +12,8 @@
 
 	let { data } = $props();
 	const editable = $derived(can(data.user, P.workflowsEdit));
+	// Workflows are not scripts: a script's Starlark needs scripts:edit as well.
+	const canScript = $derived(editable && can(data.user, P.scriptsEdit));
 	const app = $derived(page.params.app!);
 	const name = $derived(page.params.name!);
 	const path = $derived(`/api/v1/workflows/${app}/${name}`);
@@ -64,9 +66,27 @@
 			// A new workflow (from the list's form) starts as one step that ends it.
 			const type = page.url.searchParams.get('new');
 			if (e instanceof ApiError && e.status === 404 && type && editable) {
-				const list = await api<{ apps: { name: string; permissions: string[] }[] }>('/api/v1/workflows').catch(() => ({ apps: [] }));
+				const list = await api<{ items: { app: string; name: string }[]; apps: { name: string; permissions: string[] }[] }>('/api/v1/workflows').catch(() => ({
+					items: [],
+					apps: []
+				}));
 				const perms = list.apps.find((a) => a.name === app)?.permissions ?? [];
-				def = { app, name, record_type: type, start: 'done', steps: [{ id: 'done', type: 'end' }], layout: {}, edited: false, shipped: false, layers: [], yaml: '', app_permissions: perms };
+				def = {
+					app,
+					name,
+					record_type: type,
+					start: 'done',
+					steps: [{ id: 'done', type: 'end' }],
+					layout: {},
+					edited: false,
+					shipped: false,
+					layers: [],
+					yaml: '',
+					app_permissions: perms,
+					// What its steps may name, as the app is now (saving fills in the secrets).
+					app_workflows: list.items.filter((w) => w.app === app).map((w) => w.name),
+					app_hosts: perms.filter((p) => p.startsWith('http:')).map((p) => p.slice(5))
+				};
 			} else {
 				loadError = e instanceof ApiError && e.status === 404 ? 'That workflow does not exist.' : 'Could not load the workflow.';
 			}
@@ -79,7 +99,7 @@
 		void lifecycle.ensure();
 	});
 
-	async function save(body: { record_type: string; start: string; steps: Step[]; layout: Record<string, { x: number; y: number }> }) {
+	async function save(body: { record_type: string; start: string; steps: Step[]; layout: Record<string, { x: number; y: number }>; schedule: Schedule | null }) {
 		error = '';
 		try {
 			def = await api<WorkflowDef>(path, { method: 'PUT', body });
@@ -156,7 +176,7 @@
 		{#if error}<p class="error" role="alert">{error}</p>{/if}
 
 		{#key generation}
-			<WorkflowBuilder bind:this={builder} {def} {editable} activity={showActivity ? activity : null} onsave={save}>
+			<WorkflowBuilder bind:this={builder} {def} {editable} {canScript} activity={showActivity ? activity : null} onsave={save}>
 				{#snippet tools()}
 					{#if activity}
 						<label class="live-toggle"><input type="checkbox" bind:checked={showActivity} /> Show where its runs are</label>

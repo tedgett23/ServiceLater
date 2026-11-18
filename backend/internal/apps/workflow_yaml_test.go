@@ -39,7 +39,7 @@ func TestWorkflowsWriteBackAsTheyRead(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: %v", d.Name, err)
 			}
-			again := parseWorkflow(d.Path, data, forms, &p)
+			again := parseWorkflow(d.Path, data, forms, nil, &p)
 			if again == nil {
 				t.Fatalf("%s does not read back: %v\n%s", d.Name, p, data)
 			}
@@ -82,7 +82,7 @@ func TestAnEditKeepsTheAppsLaterChanges(t *testing.T) {
 	v1 := "kind: workflow\nname: greet\nrecord_type: incident\nstart: hello\nsteps:\n" +
 		"  hello: {type: comment.add, body: Hello, next: done}\n  done: {type: end}\n"
 	var p Problems
-	wf := parseWorkflow("w", []byte(v1), formSet{}, &p)
+	wf := parseWorkflow("w", []byte(v1), formSet{}, nil, &p)
 	if wf == nil {
 		t.Fatal(p)
 	}
@@ -96,7 +96,7 @@ func TestAnEditKeepsTheAppsLaterChanges(t *testing.T) {
 	if strings.Contains(string(over), "replace") || strings.Contains(string(over), "Hello") {
 		t.Fatalf("not a minimal override:\n%s", over)
 	}
-	if none, _ := WorkflowOverride([]byte(v1), parseWorkflow("w", []byte(v1), formSet{}, &p)); none != nil {
+	if none, _ := WorkflowOverride([]byte(v1), parseWorkflow("w", []byte(v1), formSet{}, nil, &p)); none != nil {
 		t.Errorf("no change is no override: %s", none)
 	}
 

@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/servicelater/servicelater/backend/internal/script"
 )
 
 // Limits protect the installer from a hostile or broken bundle.
@@ -64,6 +66,8 @@ type Definition struct {
 	SLA *SLA
 	// Form lays out and checks a record type's fields (forms/).
 	Form *Form
+	// ScriptFile is Starlark that script steps and actions load (scripts/).
+	ScriptFile *ScriptFile
 	// Class is a kind of configuration item (classes/).
 	Class *Class
 	// Relationship is a way configuration items relate (relationships/).
@@ -103,6 +107,7 @@ var definitionDirs = map[string]struct{ kind, unsupported string }{
 	"roles":         {kind: "role"},
 	"slas":          {kind: "sla"},
 	"types":         {kind: "record_type"},
+	"scripts":       {kind: "script"},
 	"ui":            {unsupported: "declarative views are not supported yet"},
 }
 
@@ -328,6 +333,10 @@ func (b *Bundle) Compile() (*Compiled, error) {
 				continue
 			}
 			used = append(used, l.name)
+			if strings.HasSuffix(rel, ".star") {
+				content, display = over, rel+" ("+strings.Join(used, " + ")+")" // code is replaced whole, never merged
+				continue
+			}
 			if content == nil {
 				content, display = over, l.display(rel)
 				if stripped, ok := withoutReplace(over); ok {
@@ -350,21 +359,32 @@ func (b *Bundle) Compile() (*Compiled, error) {
 	// Forms first, then catalog items (whose questions are request fields too): everything else reads their fields.
 	rank := func(rel string) int {
 		switch {
-		case strings.HasPrefix(rel, "forms/"):
+		case strings.HasPrefix(rel, "scripts/"):
 			return 0
-		case strings.HasPrefix(rel, "catalog/"):
+		case strings.HasPrefix(rel, "forms/"):
 			return 1
+		case strings.HasPrefix(rel, "catalog/"):
+			return 2
 		}
-		return 2
+		return 3
 	}
 	sort.SliceStable(files, func(i, j int) bool { return rank(files[i].rel) < rank(files[j].rel) })
 
 	var defs []Definition
 	seen := map[string]string{}
 	forms := formSet{}
+	scripts := map[string]string{}
 	for _, f := range files {
-		dir, _, _ := strings.Cut(f.rel, "/")
-		if d := compileDefinition(definitionDirs[dir].kind, f.display, f.content, forms, &p); d != nil {
+		dir, rest, _ := strings.Cut(f.rel, "/")
+		if dir == "scripts" {
+			if d := compileScriptFile(rest, f.display, f.content, &p); d != nil {
+				d.Layers, d.Path = f.used, f.rel
+				scripts[rest] = d.ScriptFile.Source
+				defs = append(defs, *d)
+			}
+			continue
+		}
+		if d := compileDefinition(definitionDirs[dir].kind, f.display, f.content, forms, scripts, &p); d != nil {
 			d.Layers, d.Path = f.used, f.rel
 			key := d.Kind + "/" + d.Name
 			if other, dup := seen[key]; dup {
@@ -381,6 +401,8 @@ func (b *Bundle) Compile() (*Compiled, error) {
 		}
 	}
 	checkWorkflowStarts(defs, &p)
+	checkWorkflowCalls(defs, &p)
+	checkHTTPSteps(m, defs, &p)
 	checkNotifyTemplates(defs, &p)
 	checkTransitionTargets(defs, &p)
 	checkClasses(defs, &p)
@@ -408,8 +430,12 @@ func checkDefinitionFile(display, rel string, p *Problems) bool {
 		p.add(display, "migrations are reserved and not supported in this version: apps are data only")
 		return false
 	case "scripts":
-		p.add(display, "scripts are not supported: apps contain no code, use rules and workflows instead")
-		return false
+		// Starlark that script steps and actions load (docs/apps-platform.md §6.7): .star files, one folder deep.
+		if !script.ValidFileName(rest) {
+			p.add(display, "a script file is scripts/<name>.star: lowercase letters, digits and underscores")
+			return false
+		}
+		return true
 	}
 	info, known := definitionDirs[dir]
 	switch {
@@ -427,7 +453,7 @@ func checkDefinitionFile(display, rel string, p *Problems) bool {
 
 // compileDefinition parses and checks one definition. forms are the app's forms compiled so far (all of them, by the
 // time anything but a form is compiled).
-func compileDefinition(kind, file string, data []byte, forms formSet, p *Problems) *Definition {
+func compileDefinition(kind, file string, data []byte, forms formSet, scripts map[string]string, p *Problems) *Definition {
 	switch kind {
 	case "form":
 		f := parseForm(file, data, p)
@@ -454,7 +480,7 @@ func compileDefinition(kind, file string, data []byte, forms formSet, p *Problem
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: lc.RecordType, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Lifecycle: lc}
 	case "rule":
-		r := parseRule(file, data, forms, p)
+		r := parseRule(file, data, forms, scripts, p)
 		if r == nil {
 			return nil
 		}
@@ -462,7 +488,7 @@ func compileDefinition(kind, file string, data []byte, forms formSet, p *Problem
 		sum := sha256.Sum256(body)
 		return &Definition{Kind: kind, Name: r.Name, File: file, Body: body, Checksum: hex.EncodeToString(sum[:]), Rule: r}
 	case "workflow":
-		w := parseWorkflow(file, data, forms, p)
+		w := parseWorkflow(file, data, forms, scripts, p)
 		if w == nil {
 			return nil
 		}
@@ -591,4 +617,38 @@ func Pack(p string) (name string, archive []byte, err error) {
 		return "", nil, err
 	}
 	return fmt.Sprintf("%s-%s.swapp", c.Manifest.Name, c.Manifest.Version), buf.Bytes(), nil
+}
+
+// ScriptFile is an app's Starlark file (scripts/<name>.star): functions its script steps and actions load
+// (docs/apps-platform.md §6.7). Only the app's own scripts can load it.
+type ScriptFile struct {
+	Name   string `json:"name"`
+	Source string `json:"source"`
+}
+
+// compileScriptFile checks a script file on its own; what loads it is checked with it when that compiles.
+func compileScriptFile(name, display string, data []byte, p *Problems) *Definition {
+	if err := script.CheckFile(name, string(data)); err != nil {
+		p.add(display, "%v", err)
+		return nil
+	}
+	f := &ScriptFile{Name: name, Source: string(data)}
+	body, _ := json.Marshal(f)
+	sum := sha256.Sum256(body)
+	return &Definition{Kind: "script", Name: name, File: display, Body: body, Checksum: hex.EncodeToString(sum[:]), ScriptFile: f}
+}
+
+// modulesFor is the app's script files that scripts load, directly or through others (name to source): what a
+// definition keeps with it, so it compiles and runs the same way whatever the files become.
+func modulesFor(files map[string]string, sources ...string) map[string]string {
+	var out map[string]string
+	for _, src := range sources {
+		for _, name := range script.Files(src, files) {
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[name] = files[name]
+		}
+	}
+	return out
 }

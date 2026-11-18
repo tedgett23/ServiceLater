@@ -433,6 +433,12 @@
           "approvers": {
             "type": "string"
           },
+          "auth": {
+            "type": "string"
+          },
+          "auth_header": {
+            "type": "string"
+          },
           "body": {
             "anyOf": [
               {
@@ -442,6 +448,12 @@
                 "type": "null"
               }
             ]
+          },
+          "branches": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "description": {
             "anyOf": [
@@ -453,8 +465,27 @@
               }
             ]
           },
+          "each": {
+            "type": "string"
+          },
           "else": {
             "type": "string"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/NamedValue"
+            },
+            "type": "array"
+          },
+          "find": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordQuery"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "for": {
             "type": "string"
@@ -472,22 +503,89 @@
           "groups": {
             "type": "string"
           },
+          "headers": {
+            "items": {
+              "$ref": "#/components/schemas/NamedValue"
+            },
+            "type": "array"
+          },
           "id": {
             "type": "string"
           },
           "if": {
             "type": "string"
           },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/NamedValue"
+            },
+            "type": "array"
+          },
           "internal": {
             "type": "boolean"
           },
+          "items": {
+            "type": "string"
+          },
+          "keep_going": {
+            "type": "boolean"
+          },
+          "method": {
+            "type": "string"
+          },
           "next": {
+            "type": "string"
+          },
+          "on_error": {
             "type": "string"
           },
           "on_timeout": {
             "type": "string"
           },
+          "parallel": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "parent": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Value"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recipients": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "record": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Value"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "retries": {
+            "format": "int64",
+            "type": "integer"
+          },
           "rule": {
+            "type": "string"
+          },
+          "script": {
+            "type": "string"
+          },
+          "secret": {
             "type": "string"
           },
           "set": {
@@ -495,6 +593,9 @@
               "$ref": "#/components/schemas/NamedValue"
             },
             "type": "array"
+          },
+          "template": {
+            "type": "string"
           },
           "then": {
             "type": "string"
@@ -521,6 +622,16 @@
           "until": {
             "type": "string"
           },
+          "url": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Value"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "vars": {
             "items": {
               "$ref": "#/components/schemas/NamedValue"
@@ -532,6 +643,9 @@
               "boolean",
               "null"
             ]
+          },
+          "workflow": {
+            "type": "string"
           }
         },
         "required": [
@@ -1580,6 +1694,36 @@
         ],
         "type": "object"
       },
+      "ChildRun": {
+        "description": "A run a subflow or foreach step started.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "index": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "step": {
+            "type": "string"
+          },
+          "workflow": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "index",
+          "status",
+          "step",
+          "workflow"
+        ],
+        "type": "object"
+      },
       "ChildTask": {
         "description": "A record under another: one team's part of the work.",
         "properties": {
@@ -2025,6 +2169,74 @@
               "$ref": "#/components/schemas/Part"
             },
             "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Connection": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "hosts": {
+            "description": "The hosts its http.request steps may call (*.example.com: its subdomains).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "secrets": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionSecret"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "app",
+          "hosts",
+          "secrets"
+        ],
+        "type": "object"
+      },
+      "ConnectionSecret": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "set": {
+            "description": "Says a value is stored (encrypted); UpdatedAt and UpdatedBy when, and by whom.",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_by": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "set"
+        ],
+        "type": "object"
+      },
+      "ConnectionSecretRequest": {
+        "description": "A secret's new value; null clears it.",
+        "properties": {
+          "value": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "type": "object"
@@ -3837,6 +4049,37 @@
         ],
         "type": "object"
       },
+      "RecordQuery": {
+        "properties": {
+          "limit": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          },
+          "where": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Value"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
       "RecordType": {
         "description": "A record type in use: an installed app defines its lifecycle.",
         "properties": {
@@ -4048,6 +4291,12 @@
           "app_version": {
             "type": "string"
           },
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/ChildRun"
+            },
+            "type": "array"
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -4074,6 +4323,14 @@
           "id": {
             "format": "uuid",
             "type": "string"
+          },
+          "parent_id": {
+            "description": "The run whose subflow or foreach step started this one; Children the runs this one's steps started.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "reference": {
             "type": "string"
@@ -4214,6 +4471,249 @@
           "target_ms",
           "used_ms"
         ],
+        "type": "object"
+      },
+      "Schedule": {
+        "properties": {
+          "cron": {
+            "type": "string"
+          },
+          "for_each": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecordQuery"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cron"
+        ],
+        "type": "object"
+      },
+      "ScriptChange": {
+        "properties": {
+          "comment": {
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "internal": {
+            "type": "boolean"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "title"
+        ],
+        "type": "object"
+      },
+      "ScriptCheckRequest": {
+        "description": "A script to check.",
+        "properties": {
+          "app": {
+            "description": "The app the script belongs to: its script files are what the script may load.",
+            "type": "string"
+          },
+          "file": {
+            "description": "File, when set, says this is that script file of the app rather than an inline script.",
+            "type": "string"
+          },
+          "script": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ScriptFile": {
+        "description": "A script file in an app.",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "edited": {
+            "description": "Says it was changed here; Shipped that its app (or a local file) has it.",
+            "type": "boolean"
+          },
+          "edited_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "edited_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "shipped": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "used_by": {
+            "description": "The app's workflows and rules that load it (workflow:name, rule:name).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "app",
+          "edited",
+          "name",
+          "shipped",
+          "used_by"
+        ],
+        "type": "object"
+      },
+      "ScriptFileRequest": {
+        "description": "A script file's new source.",
+        "properties": {
+          "source": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ScriptProblem": {
+        "description": "A mistake in a script, at a line (0: not about one line).",
+        "properties": {
+          "col": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "file": {
+            "description": "And FileLine are where in a script file the script loaded it went wrong.",
+            "type": "string"
+          },
+          "file_line": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "line": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "col",
+          "line",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ScriptTest": {
+        "properties": {
+          "aborted": {
+            "type": "string"
+          },
+          "changes": {
+            "description": "And Comments are what it asked for, in order: nothing was changed.",
+            "items": {
+              "$ref": "#/components/schemas/ScriptChange"
+            },
+            "type": "array"
+          },
+          "comments": {
+            "items": {
+              "$ref": "#/components/schemas/ScriptChange"
+            },
+            "type": "array"
+          },
+          "millis": {
+            "description": "How long it ran.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "next": {
+            "type": "string"
+          },
+          "ok": {
+            "description": "False when the script failed (Problem) or stopped itself with abort (Aborted).",
+            "type": "boolean"
+          },
+          "printed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScriptProblem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "vars": {
+            "additionalProperties": {},
+            "type": "object"
+          }
+        },
+        "required": [
+          "changes",
+          "comments",
+          "millis",
+          "ok",
+          "printed"
+        ],
+        "type": "object"
+      },
+      "ScriptTestRequest": {
+        "description": "A script to try against a record.",
+        "properties": {
+          "app": {
+            "description": "The app the script belongs to: its script files are what the script may load.",
+            "type": "string"
+          },
+          "record": {
+            "description": "The reference (INC42) or id of the record to run it for; leave it out for a workflow with none.",
+            "type": "string"
+          },
+          "script": {
+            "type": "string"
+          },
+          "vars": {
+            "additionalProperties": {},
+            "description": "A workflow's variables as the script would see them.",
+            "type": "object"
+          },
+          "where": {
+            "description": "Workflow (the default), before or async: what the script may do, and its limits, follow from it.",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "Search": {
@@ -5390,8 +5890,27 @@
           "app": {
             "type": "string"
           },
+          "app_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "app_permissions": {
             "description": "What the app may do (its manifest's permissions): a workflow's steps act as the app, for whoever started it, so a step needs one of these to read or change a record.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "app_secrets": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "app_workflows": {
+            "description": "The app's workflows (what subflow and foreach may run); AppSecrets the secrets and AppHosts the hosts its http.request steps may use.",
             "items": {
               "type": "string"
             },
@@ -5442,6 +5961,17 @@
           "record_type": {
             "type": "string"
           },
+          "schedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Schedule"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Starts it by the clock, if it has one."
+          },
           "shipped": {
             "type": "boolean"
           },
@@ -5462,7 +5992,10 @@
         },
         "required": [
           "app",
+          "app_hosts",
           "app_permissions",
+          "app_secrets",
+          "app_workflows",
           "edited",
           "layers",
           "layout",
@@ -5487,6 +6020,17 @@
           },
           "record_type": {
             "type": "string"
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Schedule"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Starts it by the clock: cron, timezone and, to run once per record, for_each."
           },
           "start": {
             "type": "string"
@@ -10709,6 +11253,248 @@
         ]
       }
     },
+    "/api/v1/connections": {
+      "get": {
+        "description": "(settings:manage): each installed app that calls out, with the hosts it may call and the secrets it declares (whether each is set, never its value).\n\nRequires the `settings:manage` permission.",
+        "operationId": "listConnections",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/Connection"
+                      },
+                      "type": "array"
+                    },
+                    "key_configured": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "key_configured"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List connections",
+        "tags": [
+          "connections"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      }
+    },
+    "/api/v1/connections/{app}/secrets/{key}": {
+      "put": {
+        "description": "(settings:manage) with {\"value\"}: set (or, with null, clear) a secret the app declares, which its http.request steps send. It is kept encrypted and never shown again.\n\nRequires the `settings:manage` permission.",
+        "operationId": "putConnectionSecret",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionSecretRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Put connection secret",
+        "tags": [
+          "connections"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      }
+    },
     "/api/v1/forms": {
       "get": {
         "description": "(forms:manage): every record type in use, with where its form comes from and whether it was changed here.\n\nRequires the `forms:manage` permission.",
@@ -15554,6 +16340,718 @@
         ],
         "x-permissions": [
           "roles:manage"
+        ]
+      }
+    },
+    "/api/v1/scripts": {
+      "get": {
+        "description": "(workflows:read_all or workflows:edit): every installed app's script files, without their source.\n\nRequires the `workflows:read_all` or `workflows:edit` permission.",
+        "operationId": "listScriptFiles",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/ScriptFile"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List script files",
+        "tags": [
+          "scripts"
+        ],
+        "x-permissions": [
+          "workflows:read_all",
+          "workflows:edit"
+        ]
+      }
+    },
+    "/api/v1/scripts/check": {
+      "post": {
+        "description": "(scripts:edit) with {\"script\", \"app\", \"file\"}: the mistakes the compiler finds (syntax, undefined names, loads of files or names the app does not have), each with its line, without running it: {\"problems\": [...]}, empty when there are none. With file, the script is that script file of the app. The editor asks as it is typed.\n\nRequires the `scripts:edit` permission.",
+        "operationId": "checkScript",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptCheckRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "problems": {
+                      "items": {
+                        "$ref": "#/components/schemas/ScriptProblem"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "problems"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Check script",
+        "tags": [
+          "scripts"
+        ],
+        "x-permissions": [
+          "scripts:edit"
+        ]
+      }
+    },
+    "/api/v1/scripts/test": {
+      "post": {
+        "description": "(scripts:edit) with {\"script\", \"record\", \"vars\", \"where\"}: run a script as it would run there, for a record, as you (reading only what you may read), and say what it would change. Nothing is changed.\n\nRequires the `scripts:edit` permission.",
+        "operationId": "testScript",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptTest"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Test script",
+        "tags": [
+          "scripts"
+        ],
+        "x-permissions": [
+          "scripts:edit"
+        ]
+      }
+    },
+    "/api/v1/scripts/{app}/{file}": {
+      "get": {
+        "description": "(workflows:read_all or workflows:edit): a script file, its source, and what loads it.\n\nRequires the `workflows:read_all` or `workflows:edit` permission.",
+        "operationId": "getScriptFile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptFile"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get script file",
+        "tags": [
+          "scripts"
+        ],
+        "x-permissions": [
+          "workflows:read_all",
+          "workflows:edit"
+        ]
+      },
+      "put": {
+        "description": "(scripts:edit) with {\"source\"}: save a script file into the app's studio layer (adding it if the app has none of that name) and reinstall the app with it at once. It is checked as an install checks it, with everything that loads it; every problem is listed (422 with problems).\n\nRequires the `scripts:edit` permission.",
+        "operationId": "putScriptFile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScriptFileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptFile"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "problems": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "problems"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Put script file",
+        "tags": [
+          "scripts"
+        ],
+        "x-permissions": [
+          "scripts:edit"
+        ]
+      }
+    },
+    "/api/v1/scripts/{app}/{file}/edits": {
+      "delete": {
+        "description": "(scripts:edit): undo the changes made here: the file goes back to the app's version, or, if it was added here, goes (refused, 422, while something still loads it).\n\nRequires the `scripts:edit` permission.",
+        "operationId": "resetScriptFile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScriptFile"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Reset script file",
+        "tags": [
+          "scripts"
+        ],
+        "x-permissions": [
+          "scripts:edit"
         ]
       }
     },
@@ -23342,6 +24840,9 @@
       "name": "cmdb"
     },
     {
+      "name": "connections"
+    },
+    {
       "name": "forms"
     },
     {
@@ -23370,6 +24871,9 @@
     },
     {
       "name": "roles"
+    },
+    {
+      "name": "scripts"
     },
     {
       "name": "search"

@@ -181,7 +181,7 @@ func TestLayerFolderRules(t *testing.T) {
 		want  string
 	}{
 		"old flat layout":            {map[string]string{"app.yaml": goodManifest, "lifecycles/incident.yaml": goodLifecycle}, "shipped definitions go in default/"},
-		"scripts in local":           {map[string]string{"app.yaml": goodManifest, "local/scripts/x.star": "x"}, "local/scripts/x.star: scripts are not supported"},
+		"a broken local script":      {map[string]string{"app.yaml": goodManifest, "local/scripts/x.star": "x"}, "undefined: x"},
 		"a file straight in local":   {map[string]string{"app.yaml": goodManifest, "local/notes.yaml": "x: 1"}, "not directly here"},
 		"knowledge not yet in local": {map[string]string{"app.yaml": goodManifest, "local/knowledge/a.yaml": "kind: article"}, "knowledge articles are not supported yet"},
 	}
