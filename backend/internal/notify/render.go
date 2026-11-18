@@ -51,7 +51,7 @@ func (rd *Renderer) Render(ctx context.Context, n dbgen.Notification) (Message, 
 	}
 	switch {
 	case n.Kind == "approval_pending":
-		// Worded by its template (core-itsm's approval-pending, migration 00051), from what the approver may know of
+		// Worded by its template (core-itsm's approval-pending), from what the approver may know of
 		// the record: its reference and title, whether or not they can open it.
 		id := n.ApprovalID.UUID
 		out.ApprovalID = &id
@@ -64,7 +64,7 @@ func (rd *Renderer) Render(ctx context.Context, n dbgen.Notification) (Message, 
 		if tpl := rd.apps.Notification(n.App.String, n.Template.String); tpl != nil {
 			out.Title, out.Body = tpl.Render(map[string]string{"record.reference": sum.Reference, "record.title": sum.Title})
 		} else {
-			out.Title = "Your approval is needed" // a row from before 00051, or the template's app is gone
+			out.Title = "Your approval is needed" // the template's app is gone
 		}
 		return out, true, nil
 	case n.TaskID.Valid:

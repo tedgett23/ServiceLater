@@ -1,5 +1,4 @@
 -- +goose Up
-
 -- The CMDB (docs/apps-platform.md §8.2): configuration items, the relationships between them, and which records
 -- they are linked to. The tables are core, like freezes, because people edit items at run time; what an item can be
 -- (its class and that class's fields) and how items relate are app definitions (classes/, relationships/), so neither
@@ -18,6 +17,7 @@ CREATE TABLE cis (
     created_at       timestamptz NOT NULL DEFAULT now(),
     updated_at       timestamptz NOT NULL DEFAULT now()
 );
+
 -- Two items of a class cannot share a name (case aside): people find items by name, and an import matches on it.
 CREATE UNIQUE INDEX cis_class_name_key ON cis (class, lower(name));
 CREATE INDEX cis_name_idx ON cis (lower(name) text_pattern_ops);
@@ -56,12 +56,10 @@ CREATE POLICY cis_select ON cis FOR SELECT TO servicelater_app USING (app_can('c
 CREATE POLICY cis_insert ON cis FOR INSERT TO servicelater_app WITH CHECK (app_can('cmdb:manage'));
 CREATE POLICY cis_update ON cis FOR UPDATE TO servicelater_app USING (app_can('cmdb:manage')) WITH CHECK (app_can('cmdb:manage'));
 CREATE POLICY cis_delete ON cis FOR DELETE TO servicelater_app USING (app_can('cmdb:manage'));
-
 ALTER TABLE ci_relationships ENABLE ROW LEVEL SECURITY;
 CREATE POLICY ci_relationships_select ON ci_relationships FOR SELECT TO servicelater_app USING (app_can('cmdb:read'));
 CREATE POLICY ci_relationships_insert ON ci_relationships FOR INSERT TO servicelater_app WITH CHECK (app_can('cmdb:manage'));
 CREATE POLICY ci_relationships_delete ON ci_relationships FOR DELETE TO servicelater_app USING (app_can('cmdb:manage'));
-
 ALTER TABLE task_cis ENABLE ROW LEVEL SECURITY;
 CREATE POLICY task_cis_select ON task_cis FOR SELECT TO servicelater_app
     USING (app_can('cmdb:read') AND EXISTS (SELECT 1 FROM tasks t WHERE t.id = task_id));
@@ -70,31 +68,23 @@ CREATE POLICY task_cis_insert ON task_cis FOR INSERT TO servicelater_app
 CREATE POLICY task_cis_delete ON task_cis FOR DELETE TO servicelater_app
     USING (app_can('cmdb:read') AND EXISTS (SELECT 1 FROM tasks t WHERE t.id = task_id AND app_can_record('update', t.type)));
 
--- Linking or unlinking an item changes what a record shows: tell its watchers through the ticket channel, with the
--- routing fields the task trigger sends.
--- +goose StatementBegin
-CREATE FUNCTION task_cis_notify() RETURNS trigger
-    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
-    AS $$
-BEGIN
-    PERFORM pg_notify('ticket_changes', json_build_object(
-        'op', 'UPDATE', 'id', t.id, 'type', t.type, 'number', t.number, 'status', t.status,
-        'requester_id', t.requester_id, 'assignee_id', t.assignee_id)::text)
-    FROM tasks t WHERE t.id = coalesce(NEW.task_id, OLD.task_id);
-    RETURN NULL;
-END
-$$;
--- +goose StatementEnd
+-- Linking or unlinking an item changes what a record shows: tell its watchers.
 CREATE TRIGGER task_cis_notify AFTER INSERT OR DELETE ON task_cis
-    FOR EACH ROW EXECUTE FUNCTION task_cis_notify();
+    FOR EACH ROW EXECUTE FUNCTION task_link_notify();
 
 -- Open item pages refetch when an item or its relationships change. Only those who read the CMDB are told (routing
--- in internal/realtime); the event carries the item's id only.
+-- in internal/realtime); the event carries the item's id only. An import changes thousands of items in one
+-- transaction: one event per row would make every open CMDB page refetch thousands of times, so a bulk change turns
+-- them off for its transaction (app.ci_bulk) and sends one {"bulk": true} event when it is done. The setting only
+-- quiets hints; history and RLS are untouched.
 -- +goose StatementBegin
 CREATE FUNCTION cis_notify() RETURNS trigger
     LANGUAGE plpgsql
     AS $$
 BEGIN
+    IF current_setting('app.ci_bulk', true) = 'on' THEN
+        RETURN NULL;
+    END IF;
     IF TG_TABLE_NAME = 'ci_relationships' THEN
         PERFORM pg_notify('ci_changes', json_build_object('id', coalesce(NEW.from_ci, OLD.from_ci))::text);
         PERFORM pg_notify('ci_changes', json_build_object('id', coalesce(NEW.to_ci, OLD.to_ci))::text);
@@ -108,44 +98,8 @@ $$;
 CREATE TRIGGER cis_notify AFTER INSERT OR UPDATE OR DELETE ON cis FOR EACH ROW EXECUTE FUNCTION cis_notify();
 CREATE TRIGGER ci_relationships_notify AFTER INSERT OR DELETE ON ci_relationships FOR EACH ROW EXECUTE FUNCTION cis_notify();
 
--- Agents read the CMDB; admins manage it (and the cmdb app's cmdb-manager role grants that too).
--- +goose StatementBegin
-CREATE OR REPLACE FUNCTION app_seed_builtin_roles() RETURNS void
-    LANGUAGE sql
-    AS $$
-    INSERT INTO roles (name, label, description, permissions) VALUES
-        ('admin', 'Admin', 'Everything, including people, groups and roles.',
-         '{calendars:manage,cmdb:manage,cmdb:read,comments:delete,comments:internal,freezes:manage,groups:manage,records:create:*,records:delete:*,records:read:*,records:update:*,roles:manage,users:manage,users:read,workflows:read_all,workflows:run}'),
-        ('agent', 'Agent', 'Works tickets of every type: sees, files and edits them, writes internal notes, runs workflows.',
-         '{cmdb:read,comments:internal,records:create:*,records:read:*,records:update:*,users:read,workflows:read_all,workflows:run}'),
-        ('end_user', 'End user', 'Files tickets and follows their own.', '{}')
-    ON CONFLICT (name) DO UPDATE SET label = EXCLUDED.label, description = EXCLUDED.description,
-        permissions = EXCLUDED.permissions, updated_at = now();
-$$;
--- +goose StatementEnd
-SELECT app_seed_builtin_roles();
-
 -- +goose Down
--- +goose StatementBegin
-CREATE OR REPLACE FUNCTION app_seed_builtin_roles() RETURNS void
-    LANGUAGE sql
-    AS $$
-    INSERT INTO roles (name, label, description, permissions) VALUES
-        ('admin', 'Admin', 'Everything, including people, groups and roles.',
-         '{calendars:manage,comments:delete,comments:internal,freezes:manage,groups:manage,records:create:*,records:delete:*,records:read:*,records:update:*,roles:manage,users:manage,users:read,workflows:read_all,workflows:run}'),
-        ('agent', 'Agent', 'Works tickets of every type: sees, files and edits them, writes internal notes, runs workflows.',
-         '{comments:internal,records:create:*,records:read:*,records:update:*,users:read,workflows:read_all,workflows:run}'),
-        ('end_user', 'End user', 'Files tickets and follows their own.', '{}')
-    ON CONFLICT (name) DO UPDATE SET label = EXCLUDED.label, description = EXCLUDED.description,
-        permissions = EXCLUDED.permissions, updated_at = now();
-$$;
--- +goose StatementEnd
-SELECT app_seed_builtin_roles();
-DROP TRIGGER ci_relationships_notify ON ci_relationships;
-DROP TRIGGER cis_notify ON cis;
-DROP FUNCTION cis_notify();
-DROP TRIGGER task_cis_notify ON task_cis;
-DROP FUNCTION task_cis_notify();
 DROP TABLE task_cis;
 DROP TABLE ci_relationships;
 DROP TABLE cis;
+DROP FUNCTION cis_notify();

@@ -22,7 +22,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/settings"
 )
 
-// TeamsKind is the job that posts one queued message to a group's Teams channel (app_notify_group_channel, 00051).
+// TeamsKind is the job that posts one queued message to a group's Teams channel (app_notify_group_channel).
 const TeamsKind = "notify.teams"
 
 // TeamsPost is a message for a Teams channel: a title, some text, and a button to open it.

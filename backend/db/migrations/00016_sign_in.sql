@@ -1,4 +1,6 @@
 -- +goose Up
+-- Signing in other than with a password: API keys for service accounts, and single sign-on (docs/auth.md).
+
 -- API keys (docs/auth.md): integrations call the API with `Authorization: Bearer slk_...`, as a service
 -- account, never as a person. A service account is a users row (so roles, groups, RLS and history work unchanged)
 -- that cannot sign in: it has no password, and a password cannot be set for it.
@@ -9,6 +11,7 @@ CREATE TABLE service_accounts (
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE service_accounts ENABLE ROW LEVEL SECURITY;
+
 -- Everyone signed in may know an account is a service account (the UI marks it), like the user directory.
 CREATE POLICY service_accounts_select ON service_accounts FOR SELECT TO servicelater_app USING (true);
 CREATE POLICY service_accounts_insert ON service_accounts FOR INSERT TO servicelater_app WITH CHECK (app_can('users:manage'));
@@ -46,6 +49,7 @@ CREATE TABLE api_keys (
 );
 CREATE INDEX api_keys_user_idx ON api_keys (user_id);
 ALTER TABLE api_keys ENABLE ROW LEVEL SECURITY;
+
 -- Those who manage people read everything about keys but the hash; all writes go through the functions below.
 REVOKE ALL ON api_keys FROM servicelater_app;
 GRANT SELECT (id, user_id, name, prefix, scopes, created_by, created_at, expires_at, last_used_at, revoked_at)
@@ -71,9 +75,11 @@ CREATE FUNCTION app_narrow_permissions(p_perms text[], p_scopes text[]) RETURNS 
                                 AND p LIKE 'records:' || split_part(s, ':', 2) || ':%'
     ) y
 $$;
+-- +goose StatementEnd
 
 -- db.WithUser for a request made with a narrowed key: as app_begin, then the permissions narrowed. It can only take
 -- permissions away, so anyone may call it.
+-- +goose StatementBegin
 CREATE FUNCTION app_begin_key(p_user uuid, p_scopes text[]) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
     AS $$
@@ -85,17 +91,21 @@ BEGIN
     END IF;
 END
 $$;
+-- +goose StatementEnd
 
 -- Whether the caller (app.permissions) covers a permission: the same, or the wildcard over its record type.
+-- +goose StatementBegin
 CREATE FUNCTION app_can_cover(p_perm text) RETURNS boolean
     LANGUAGE sql STABLE
     AS $$
     SELECT app_can(p_perm)
         OR (p_perm LIKE 'records:%:%' AND app_can('records:' || split_part(p_perm, ':', 2) || ':*'))
 $$;
+-- +goose StatementEnd
 
 -- Making a key: by those who manage people, for an active service account, and never for more than the maker can do
 -- themselves (or a group manager could mint a key for an account that holds roles:manage). Returns the key's id.
+-- +goose StatementBegin
 CREATE FUNCTION app_create_api_key(p_user uuid, p_name text, p_prefix text, p_hash bytea, p_scopes text[], p_expires timestamptz)
     RETURNS uuid
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
@@ -124,8 +134,10 @@ BEGIN
     RETURN id;
 END
 $$;
+-- +goose StatementEnd
 
 -- Revoking is immediate: every request looks its key up. Returns false if there was no such key on that account.
+-- +goose StatementBegin
 CREATE FUNCTION app_revoke_api_key(p_user uuid, p_id uuid) RETURNS boolean
     LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
     AS $$
@@ -137,43 +149,72 @@ BEGIN
     RETURN FOUND;
 END
 $$;
-
--- A service account never gets a password.
-CREATE OR REPLACE FUNCTION app_set_password(p_user_id uuid, p_hash text) RETURNS void
-    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
-    AS $$
-BEGIN
-    IF NOT app_can('users:manage') THEN
-        RAISE EXCEPTION 'only an admin may set a password' USING ERRCODE = '42501';
-    END IF;
-    IF EXISTS (SELECT 1 FROM service_accounts WHERE user_id = p_user_id) THEN
-        RAISE EXCEPTION 'a service account signs in with API keys, not a password' USING ERRCODE = '22023';
-    END IF;
-    INSERT INTO user_credentials (user_id, password_hash) VALUES (p_user_id, p_hash)
-    ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, updated_at = now();
-END $$;
 -- +goose StatementEnd
 REVOKE ALL ON FUNCTION app_create_api_key(uuid, text, text, bytea, text[], timestamptz) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app_create_api_key(uuid, text, text, bytea, text[], timestamptz) TO servicelater_app;
 
+-- Single sign-on with OpenID Connect (docs/auth.md): Okta, Microsoft Entra ID, Google Workspace, Keycloak and the
+-- like. Each provider is a row; its client secret is a secret (sso.<id>.client_secret), never a column. Those who
+-- change settings manage them; the sign-in flow reads them as the system, before anyone is known.
+CREATE TABLE sso_providers (
+    id              text PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9-]{1,30}$'),
+    -- label is the button: "Sign in with <label>".
+    label           text NOT NULL CHECK (length(label) BETWEEN 1 AND 60),
+    issuer          text NOT NULL CHECK (issuer ~ '^https?://'),
+    client_id       text NOT NULL CHECK (length(client_id) BETWEEN 1 AND 500),
+    -- Who may sign in by their email's domain (example.com); empty: anyone the provider vouches for.
+    allowed_domains text[] NOT NULL DEFAULT '{}',
+    -- Whether someone signing in for the first time gets an account (as an end user), or must exist already.
+    create_users    boolean NOT NULL DEFAULT true,
+    -- The ID token claim listing the person's groups (often "groups"); empty: groups are not synced.
+    groups_claim    text NOT NULL DEFAULT '' CHECK (groups_claim ~ '^[A-Za-z0-9_.:/-]{0,100}$'),
+    enabled         boolean NOT NULL DEFAULT true,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE sso_providers ENABLE ROW LEVEL SECURITY;
+CREATE POLICY sso_providers_all ON sso_providers FOR ALL TO servicelater_app
+    USING (app_can('settings:manage')) WITH CHECK (app_can('settings:manage'));
+
+-- Group sync: a value of the provider's groups claim, and the ServiceLater group it puts people in. At each sign-in a
+-- person is added to the mapped groups whose values they have and taken out of the mapped groups whose values they
+-- lack; groups no mapping names are left alone.
+CREATE TABLE sso_group_maps (
+    provider_id text NOT NULL REFERENCES sso_providers (id) ON DELETE CASCADE,
+    claim_value text NOT NULL CHECK (length(claim_value) BETWEEN 1 AND 300),
+    group_id    uuid NOT NULL REFERENCES groups (id) ON DELETE CASCADE,
+    PRIMARY KEY (provider_id, claim_value, group_id)
+);
+ALTER TABLE sso_group_maps ENABLE ROW LEVEL SECURITY;
+CREATE POLICY sso_group_maps_all ON sso_group_maps FOR ALL TO servicelater_app
+    USING (app_can('settings:manage')) WITH CHECK (app_can('settings:manage'));
+
+-- Who signed in through which provider, by the provider's stable subject (an email can change; the subject cannot).
+-- Written only by the sign-in flow, as the system.
+CREATE TABLE user_identities (
+    provider_id     text NOT NULL REFERENCES sso_providers (id) ON DELETE CASCADE,
+    subject         text NOT NULL,
+    user_id         uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    email           text NOT NULL DEFAULT '',
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    last_sign_in_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (provider_id, subject)
+);
+CREATE INDEX user_identities_user_idx ON user_identities (user_id);
+ALTER TABLE user_identities ENABLE ROW LEVEL SECURITY;
+CREATE POLICY user_identities_select ON user_identities FOR SELECT TO servicelater_app
+    USING (app_can('users:manage') OR app_can('settings:manage') OR user_id = app_current_user_id());
+
 -- +goose Down
--- +goose StatementBegin
-CREATE OR REPLACE FUNCTION app_set_password(p_user_id uuid, p_hash text) RETURNS void
-    LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
-    AS $$
-BEGIN
-    IF NOT app_can('users:manage') THEN
-        RAISE EXCEPTION 'only an admin may set a password' USING ERRCODE = '42501';
-    END IF;
-    INSERT INTO user_credentials (user_id, password_hash) VALUES (p_user_id, p_hash)
-    ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, updated_at = now();
-END $$;
--- +goose StatementEnd
+DROP TABLE user_identities;
+DROP TABLE sso_group_maps;
+DROP TABLE sso_providers;
 DROP FUNCTION app_revoke_api_key(uuid, uuid);
 DROP FUNCTION app_create_api_key(uuid, text, text, bytea, text[], timestamptz);
 DROP FUNCTION app_can_cover(text);
 DROP FUNCTION app_begin_key(uuid, text[]);
 DROP FUNCTION app_narrow_permissions(text[], text[]);
 DROP TABLE api_keys;
+DROP TRIGGER service_accounts_quiet ON service_accounts;
 DROP TABLE service_accounts;
 DROP FUNCTION service_accounts_quiet();

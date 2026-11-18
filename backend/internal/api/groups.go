@@ -363,7 +363,7 @@ func (h *handlers) removeGroupMember(w http.ResponseWriter, r *http.Request) {
 }
 
 // membershipGuard explains what RLS would refuse anyway: a group that holds roles gives them to its members, so
-// changing who is in it needs roles:manage as well (migration 00020).
+// changing who is in it needs roles:manage as well (migrations/00004_access.sql).
 func membershipGuard(r *http.Request, q *dbgen.Queries, p auth.Principal, groupID uuid.UUID) error {
 	if p.Can(authz.RolesManage) {
 		return nil

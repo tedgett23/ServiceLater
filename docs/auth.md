@@ -16,7 +16,7 @@ lock everyone out.
 Decided with the user (2026-11-17): **keys belong to service accounts**, never to people, and a key may be **narrowed**.
 
 - A **service account** (`POST /api/v1/service-accounts`, `users:manage`; Admin → Users → Add a service account) is a
-  `users` row plus a `service_accounts` row (00048). It has a made-up address (`…@service.servicelater.invalid`, never
+  `users` row plus a `service_accounts` row (`00016_sign_in`). It has a made-up address (`…@service.servicelater.invalid`, never
   emailed), cannot sign in, cannot be given a password, is not offered as an assignee, and gets roles and groups like
   a person. Deactivating it stops all its keys.
 - A **key** (`POST /api/v1/users/{id}/api-keys`) is `slk_` + 256 random bits, shown once. Only its SHA-256 and first
@@ -36,7 +36,7 @@ Decided with the user (2026-11-17): **keys belong to service accounts**, never t
 Decided with the user: **OIDC now, SAML next**; first sign-in **creates the account** (as an end user) and **groups
 sync** from a claim.
 
-- Providers are rows (`sso_providers`, 00049; Admin → Sign-in; `GET|PUT|DELETE /api/v1/sso-providers/{id}`,
+- Providers are rows (`sso_providers`, `00016_sign_in`; Admin → Sign-in; `GET|PUT|DELETE /api/v1/sso-providers/{id}`,
   `settings:manage`): label, issuer, client id, allowed email domains, create accounts or not, groups claim, enabled.
   The client secret is a secret (`sso.<id>.client_secret`, hyphens as underscores); without one the client is public
   and PKCE protects it.

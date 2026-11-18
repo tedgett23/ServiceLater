@@ -1,5 +1,5 @@
 // Package businesstime measures time the way a service level agreement does: only the hours a business calendar says
-// are working hours count. It is pure: calendars come from the business_calendars table (migration 00025), and an SLA
+// are working hours count. It is pure: calendars come from the business_calendars table (migrations/00002_people.sql), and an SLA
 // clock (internal/records) uses Elapsed and Add to know how much of its target is used and when it falls due.
 //
 // A nil *Calendar is 24x7: every second counts.

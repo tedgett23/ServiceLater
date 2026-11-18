@@ -220,7 +220,7 @@ func (q *Queries) ListAllAppOverrides(ctx context.Context) ([]ListAllAppOverride
 }
 
 const listAppCurrentDefinitions = `-- name: ListAppCurrentDefinitions :many
-SELECT id, app_name, kind, name, version, checksum, body, current, created_at, source FROM app_definitions WHERE app_name = $1 AND current ORDER BY kind, name
+SELECT id, app_name, kind, name, version, checksum, body, current, source, created_at FROM app_definitions WHERE app_name = $1 AND current ORDER BY kind, name
 `
 
 func (q *Queries) ListAppCurrentDefinitions(ctx context.Context, appName string) ([]AppDefinition, error) {
@@ -241,8 +241,8 @@ func (q *Queries) ListAppCurrentDefinitions(ctx context.Context, appName string)
 			&i.Checksum,
 			&i.Body,
 			&i.Current,
-			&i.CreatedAt,
 			&i.Source,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -347,7 +347,7 @@ func (q *Queries) ListApps(ctx context.Context) ([]App, error) {
 }
 
 const listCurrentDefinitions = `-- name: ListCurrentDefinitions :many
-SELECT id, app_name, kind, name, version, checksum, body, current, created_at, source FROM app_definitions WHERE current ORDER BY app_name, kind, name
+SELECT id, app_name, kind, name, version, checksum, body, current, source, created_at FROM app_definitions WHERE current ORDER BY app_name, kind, name
 `
 
 func (q *Queries) ListCurrentDefinitions(ctx context.Context) ([]AppDefinition, error) {
@@ -368,8 +368,8 @@ func (q *Queries) ListCurrentDefinitions(ctx context.Context) ([]AppDefinition, 
 			&i.Checksum,
 			&i.Body,
 			&i.Current,
-			&i.CreatedAt,
 			&i.Source,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

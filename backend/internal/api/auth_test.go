@@ -155,7 +155,7 @@ func TestDeletedUserLosesAccess(t *testing.T) {
 	w := do(h, "POST", "/api/v1/auth/login", creds, nil)
 	access, refresh := respCookie(w, auth.AccessCookie), respCookie(w, auth.RefreshCookie)
 
-	// Someone else must stay admin: the database refuses to lose the last one (00017).
+	// Someone else must stay admin: the database refuses to lose the last one (users_keep_an_admin).
 	newActor(t, h, pool, "next-admin@x.test", "admin")
 	if _, err := pool.Exec(context.Background(), "DELETE FROM users WHERE email = 'admin@example.com'"); err != nil { // sessions cascade
 		t.Fatal(err)

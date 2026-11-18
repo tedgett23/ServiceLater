@@ -56,7 +56,7 @@ type RecordQuery struct {
 // queryExtraFields are fields a query may filter by besides a lookup's.
 var queryExtraFields = map[string]string{"parent_id": lookupID, "created_at": lookupTime, "updated_at": lookupTime}
 
-// QueryFields are the fields records of a type can be found by. The SQL function app_find_records (00055) maps the
+// QueryFields are the fields records of a type can be found by. The SQL function app_find_records (migrations/00008_workflows.sql) maps the
 // same names to columns; TestQueryFieldsMatchTheDatabase keeps them in step.
 func QueryFields(recordType string) (map[string]string, bool) {
 	if recordType == "freeze_window" || recordType == "task" {

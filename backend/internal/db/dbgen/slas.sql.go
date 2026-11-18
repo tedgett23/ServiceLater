@@ -13,7 +13,7 @@ import (
 )
 
 const claimDueSLAs = `-- name: ClaimDueSLAs :many
-SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at, calendar FROM task_slas
+SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, calendar, started_at, stopped_at, updated_at FROM task_slas
 WHERE stage = 'running' AND next_alert_at <= now()
 ORDER BY next_alert_at
 LIMIT $1
@@ -47,10 +47,10 @@ func (q *Queries) ClaimDueSLAs(ctx context.Context, max int32) ([]TaskSla, error
 			&i.WarningsSent,
 			&i.NextAlertAt,
 			&i.Problem,
+			&i.Calendar,
 			&i.StartedAt,
 			&i.StoppedAt,
 			&i.UpdatedAt,
-			&i.Calendar,
 		); err != nil {
 			return nil, err
 		}
@@ -219,7 +219,7 @@ func (q *Queries) GetBusinessCalendarByName(ctx context.Context, name string) (B
 }
 
 const getTaskSLA = `-- name: GetTaskSLA :one
-SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at, calendar FROM task_slas WHERE id = $1
+SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, calendar, started_at, stopped_at, updated_at FROM task_slas WHERE id = $1
 `
 
 func (q *Queries) GetTaskSLA(ctx context.Context, id uuid.UUID) (TaskSla, error) {
@@ -241,10 +241,10 @@ func (q *Queries) GetTaskSLA(ctx context.Context, id uuid.UUID) (TaskSla, error)
 		&i.WarningsSent,
 		&i.NextAlertAt,
 		&i.Problem,
+		&i.Calendar,
 		&i.StartedAt,
 		&i.StoppedAt,
 		&i.UpdatedAt,
-		&i.Calendar,
 	)
 	return i, err
 }
@@ -305,7 +305,7 @@ func (q *Queries) ListBusinessCalendars(ctx context.Context) ([]ListBusinessCale
 
 const listTaskSLAs = `-- name: ListTaskSLAs :many
 
-SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at, calendar FROM task_slas WHERE task_id = $1 AND stage <> 'cancelled' ORDER BY started_at, sla
+SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, calendar, started_at, stopped_at, updated_at FROM task_slas WHERE task_id = $1 AND stage <> 'cancelled' ORDER BY started_at, sla
 `
 
 // SLA clocks (task_slas, migration 00025). A save reads and writes them as the person saving; the SLA timer as the
@@ -336,10 +336,10 @@ func (q *Queries) ListTaskSLAs(ctx context.Context, taskID uuid.UUID) ([]TaskSla
 			&i.WarningsSent,
 			&i.NextAlertAt,
 			&i.Problem,
+			&i.Calendar,
 			&i.StartedAt,
 			&i.StoppedAt,
 			&i.UpdatedAt,
-			&i.Calendar,
 		); err != nil {
 			return nil, err
 		}
@@ -352,7 +352,7 @@ func (q *Queries) ListTaskSLAs(ctx context.Context, taskID uuid.UUID) ([]TaskSla
 }
 
 const listTaskSLAsForUpdate = `-- name: ListTaskSLAsForUpdate :many
-SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at, calendar FROM task_slas WHERE task_id = $1 ORDER BY started_at, sla FOR UPDATE
+SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, calendar, started_at, stopped_at, updated_at FROM task_slas WHERE task_id = $1 ORDER BY started_at, sla FOR UPDATE
 `
 
 // Every clock of a record, locked, for the save that is about to move them.
@@ -381,10 +381,10 @@ func (q *Queries) ListTaskSLAsForUpdate(ctx context.Context, taskID uuid.UUID) (
 			&i.WarningsSent,
 			&i.NextAlertAt,
 			&i.Problem,
+			&i.Calendar,
 			&i.StartedAt,
 			&i.StoppedAt,
 			&i.UpdatedAt,
-			&i.Calendar,
 		); err != nil {
 			return nil, err
 		}

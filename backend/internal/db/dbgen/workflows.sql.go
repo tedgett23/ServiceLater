@@ -123,7 +123,7 @@ func (q *Queries) FindRecords(ctx context.Context, arg FindRecordsParams) ([]uui
 }
 
 const getExecution = `-- name: GetExecution :one
-SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as, parent_id, parent_step, parent_index, depth FROM workflow_executions WHERE id = $1
+SELECT id, app, workflow, app_version, definition, record_id, started_by, run_as, parent_id, parent_step, parent_index, depth, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at FROM workflow_executions WHERE id = $1
 `
 
 func (q *Queries) GetExecution(ctx context.Context, id uuid.UUID) (WorkflowExecution, error) {
@@ -137,6 +137,11 @@ func (q *Queries) GetExecution(ctx context.Context, id uuid.UUID) (WorkflowExecu
 		&i.Definition,
 		&i.RecordID,
 		&i.StartedBy,
+		&i.RunAs,
+		&i.ParentID,
+		&i.ParentStep,
+		&i.ParentIndex,
+		&i.Depth,
 		&i.Cause,
 		&i.Status,
 		&i.CurrentStep,
@@ -150,17 +155,12 @@ func (q *Queries) GetExecution(ctx context.Context, id uuid.UUID) (WorkflowExecu
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FinishedAt,
-		&i.RunAs,
-		&i.ParentID,
-		&i.ParentStep,
-		&i.ParentIndex,
-		&i.Depth,
 	)
 	return i, err
 }
 
 const getExecutionForUpdate = `-- name: GetExecutionForUpdate :one
-SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as, parent_id, parent_step, parent_index, depth FROM workflow_executions WHERE id = $1 FOR UPDATE
+SELECT id, app, workflow, app_version, definition, record_id, started_by, run_as, parent_id, parent_step, parent_index, depth, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at FROM workflow_executions WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetExecutionForUpdate(ctx context.Context, id uuid.UUID) (WorkflowExecution, error) {
@@ -174,6 +174,11 @@ func (q *Queries) GetExecutionForUpdate(ctx context.Context, id uuid.UUID) (Work
 		&i.Definition,
 		&i.RecordID,
 		&i.StartedBy,
+		&i.RunAs,
+		&i.ParentID,
+		&i.ParentStep,
+		&i.ParentIndex,
+		&i.Depth,
 		&i.Cause,
 		&i.Status,
 		&i.CurrentStep,
@@ -187,11 +192,6 @@ func (q *Queries) GetExecutionForUpdate(ctx context.Context, id uuid.UUID) (Work
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FinishedAt,
-		&i.RunAs,
-		&i.ParentID,
-		&i.ParentStep,
-		&i.ParentIndex,
-		&i.Depth,
 	)
 	return i, err
 }
@@ -215,7 +215,7 @@ func (q *Queries) GetExecutionOwner(ctx context.Context, id uuid.UUID) (GetExecu
 }
 
 const getExecutionView = `-- name: GetExecutionView :one
-SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, e.run_as, e.parent_id, e.parent_step, e.parent_index, e.depth, COALESCE(tt.prefix || t.number::text, '')::text AS reference
+SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.run_as, e.parent_id, e.parent_step, e.parent_index, e.depth, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, COALESCE(tt.prefix || t.number::text, '')::text AS reference
 FROM workflow_executions e
 LEFT JOIN tasks t ON t.id = e.record_id
 LEFT JOIN task_types tt ON tt.type = t.type
@@ -238,6 +238,11 @@ func (q *Queries) GetExecutionView(ctx context.Context, id uuid.UUID) (GetExecut
 		&i.WorkflowExecution.Definition,
 		&i.WorkflowExecution.RecordID,
 		&i.WorkflowExecution.StartedBy,
+		&i.WorkflowExecution.RunAs,
+		&i.WorkflowExecution.ParentID,
+		&i.WorkflowExecution.ParentStep,
+		&i.WorkflowExecution.ParentIndex,
+		&i.WorkflowExecution.Depth,
 		&i.WorkflowExecution.Cause,
 		&i.WorkflowExecution.Status,
 		&i.WorkflowExecution.CurrentStep,
@@ -251,11 +256,6 @@ func (q *Queries) GetExecutionView(ctx context.Context, id uuid.UUID) (GetExecut
 		&i.WorkflowExecution.CreatedAt,
 		&i.WorkflowExecution.UpdatedAt,
 		&i.WorkflowExecution.FinishedAt,
-		&i.WorkflowExecution.RunAs,
-		&i.WorkflowExecution.ParentID,
-		&i.WorkflowExecution.ParentStep,
-		&i.WorkflowExecution.ParentIndex,
-		&i.WorkflowExecution.Depth,
 		&i.Reference,
 	)
 	return i, err
@@ -439,7 +439,7 @@ func (q *Queries) ListChildExecutions(ctx context.Context, arg ListChildExecutio
 }
 
 const listExecutionViews = `-- name: ListExecutionViews :many
-SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, e.run_as, e.parent_id, e.parent_step, e.parent_index, e.depth, COALESCE(tt.prefix || t.number::text, '')::text AS reference
+SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.run_as, e.parent_id, e.parent_step, e.parent_index, e.depth, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, COALESCE(tt.prefix || t.number::text, '')::text AS reference
 FROM workflow_executions e
 LEFT JOIN tasks t ON t.id = e.record_id
 LEFT JOIN task_types tt ON tt.type = t.type
@@ -487,6 +487,11 @@ func (q *Queries) ListExecutionViews(ctx context.Context, arg ListExecutionViews
 			&i.WorkflowExecution.Definition,
 			&i.WorkflowExecution.RecordID,
 			&i.WorkflowExecution.StartedBy,
+			&i.WorkflowExecution.RunAs,
+			&i.WorkflowExecution.ParentID,
+			&i.WorkflowExecution.ParentStep,
+			&i.WorkflowExecution.ParentIndex,
+			&i.WorkflowExecution.Depth,
 			&i.WorkflowExecution.Cause,
 			&i.WorkflowExecution.Status,
 			&i.WorkflowExecution.CurrentStep,
@@ -500,11 +505,6 @@ func (q *Queries) ListExecutionViews(ctx context.Context, arg ListExecutionViews
 			&i.WorkflowExecution.CreatedAt,
 			&i.WorkflowExecution.UpdatedAt,
 			&i.WorkflowExecution.FinishedAt,
-			&i.WorkflowExecution.RunAs,
-			&i.WorkflowExecution.ParentID,
-			&i.WorkflowExecution.ParentStep,
-			&i.WorkflowExecution.ParentIndex,
-			&i.WorkflowExecution.Depth,
 			&i.Reference,
 		); err != nil {
 			return nil, err
@@ -518,7 +518,7 @@ func (q *Queries) ListExecutionViews(ctx context.Context, arg ListExecutionViews
 }
 
 const listExecutions = `-- name: ListExecutions :many
-SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as, parent_id, parent_step, parent_index, depth FROM workflow_executions
+SELECT id, app, workflow, app_version, definition, record_id, started_by, run_as, parent_id, parent_step, parent_index, depth, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at FROM workflow_executions
 WHERE ($1::text IS NULL OR status = $1)
   AND ($2::uuid IS NULL OR record_id = $2)
   AND ($3::text IS NULL OR workflow = $3)
@@ -557,6 +557,11 @@ func (q *Queries) ListExecutions(ctx context.Context, arg ListExecutionsParams) 
 			&i.Definition,
 			&i.RecordID,
 			&i.StartedBy,
+			&i.RunAs,
+			&i.ParentID,
+			&i.ParentStep,
+			&i.ParentIndex,
+			&i.Depth,
 			&i.Cause,
 			&i.Status,
 			&i.CurrentStep,
@@ -570,11 +575,6 @@ func (q *Queries) ListExecutions(ctx context.Context, arg ListExecutionsParams) 
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.FinishedAt,
-			&i.RunAs,
-			&i.ParentID,
-			&i.ParentStep,
-			&i.ParentIndex,
-			&i.Depth,
 		); err != nil {
 			return nil, err
 		}

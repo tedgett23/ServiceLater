@@ -39,7 +39,7 @@ func (q *Queries) CreateApproval(ctx context.Context, arg CreateApprovalParams) 
 const decideApproval = `-- name: DecideApproval :one
 UPDATE workflow_approvals SET decision = $1, comment = $2, decided_at = now()
 WHERE id = $3 AND decision IS NULL AND closed_at IS NULL
-RETURNING id, execution_id, step_id, approver_id, decision, comment, decided_at, created_at, group_name, closed_at
+RETURNING id, execution_id, step_id, approver_id, group_name, decision, comment, decided_at, closed_at, created_at
 `
 
 type DecideApprovalParams struct {
@@ -58,18 +58,18 @@ func (q *Queries) DecideApproval(ctx context.Context, arg DecideApprovalParams) 
 		&i.ExecutionID,
 		&i.StepID,
 		&i.ApproverID,
+		&i.GroupName,
 		&i.Decision,
 		&i.Comment,
 		&i.DecidedAt,
-		&i.CreatedAt,
-		&i.GroupName,
 		&i.ClosedAt,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listApprovalsForStep = `-- name: ListApprovalsForStep :many
-SELECT id, execution_id, step_id, approver_id, decision, comment, decided_at, created_at, group_name, closed_at FROM workflow_approvals WHERE execution_id = $1 AND step_id = $2 ORDER BY created_at
+SELECT id, execution_id, step_id, approver_id, group_name, decision, comment, decided_at, closed_at, created_at FROM workflow_approvals WHERE execution_id = $1 AND step_id = $2 ORDER BY created_at
 `
 
 type ListApprovalsForStepParams struct {
@@ -91,12 +91,12 @@ func (q *Queries) ListApprovalsForStep(ctx context.Context, arg ListApprovalsFor
 			&i.ExecutionID,
 			&i.StepID,
 			&i.ApproverID,
+			&i.GroupName,
 			&i.Decision,
 			&i.Comment,
 			&i.DecidedAt,
-			&i.CreatedAt,
-			&i.GroupName,
 			&i.ClosedAt,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

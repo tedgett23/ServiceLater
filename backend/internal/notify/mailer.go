@@ -19,7 +19,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/settings"
 )
 
-// EmailKind is the job that sends one queued email (enqueued by the notifications_email trigger, migration 00029).
+// EmailKind is the job that sends one queued email (enqueued by the notifications_email trigger).
 const EmailKind = "notify.email"
 
 // Statuses of an email delivery.

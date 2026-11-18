@@ -23,7 +23,7 @@ func (q *Queries) CountMyUnreadNotifications(ctx context.Context, userID uuid.UU
 }
 
 const listMyNotifications = `-- name: ListMyNotifications :many
-SELECT id, user_id, kind, approval_id, created_at, read_at, task_id, app, template, actor_id FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2
+SELECT id, user_id, kind, approval_id, task_id, app, template, actor_id, created_at, read_at FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2
 `
 
 type ListMyNotificationsParams struct {
@@ -45,12 +45,12 @@ func (q *Queries) ListMyNotifications(ctx context.Context, arg ListMyNotificatio
 			&i.UserID,
 			&i.Kind,
 			&i.ApprovalID,
-			&i.CreatedAt,
-			&i.ReadAt,
 			&i.TaskID,
 			&i.App,
 			&i.Template,
 			&i.ActorID,
+			&i.CreatedAt,
+			&i.ReadAt,
 		); err != nil {
 			return nil, err
 		}
@@ -63,7 +63,7 @@ func (q *Queries) ListMyNotifications(ctx context.Context, arg ListMyNotificatio
 }
 
 const markNotificationRead = `-- name: MarkNotificationRead :one
-UPDATE notifications SET read_at = now() WHERE id = $1 AND read_at IS NULL RETURNING id, user_id, kind, approval_id, created_at, read_at, task_id, app, template, actor_id
+UPDATE notifications SET read_at = now() WHERE id = $1 AND read_at IS NULL RETURNING id, user_id, kind, approval_id, task_id, app, template, actor_id, created_at, read_at
 `
 
 // Only an unread row of this person's own matches, so marking someone else's, or marking twice, finds nothing (RLS
@@ -76,12 +76,12 @@ func (q *Queries) MarkNotificationRead(ctx context.Context, id uuid.UUID) (Notif
 		&i.UserID,
 		&i.Kind,
 		&i.ApprovalID,
-		&i.CreatedAt,
-		&i.ReadAt,
 		&i.TaskID,
 		&i.App,
 		&i.Template,
 		&i.ActorID,
+		&i.CreatedAt,
+		&i.ReadAt,
 	)
 	return i, err
 }
