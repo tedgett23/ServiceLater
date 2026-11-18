@@ -104,11 +104,32 @@ type FormField struct {
 // Core reports whether the field is one of the record's own columns rather than an extra field.
 func (f *FormField) Core() bool { return f.core }
 
-// Section is a group of fields shown together on a record, under a heading.
+// Section is a group of fields shown together, under a heading. By default its fields flow into as many columns as
+// fit (at most three; long text and Wide fields take a whole row). With Columns, the author places each field in one
+// of up to three columns, each read down in turn; Fields is then all of them in that order.
 type Section struct {
-	Label  string   `json:"label,omitempty" yaml:"section"`
-	Fields []string `json:"fields" yaml:"fields"`
+	Label   string     `json:"label,omitempty" yaml:"section"`
+	Fields  []string   `json:"fields" yaml:"fields"`
+	Columns [][]string `json:"columns,omitempty" yaml:"columns"`
+	Wide    []string   `json:"wide,omitempty" yaml:"wide"`
 }
+
+// MaxColumns is the most columns a section may have.
+const MaxColumns = 3
+
+// flatten sets Fields from Columns, when the section has them.
+func (s *Section) flatten() {
+	if len(s.Columns) == 0 {
+		return
+	}
+	s.Fields = []string{}
+	for _, c := range s.Columns {
+		s.Fields = append(s.Fields, c...)
+	}
+}
+
+// Plain reports whether the section is only a list of fields: no heading, columns or wide fields.
+func (s Section) Plain() bool { return s.Label == "" && len(s.Columns) == 0 && len(s.Wide) == 0 }
 
 // Form is how a record type's fields are laid out and checked (docs/apps-platform.md §8): the extra fields it adds,
 // the core fields it places, which appear when filing one and on the record, and when each is required, shown or
@@ -116,8 +137,11 @@ type Section struct {
 type Form struct {
 	RecordType string      `json:"record_type"`
 	Fields     []FormField `json:"fields"`
-	Create     []string    `json:"create"`
-	Detail     []Section   `json:"detail"`
+	// Create is the fields asked when filing one, in order; CreateSections lays them out (one plain section when the
+	// form gives only a list). Detail lays out the record.
+	Create         []string  `json:"create"`
+	CreateSections []Section `json:"create_sections,omitempty"`
+	Detail         []Section `json:"detail"`
 	// Validate are checks on the whole record: each When must hold, or the save is refused with its Error.
 	Validate []Guard `json:"validate,omitempty"`
 
@@ -223,8 +247,53 @@ type formFile struct {
 }
 
 type formLayoutFile struct {
-	Create []string  `yaml:"create"`
-	Detail []Section `yaml:"detail"`
+	Create createLayout `yaml:"create"`
+	Detail []Section    `yaml:"detail"`
+}
+
+// createLayout is layout.create: a list of field names, or a list of sections like detail's.
+type createLayout struct {
+	names    []string
+	sections []Section
+}
+
+func (c *createLayout) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.SequenceNode {
+		return fmt.Errorf("line %d: create must be a list of field names, or of sections", n.Line)
+	}
+	scalars := 0
+	for _, x := range n.Content {
+		if x.Kind == yaml.ScalarNode {
+			scalars++
+		}
+	}
+	switch scalars {
+	case len(n.Content):
+		return n.Decode(&c.names)
+	case 0:
+		return decodeNodeStrict(n, &c.sections)
+	}
+	return fmt.Errorf("line %d: create mixes field names and sections: give one or the other", n.Line)
+}
+
+// apply puts the layouts in a form.
+func (l formLayoutFile) apply(f *Form) {
+	f.Create, f.CreateSections, f.Detail = l.Create.names, l.Create.sections, l.Detail
+}
+
+// checkSections reports what is wrong with a layout's sections as written: both fields and columns, too many columns.
+func checkSections(file, where string, ss []Section, p *Problems) {
+	for i, s := range ss {
+		at := fmt.Sprintf("layout: %s[%d]", where, i)
+		switch {
+		case len(s.Columns) > 0 && len(s.Fields) > 0:
+			p.add(file, "%s: give fields or columns, not both", at)
+		case len(s.Columns) > MaxColumns:
+			p.add(file, "%s: a section may have at most %d columns", at, MaxColumns)
+		case len(s.Columns) > 0 && len(s.Wide) > 0:
+			p.add(file, "%s: wide is for a section without columns", at)
+		}
+	}
 }
 
 type formFieldFile struct {
@@ -273,8 +342,11 @@ func parseForm(file string, data []byte, p *Problems) *Form {
 		p.add(file, "kind must be form in this folder, got %q", f.Kind)
 		return nil
 	}
-	form := &Form{RecordType: f.RecordType, Fields: f.Fields, Create: f.Layout.Create, Detail: f.Layout.Detail, Validate: f.Validate}
+	form := &Form{RecordType: f.RecordType, Fields: f.Fields, Validate: f.Validate}
+	f.Layout.apply(form)
 	before := len(*p)
+	checkSections(file, "create", form.CreateSections, p)
+	checkSections(file, "detail", form.Detail, p)
 	form.validate(file, p)
 	if len(*p) > before {
 		return nil
@@ -387,17 +459,33 @@ func (f *Form) validateStructure(file string, p *Problems) {
 	if !inCreate["title"] && !f.TitleGiven {
 		p.add(file, "layout: create must include title: every record needs a summary")
 	}
-	if len(f.Detail) > maxFormSections {
-		p.add(file, "layout: detail may have at most %d sections", maxFormSections)
+	for _, l := range []struct {
+		where string
+		ss    []Section
+	}{{"create", f.CreateSections}, {"detail", f.Detail}} {
+		if len(l.ss) > maxFormSections {
+			p.add(file, "layout: %s may have at most %d sections", l.where, maxFormSections)
+		}
+		for i, s := range l.ss {
+			at := fmt.Sprintf("layout: %s[%d]", l.where, i)
+			if len(s.Fields) == 0 && l.where == "detail" {
+				p.add(file, "%s: a section needs fields", at)
+			}
+			if utf8.RuneCountInString(s.Label) > maxLabel {
+				p.add(file, "%s: label is longer than %d characters", at, maxLabel)
+			}
+			if len(s.Columns) > MaxColumns {
+				p.add(file, "%s: a section may have at most %d columns", at, MaxColumns)
+			}
+			for _, name := range s.Wide {
+				if !slices.Contains(s.Fields, name) {
+					p.add(file, "%s: wide names %s, which is not in the section", at, name)
+				}
+			}
+		}
 	}
 	inDetail := map[string]bool{}
 	for i, s := range f.Detail {
-		if len(s.Fields) == 0 {
-			p.add(file, "layout: detail[%d]: a section needs fields", i)
-		}
-		if utf8.RuneCountInString(s.Label) > maxLabel {
-			p.add(file, "layout: detail[%d]: label is longer than %d characters", i, maxLabel)
-		}
 		for _, name := range s.Fields {
 			at := fmt.Sprintf("layout: detail[%d]", i)
 			if inDetail[name] {
@@ -512,6 +600,7 @@ func (fd *FormField) validateExtra(owner string, reserved func(string) bool, at,
 // ---- compiling ----
 
 func (f *Form) index() {
+	f.normalizeLayout()
 	f.byName = map[string]*FormField{}
 	for i := range f.Fields {
 		fd := &f.Fields[i]
@@ -519,6 +608,25 @@ func (f *Form) index() {
 			fd.core = true
 		}
 		f.byName[fd.Name] = fd
+	}
+}
+
+// normalizeLayout keeps the two views of each layout in step: a section's Fields are its columns' fields in order,
+// and Create is the fields of CreateSections (or, given only Create, one plain section of them).
+func (f *Form) normalizeLayout() {
+	for i := range f.Detail {
+		f.Detail[i].flatten()
+	}
+	for i := range f.CreateSections {
+		f.CreateSections[i].flatten()
+	}
+	if len(f.CreateSections) > 0 {
+		f.Create = []string{}
+		for _, s := range f.CreateSections {
+			f.Create = append(f.Create, s.Fields...)
+		}
+	} else if len(f.Create) > 0 {
+		f.CreateSections = []Section{{Fields: slices.Clone(f.Create)}}
 	}
 }
 
@@ -900,3 +1008,6 @@ func CoreFieldKind(name string) string {
 
 // Recorded reports whether a field's changes go into history (history: false leaves them out).
 func (fd *FormField) Recorded() bool { return fd.History == nil || *fd.History }
+
+// Normalize keeps a form's layouts in step after it was built or changed in code (see normalizeLayout).
+func (f *Form) Normalize() { f.normalizeLayout() }

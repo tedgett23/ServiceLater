@@ -53,25 +53,105 @@ func CatalogItemYAML(it *CatalogItem, replace bool) ([]byte, error) {
 	if f == nil {
 		f = &Form{}
 	}
+	if err := appendFormBody(doc, f); err != nil {
+		return nil, err
+	}
+	return yaml.Marshal(doc)
+}
+
+// FormYAML is a form as its file (forms/<type>.yaml). With replace, it replaces the form below it whole.
+func FormYAML(f *Form, replace bool) ([]byte, error) {
+	doc := &yaml.Node{Kind: yaml.MappingNode}
+	if replace {
+		addScalar(doc, OverrideKey, OverrideReplace)
+	}
+	addScalar(doc, "kind", "form")
+	addScalar(doc, "record_type", f.RecordType)
+	if err := appendFormBody(doc, f); err != nil {
+		return nil, err
+	}
+	return yaml.Marshal(doc)
+}
+
+// FormOverride is what the studio layer holds for a form edited in the form editor, over base (the form as the
+// layers below make it): only what changed, or the whole form with override: replace when the smallest override
+// would not give exactly the edited form. It is nil when nothing changed.
+func FormOverride(base []byte, f *Form) ([]byte, error) {
+	want, err := FormYAML(f, false)
+	if err != nil {
+		return nil, err
+	}
+	diff, err := OverrideFor(base, want)
+	if err != nil || diff == nil {
+		return diff, err
+	}
+	if merged, err := mergeYAML(base, diff); err == nil && sameForm(merged, want) {
+		return diff, nil
+	}
+	return FormYAML(f, true)
+}
+
+func sameForm(a, b []byte) bool {
+	norm := func(data []byte) (string, bool) {
+		var p Problems
+		f := parseForm("", data, &p)
+		if f == nil {
+			return "", false
+		}
+		out, err := json.Marshal(f)
+		return string(out), err == nil
+	}
+	x, ok1 := norm(a)
+	y, ok2 := norm(b)
+	return ok1 && ok2 && x == y
+}
+
+// sectionNode writes a section: its heading, then its fields or columns.
+func sectionNode(s Section) *yaml.Node {
+	sec := &yaml.Node{Kind: yaml.MappingNode}
+	if s.Label != "" {
+		addScalar(sec, "section", s.Label)
+	}
+	if len(s.Columns) > 0 {
+		cols := &yaml.Node{Kind: yaml.SequenceNode}
+		for _, c := range s.Columns {
+			cols.Content = append(cols.Content, stringList(c))
+		}
+		sec.Content = append(sec.Content, scalar("columns"), cols)
+		return sec
+	}
+	sec.Content = append(sec.Content, scalar("fields"), stringList(s.Fields))
+	if len(s.Wide) > 0 {
+		sec.Content = append(sec.Content, scalar("wide"), stringList(s.Wide))
+	}
+	return sec
+}
+
+// appendFormBody writes a form's fields, layouts and checks into a definition's document.
+func appendFormBody(doc *yaml.Node, f *Form) error {
 	fields := &yaml.Node{Kind: yaml.MappingNode}
 	for _, fd := range f.Fields {
 		n, err := fieldNode(fd)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		fields.Content = append(fields.Content, scalar(fd.Name), n)
 	}
 	doc.Content = append(doc.Content, scalar("fields"), fields)
 	layout := &yaml.Node{Kind: yaml.MappingNode}
-	layout.Content = append(layout.Content, scalar("create"), stringList(f.Create))
+	// A form for filing that is one plain section is written as the list it is.
+	if len(f.CreateSections) > 1 || len(f.CreateSections) == 1 && !f.CreateSections[0].Plain() {
+		create := &yaml.Node{Kind: yaml.SequenceNode}
+		for _, s := range f.CreateSections {
+			create.Content = append(create.Content, sectionNode(s))
+		}
+		layout.Content = append(layout.Content, scalar("create"), create)
+	} else {
+		layout.Content = append(layout.Content, scalar("create"), stringList(f.Create))
+	}
 	detail := &yaml.Node{Kind: yaml.SequenceNode}
 	for _, s := range f.Detail {
-		sec := &yaml.Node{Kind: yaml.MappingNode}
-		if s.Label != "" {
-			addScalar(sec, "section", s.Label)
-		}
-		sec.Content = append(sec.Content, scalar("fields"), stringList(s.Fields))
-		detail.Content = append(detail.Content, sec)
+		detail.Content = append(detail.Content, sectionNode(s))
 	}
 	layout.Content = append(layout.Content, scalar("detail"), detail)
 	doc.Content = append(doc.Content, scalar("layout"), layout)
@@ -85,7 +165,7 @@ func CatalogItemYAML(it *CatalogItem, replace bool) ([]byte, error) {
 		}
 		doc.Content = append(doc.Content, scalar("validate"), checks)
 	}
-	return yaml.Marshal(doc)
+	return nil
 }
 
 func stringList(vals []string) *yaml.Node {

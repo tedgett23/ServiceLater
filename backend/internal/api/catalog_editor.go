@@ -191,6 +191,8 @@ func (h *handlers) putCatalogItemDef(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Item.Name, req.Item.Form.RecordType, req.Item.Form.TitleGiven = name, "request", true
+	// The editor sends the questions' order as create; any sections it read back are worked out from it again.
+	req.Item.Form.CreateSections = nil
 	app := req.App
 	if it := h.apps.CatalogItem(name); it != nil {
 		app = it.App

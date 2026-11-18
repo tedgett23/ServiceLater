@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$lib/api';
 	import FieldInput from '$lib/components/FieldInput.svelte';
+	import FormGrid from '$lib/components/FormGrid.svelte';
 	import SuggestedRecord from '$lib/components/SuggestedRecord.svelte';
 	import { session } from '$lib/session.svelte';
 	import { wide } from '$lib/fields';
@@ -28,6 +29,9 @@
 	const fields = $derived(
 		(form?.create ?? []).map((n) => form!.fields.find((f) => f.name === n)).filter((f): f is FormField => !!f)
 	);
+	const byName = $derived(new Map(fields.map((f) => [f.name, f])));
+	/** The form for filing in its sections (one plain section when the form gives only a list). */
+	const createSections = $derived(form?.create_sections?.length ? form.create_sections : [{ fields: form?.create ?? [] }]);
 	let values = $state<Record<string, FieldValue | null>>({});
 	let states = $state<Record<string, FieldState>>({});
 	let filledFor = '';
@@ -198,50 +202,59 @@
 		{/if}
 
 		<div class="fields">
-			{#each fields as f, i (f.name)}
-				{@const st = states[f.name] ?? {}}
-				{#if !st.hidden}
-					<div class="field" class:wide={wide(f) || f.type === 'datetime' || f.name === 'title'}>
-						<label for="nt-{f.name}">{f.label}{#if (st.required ?? f.required) && f.name !== 'title'}<span class="req" aria-hidden="true"> *</span>{/if}</label>
-						<FieldInput
-							field={f}
-							value={values[f.name] ?? null}
-							fieldState={st}
-							id="nt-{f.name}"
-							disabled={!!st.read_only}
-							live
-							autofocus={i === 0}
-							onchange={(v) => set(f, v)}
-						/>
-					</div>
-					{#if f.name === 'title' && suggestions.length}
-						<div class="suggest wide" role="region" aria-label="Articles that might help">
-							<p>These articles might help:</p>
-							<ul>
-								{#each suggestions as a (a.id)}
-									<!-- A new tab, so what has been typed here is not lost. -->
-									<li><a href="/kb/{a.reference}" target="_blank" rel="noopener">{a.title}</a></li>
-								{/each}
-							</ul>
+			{#each createSections as section, si (si)}
+				{#if section.label}<h3 class="section-label">{section.label}</h3>{/if}
+				<FormGrid
+					{section}
+					min="12rem"
+					show={(n) => byName.has(n) && !states[n]?.hidden}
+					isWide={(n) => wide(byName.get(n)!) || byName.get(n)!.type === 'datetime' || n === 'title'}
+				>
+					{#snippet item(name)}
+						{@const f = byName.get(name)!}
+						{@const st = states[f.name] ?? {}}
+						<div class="field">
+							<label for="nt-{f.name}">{f.label}{#if (st.required ?? f.required) && f.name !== 'title'}<span class="req" aria-hidden="true"> *</span>{/if}</label>
+							<FieldInput
+								field={f}
+								value={values[f.name] ?? null}
+								fieldState={st}
+								id="nt-{f.name}"
+								disabled={!!st.read_only}
+								live
+								autofocus={f.name === fields[0]?.name}
+								onchange={(v) => set(f, v)}
+							/>
 						</div>
-					{/if}
-					{#if f.name === 'title' && asksProblems && problems.length}
-						<div class="suggest wide" role="region" aria-label="Known problems">
-							<p>This may be a known problem:</p>
-							<ul class="problems">
-								{#each problems as p (p.id)}
-									<SuggestedRecord s={p} newTab>
-										{#snippet action()}
-											<button type="button" class="btn" aria-pressed={linkTo === p.id} onclick={() => (linkTo = linkTo === p.id ? '' : p.id)}
-												>{linkTo === p.id ? 'Will be linked' : 'Link to it'}</button
-											>
-										{/snippet}
-									</SuggestedRecord>
-								{/each}
-							</ul>
-						</div>
-					{/if}
-				{/if}
+						{#if f.name === 'title' && suggestions.length}
+							<div class="suggest" role="region" aria-label="Articles that might help">
+								<p>These articles might help:</p>
+								<ul>
+									{#each suggestions as a (a.id)}
+										<!-- A new tab, so what has been typed here is not lost. -->
+										<li><a href="/kb/{a.reference}" target="_blank" rel="noopener">{a.title}</a></li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+						{#if f.name === 'title' && asksProblems && problems.length}
+							<div class="suggest" role="region" aria-label="Known problems">
+								<p>This may be a known problem:</p>
+								<ul class="problems">
+									{#each problems as p (p.id)}
+										<SuggestedRecord s={p} newTab>
+											{#snippet action()}
+												<button type="button" class="btn" aria-pressed={linkTo === p.id} onclick={() => (linkTo = linkTo === p.id ? '' : p.id)}
+													>{linkTo === p.id ? 'Will be linked' : 'Link to it'}</button
+												>
+											{/snippet}
+										</SuggestedRecord>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+					{/snippet}
+				</FormGrid>
 			{/each}
 		</div>
 
@@ -293,6 +306,7 @@
 		box-shadow: var(--shadow-pop);
 	}
 	.suggest {
+		margin-top: 0.75rem;
 		padding: 0.6rem 0.75rem;
 		border-left: 3px solid var(--marker);
 		background: var(--raised);
@@ -364,12 +378,11 @@
 	}
 	.fields {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
 		gap: 1rem;
-		align-items: start;
 	}
-	.wide {
-		grid-column: 1 / -1;
+	.section-label {
+		font: 650 0.9375rem/1.3 var(--font-display);
+		margin-top: 0.25rem;
 	}
 	.req {
 		color: var(--red);

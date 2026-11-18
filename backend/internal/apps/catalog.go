@@ -87,9 +87,12 @@ func parseCatalogItem(file string, data []byte, p *Problems) *CatalogItem {
 	}
 	it := &CatalogItem{Name: f.Name, Label: f.Label, Category: f.Category, Summary: f.Summary, Description: f.Description,
 		Icon: f.Icon, Order: f.Order, AvailableTo: f.AvailableTo, Title: f.Title, Workflow: f.Workflow}
-	form := &Form{RecordType: "request", Fields: f.Fields, Create: f.Layout.Create, Detail: f.Layout.Detail, Validate: f.Validate, TitleGiven: true}
+	form := &Form{RecordType: "request", Fields: f.Fields, Validate: f.Validate, TitleGiven: true}
+	f.Layout.apply(form)
+	checkSections(file, "create", form.CreateSections, p)
+	checkSections(file, "detail", form.Detail, p)
 	// Left out, the layouts are the questions in order: asked when ordering, shown on the request.
-	if len(form.Create) == 0 && len(form.Detail) == 0 {
+	if len(form.Create) == 0 && len(form.CreateSections) == 0 && len(form.Detail) == 0 {
 		var names []string
 		for _, fd := range form.Fields {
 			if _, core := coreField("request", fd.Name); !core || fd.Name == "description" {

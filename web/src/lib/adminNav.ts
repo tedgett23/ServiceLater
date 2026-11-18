@@ -25,6 +25,7 @@ export function adminGroups(user: User | null | undefined): { label: string; pag
 			label: 'Work',
 			pages: [
 				can(user, P.catalogManage) && { href: '/admin/catalog', label: 'Catalog' },
+				can(user, P.formsManage) && { href: '/admin/forms', label: 'Forms' },
 				can(user, P.calendarsManage) && { href: '/admin/calendars', label: 'Calendars' }
 			]
 		},
