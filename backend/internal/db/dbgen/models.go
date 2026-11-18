@@ -56,8 +56,8 @@ type AppDefinition struct {
 	Checksum  string             `json:"checksum"`
 	Body      []byte             `json:"body"`
 	Current   bool               `json:"current"`
-	CreatedAt pgtype.Timestamptz `json:"created_at"`
 	Source    string             `json:"source"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
 type AppFile struct {
@@ -194,10 +194,10 @@ type Group struct {
 	ID          uuid.UUID          `json:"id"`
 	Name        string             `json:"name"`
 	Description string             `json:"description"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	Restricted  bool               `json:"restricted"`
 	CalendarID  uuid.NullUUID      `json:"calendar_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 type GroupMember struct {
@@ -287,12 +287,12 @@ type Notification struct {
 	UserID     uuid.UUID          `json:"user_id"`
 	Kind       string             `json:"kind"`
 	ApprovalID uuid.NullUUID      `json:"approval_id"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	ReadAt     pgtype.Timestamptz `json:"read_at"`
 	TaskID     uuid.NullUUID      `json:"task_id"`
 	App        pgtype.Text        `json:"app"`
 	Template   pgtype.Text        `json:"template"`
 	ActorID    uuid.NullUUID      `json:"actor_id"`
+	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ReadAt     pgtype.Timestamptz `json:"read_at"`
 }
 
 type RateLimit struct {
@@ -393,20 +393,20 @@ type SsoProvider struct {
 
 type Task struct {
 	ID                uuid.UUID          `json:"id"`
+	Type              string             `json:"type"`
 	Number            int64              `json:"number"`
 	Title             string             `json:"title"`
 	Description       string             `json:"description"`
 	Status            string             `json:"status"`
+	StateCategory     string             `json:"state_category"`
 	Priority          int16              `json:"priority"`
 	RequesterID       uuid.UUID          `json:"requester_id"`
 	AssigneeID        uuid.NullUUID      `json:"assignee_id"`
+	AssignmentGroupID uuid.NullUUID      `json:"assignment_group_id"`
+	ParentID          uuid.NullUUID      `json:"parent_id"`
+	Fields            []byte             `json:"fields"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
-	StateCategory     string             `json:"state_category"`
-	Type              string             `json:"type"`
-	AssignmentGroupID uuid.NullUUID      `json:"assignment_group_id"`
-	Fields            []byte             `json:"fields"`
-	ParentID          uuid.NullUUID      `json:"parent_id"`
 }
 
 type TaskArticle struct {
@@ -427,10 +427,10 @@ type TaskComment struct {
 	ID         uuid.UUID          `json:"id"`
 	TaskID     uuid.UUID          `json:"task_id"`
 	AuthorID   uuid.UUID          `json:"author_id"`
+	OnBehalfOf uuid.NullUUID      `json:"on_behalf_of"`
 	Body       string             `json:"body"`
 	Internal   bool               `json:"internal"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
-	OnBehalfOf uuid.NullUUID      `json:"on_behalf_of"`
 }
 
 type TaskSla struct {
@@ -449,21 +449,21 @@ type TaskSla struct {
 	WarningsSent int32              `json:"warnings_sent"`
 	NextAlertAt  pgtype.Timestamptz `json:"next_alert_at"`
 	Problem      string             `json:"problem"`
+	Calendar     string             `json:"calendar"`
 	StartedAt    pgtype.Timestamptz `json:"started_at"`
 	StoppedAt    pgtype.Timestamptz `json:"stopped_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
-	Calendar     string             `json:"calendar"`
 }
 
 type TaskType struct {
 	Type          string             `json:"type"`
 	Prefix        string             `json:"prefix"`
 	Label         string             `json:"label"`
+	Plural        string             `json:"plural"`
+	Description   string             `json:"description"`
 	AnyoneMayFile bool               `json:"anyone_may_file"`
 	FromCatalog   bool               `json:"from_catalog"`
 	OwnerApp      pgtype.Text        `json:"owner_app"`
-	Plural        string             `json:"plural"`
-	Description   string             `json:"description"`
 	RetiredAt     pgtype.Timestamptz `json:"retired_at"`
 }
 
@@ -472,12 +472,12 @@ type User struct {
 	Email              string             `json:"email"`
 	Name               string             `json:"name"`
 	Role               string             `json:"role"`
-	CreatedAt          pgtype.Timestamptz `json:"created_at"`
-	DeactivatedAt      pgtype.Timestamptz `json:"deactivated_at"`
+	ManagerID          uuid.NullUUID      `json:"manager_id"`
 	AppName            pgtype.Text        `json:"app_name"`
+	DeactivatedAt      pgtype.Timestamptz `json:"deactivated_at"`
 	EmailNotifications bool               `json:"email_notifications"`
 	Theme              string             `json:"theme"`
-	ManagerID          uuid.NullUUID      `json:"manager_id"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 }
 
 type UserCredential struct {
@@ -511,12 +511,12 @@ type WorkflowApproval struct {
 	ExecutionID uuid.UUID          `json:"execution_id"`
 	StepID      string             `json:"step_id"`
 	ApproverID  uuid.UUID          `json:"approver_id"`
+	GroupName   pgtype.Text        `json:"group_name"`
 	Decision    pgtype.Text        `json:"decision"`
 	Comment     string             `json:"comment"`
 	DecidedAt   pgtype.Timestamptz `json:"decided_at"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	GroupName   pgtype.Text        `json:"group_name"`
 	ClosedAt    pgtype.Timestamptz `json:"closed_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
 type WorkflowExecution struct {
@@ -527,6 +527,11 @@ type WorkflowExecution struct {
 	Definition    []byte             `json:"definition"`
 	RecordID      uuid.NullUUID      `json:"record_id"`
 	StartedBy     uuid.UUID          `json:"started_by"`
+	RunAs         uuid.NullUUID      `json:"run_as"`
+	ParentID      uuid.NullUUID      `json:"parent_id"`
+	ParentStep    pgtype.Text        `json:"parent_step"`
+	ParentIndex   pgtype.Int4        `json:"parent_index"`
+	Depth         int32              `json:"depth"`
 	Cause         []byte             `json:"cause"`
 	Status        string             `json:"status"`
 	CurrentStep   string             `json:"current_step"`
@@ -540,11 +545,6 @@ type WorkflowExecution struct {
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
-	RunAs         uuid.NullUUID      `json:"run_as"`
-	ParentID      uuid.NullUUID      `json:"parent_id"`
-	ParentStep    pgtype.Text        `json:"parent_step"`
-	ParentIndex   pgtype.Int4        `json:"parent_index"`
-	Depth         int32              `json:"depth"`
 }
 
 type WorkflowSchedule struct {

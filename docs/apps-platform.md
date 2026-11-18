@@ -281,7 +281,7 @@ brings that the operator did not touch flows through.
 3. The **instance local directory**, `SL_APPS_LOCAL_DIR/<app-name>/`, laid out like an app's `local/` folder. This
    is where changes to the embedded first-party apps go, because the binary cannot hold them. It belongs on a
    volume, so replacing the image or the binary leaves it alone.
-4. The **studio layer**: override files kept in the database (`app_overrides`, migration 00031), written by
+4. The **studio layer**: override files kept in the database (`app_overrides`, `00003_apps`), written by
    ServiceLater's own editors (the workflow builder, §7.7). Every install and sync applies it (startup, `app sync`,
    `app install`), and upgrades never touch it. Each installed app's own files are kept too (`app_files`), so any
    installed app, bundled or not, can be compiled again with an edit.
@@ -409,7 +409,7 @@ aggregates and no free text. What can be counted, and by which fields, is a fixe
 
 How it runs: the definition is checked at install (the target and fields exist, each value has the field's type, every
 `lookups.x` an expression reads is declared, a filter does not read lookups). At run time the engine works out the
-values from the record and calls the SQL function `app_lookup_count(target, filters)` (migration 00024) in the save's
+values from the record and calls the SQL function `app_lookup_count(target, filters)` (`00011_freezes_slas`) in the save's
 transaction, **as the person acting**, so RLS decides what is counted: an end user's lookup over incidents counts only
 their own. Every value is a bound parameter. A lookup that cannot run (a value cannot be evaluated, the database
 refuses it) is an error, and the rule or guard fails closed. `state_category` is a core column maintained from the
@@ -547,7 +547,7 @@ now). The engine is `internal/rules`; it does no database work, so the API appli
 
 ### 6.5 Notifications (built: in-app, email, SMS and Teams)
 
-**SMS and Teams (2026-11-17, migration 00051).** A template lists the channels it uses: `channels: [in_app, email,
+**SMS and Teams (2026-11-17, `00009_notifications`).** A template lists the channels it uses: `channels: [in_app, email,
 sms, teams]` (in_app always). SMS goes to people who added a mobile number on their account page, confirmed it with a
 texted code and left SMS on, through Twilio (Admin → Messaging); Teams posts once to the channel of each group a notify
 action names, when the group is connected (its Workflows webhook, a secret) and Teams is on. Both are queued in the
@@ -590,7 +590,7 @@ run:
 ticket lands there with nobody on it). An operator rewords a template or changes who is told in `local/`, like any
 other definition.
 
-What the platform enforces whatever a rule says (`app_notify`, migration 00018): nobody is told about their own change,
+What the platform enforces whatever a rule says (`app_notify`, `00009_notifications`): nobody is told about their own change,
 nobody deactivated, and nobody who cannot see the record (staff, or its requester), so an end user in a group never
 learns of someone else's ticket. At most 1000 recipients per action. The row stores the app, template, record and
 actor, never the text: the template is filled in when the recipient lists their notifications, from the record as
@@ -599,7 +599,7 @@ see drops out of their list). A template whose app was removed shows "Update on 
 save's transaction, so a rolled-back save tells nobody; a template missing at run time is recorded in `action_runs`
 and never blocks the save.
 
-**Email** (migration 00029, `internal/notify`): when the instance's email settings turn it on, a trigger on
+**Email** (`00009_notifications`, `internal/notify`): when the instance's email settings turn it on, a trigger on
 `notifications` queues an email (an `email_deliveries` row and a `notify.email` job, in the same transaction) for each
 notification whose template lists `email`, and for each `approval_pending` while the `email.approvals` setting is not
 off, to recipients who have not turned email off (`users.email_notifications`, on their account page). The worker
@@ -610,7 +610,7 @@ never says more than they could read in the app; it is plain text with a link ba
 email and its outcome is in the delivery log (Admin → Email). Sending uses `github.com/wneessen/go-mail`
 (STARTTLS, TLS, or none only to a relay on this machine). core-itsm 0.4.0's templates send email.
 
-**Email in** (migration 00052, `internal/inbound`; IMAP and Microsoft 365 chosen with the user 2026-11-17). Admin →
+**Email in** (`00009_notifications`, `internal/inbound`; IMAP and Microsoft 365 chosen with the user 2026-11-17). Admin →
 Incoming email names one mailbox, read by the worker every `SL_MAIL_POLL` (default a minute; an `inbound.fetch` job
 per interval, deduped, so several workers read it once): IMAP (`go-imap` v2, TLS, STARTTLS, or none only on this
 machine; password in the secret `inbound.password`) or Microsoft 365 through Graph (client credentials, application
@@ -679,7 +679,7 @@ CEL durations have no days). Warning and breach actions are `notify`, `workflow.
 install exactly as an async rule's are (templates and workflows must be in the same app); a workflow they start can
 reassign or escalate. `record.update`, `set` and `abort` are refused: nobody is saving.
 
-**Clocks are rows** (`task_slas`, migration 00025): one per record per SLA, holding its stage (running, paused,
+**Clocks are rows** (`task_slas`, `00011_freezes_slas`): one per record per SLA, holding its stage (running, paused,
 stopped, cancelled), target, the working time used before it last started running, the due time, when it breached,
 how many warnings were sent, and when the timer must next look at it. A clock keeps a copy of the definition it
 started with (as a workflow execution does), so editing an SLA changes new clocks, not running ones. RLS shows and
@@ -717,7 +717,7 @@ calendar:
 ```
 
 The choice is made when a clock starts and **again on every save** (`SLA.CalendarFor`, in `stepClock`): a clock
-records the calendar it counts by (`task_slas.calendar`, 00056), and switching banks the working time used so far in
+records the calendar it counts by (`task_slas.calendar`, `00011_freezes_slas`), and switching banks the working time used so far in
 the old calendar and counts on from the save in the new one (`Clock.SwitchCalendar`), so a hand-off to a team with
 other hours is counted fairly. A switch is written to the record's history (field `sla_calendar`, "Resolve hours"),
 and the ticket's SLA panel says which hours are counting (`calendar_label`). The timer, the panel and reports count
@@ -784,7 +784,7 @@ to looping and record editing**; HTTP is the dedicated `http.request` step, neve
   everything that loads them (a change that breaks a workflow is refused). Cross-app sharing was discussed and left
   out (not a common need); if it comes back: exports in `app.yaml`, private by default, a dependency required,
   shared code running as the caller, and subflows for anything that needs the owner's permissions.
-- **Editing.** `scripts:edit` (admins; 00054) is separate from `workflows:edit`: workflows are not scripts, and a
+- **Editing.** `scripts:edit` (admins; `00004_access`) is separate from `workflows:edit`: workflows are not scripts, and a
   builder save that adds or changes a script needs both. CodeMirror 6 (loaded only where a script is edited),
   completion of the built-ins and record fields, mistakes marked as typed (`POST /scripts/check`), and a test run
   against a record (`POST /scripts/test`: runs as the person, lists what it would change, changes nothing).
@@ -947,7 +947,7 @@ brings its `wake_at` forward, the same way a `wait until` is brought forward by 
 **Groups as approvers.** An approval may also (or instead) list `groups`: an expression producing group *names*, which,
 unlike `group('name')`, can be worked out from the record, such as the owners of the items a change touches:
 `groups: record.cis.filter(c, has(c.owner_group)).map(c, c.owner_group)`. Each group has **one vote**: every active
-member is asked (`workflow_approvals.group_name`, migration 00035; someone in two of the groups is asked once for
+member is asked (`workflow_approvals.group_name`, `00008_workflows`; someone in two of the groups is asked once for
 each), and the first member to answer casts it; the rest of the group's requests close (`closed_at`) and leave their
 inboxes. Each person in `approvers` is a vote too, and `rule` counts votes, so `rule: all` with groups means every
 group must approve. A group that does not exist, or has nobody active in it, fails the step, since its vote could
@@ -1018,7 +1018,7 @@ Agreed with the user 2026-11-18, alongside scripts (§6.7). Each runs in the ste
   child getting `vars.item` and `vars.index` (`each: record`: each item is a record id or reference the child runs
   on). Results: `<step>_results` (each child's variables, in order), `<step>_failed`, `<step>_outcome`; a failure stops
   further starts (unless `keep_going`) and, once the rest finish, takes `on_error`.
-- How: a child is a `workflow_executions` row with `parent_id`, `parent_step`, `parent_index` and `depth` (00055;
+- How: a child is a `workflow_executions` row with `parent_id`, `parent_step`, `parent_index` and `depth` (`00008_workflows`;
   at most 5 deep; a workflow that reaches itself through subflows is refused at install). The parent waits (`until`);
   a trigger wakes it when a child ends, and cancels its children when it fails or is cancelled. Every visit counts the
   child rows, starts what may start and finishes when none is left, so retries never double-start. Runs show their
@@ -1036,7 +1036,7 @@ Agreed with the user 2026-11-18, alongside scripts (§6.7). Each runs in the ste
   text), `<step>_error`.
 - **`query`** finds records: `find: {type, where: {field: {op: value}}, limit}` (the lookup syntax and operators; the
   fields are a lookup's plus `parent_id`, `created_at`, `updated_at`: `apps.QueryFields`, mirrored by the SQL function
-  `app_find_records`, 00055, kept in step by `TestQueryFieldsMatchTheDatabase`), as the actor under RLS, oldest
+  `app_find_records`, `00008_workflows`, kept in step by `TestQueryFieldsMatchTheDatabase`), as the actor under RLS, oldest
   first, at most 1000. Results: `<step>_ids`, `<step>_references`, `<step>_count`.
 - **`record.create`** files any type through the save path (`record_type`, `title`, `description`, `group` by name,
   `parent`, `fields`), for the person the run is for; `<step>_id` and `<step>_reference` (kept in the same
@@ -1075,7 +1075,7 @@ whose manifest reads no records cannot touch them (the builder says so, and sugg
 **Where its runs are, live.** The builder shows, on each step, how many runs are there now (highlighted with the
 marker, as the run viewer marks a run's current step) and how many visits the runs started in the last 7 days made,
 and how many failed there; the panel lists the runs in flight with their records. `GET /workflows/{app}/{name}/activity`
-gives it, and a trigger on `workflow_executions` (00034) sends `run.changed` (run id, app and workflow name only, to
+gives it, and a trigger on `workflow_executions` (`00008_workflows`) sends `run.changed` (run id, app and workflow name only, to
 those with `workflows:read_all`) when a run starts, moves or ends, so the page asks again; a 30 second refresh covers
 waits that end on their own time. A run started on an older version can be at a step the current one no longer has.
 
@@ -1098,7 +1098,7 @@ prebuilt web components loaded into named slots, but that is deliberately deferr
 A form is a definition kind (`forms/<type>.yaml`, `internal/apps/form.go`), one per record type: two apps cannot
 both provide the form for a type, as with lifecycles. It does three things.
 
-**It declares extra fields.** They are stored in `tasks.fields` (jsonb, migration 00026), so an app adds fields
+**It declares extra fields.** They are stored in `tasks.fields` (jsonb, `00007_records`), so an app adds fields
 without a table change (D6). Types: `text`, `textarea`, `number` (whole), `boolean`, `date` (YYYY-MM-DD), `datetime`
 (RFC 3339), `choice` (options, each optionally offered only `when` a condition holds). Each can have a `label`,
 `help`, `default`, `max_length`, `min`/`max`, and the conditions below. A field name is lowercase with underscores
@@ -1184,7 +1184,7 @@ the dialog asks again when a reactive field changes. The web keeps no field list
 **Customising.** Operators change a shipped form in `local/` like any definition: fields merge by name, so a
 local file can add a field or relabel one; layout lists replace the shipped ones whole.
 
-**The form editor** (Admin → Forms, `forms:manage`, admins; 00053) does the same from the UI, into the studio layer
+**The form editor** (Admin → Forms, `forms:manage`, admins; `00004_access`) does the same from the UI, into the studio layer
 (§4.5), like the catalog editor (`internal/api/form_editor.go`; web `FormEditor.svelte`, `FieldSettings.svelte`,
 `ConditionInput.svelte`, `lib/formEditor.ts`, `lib/conditions.ts`). Decided with the user 2026-11-17:
 
@@ -1213,7 +1213,7 @@ its fields through the API), extra fields in list views and lookups, and a visua
 
 ### 8.2 CMDB (built)
 
-Configuration items are **core data people edit** (`cis`, migration 00027), like freezes: an item has a `class`, a
+Configuration items are **core data people edit** (`cis`, `00010_cmdb`), like freezes: an item has a `class`, a
 `name` (unique within its class, case aside), a `status` (planned, active, maintenance, retired: core values,
 `apps.CIStatuses`), a description, an owner group and a support group, and its class's fields in `fields` (jsonb, as a
 ticket's extra fields). What an item *can be* and how items *relate* are app definitions, shipped by the `cmdb` app
@@ -1261,7 +1261,7 @@ linked to it. An item linked to a record cannot be deleted (409): retire it.
 to the support group of the first linked item that has one, when it is filed with items or its items change. A group
 someone chose is left alone; turn it off or narrow it in `local/`.
 
-**Freezes scoped to items** (`freeze_window_cis`, 00028): a freeze that lists items applies only to records linked to
+**Freezes scoped to items** (`freeze_window_cis`, `00011_freezes_slas`): a freeze that lists items applies only to records linked to
 one of them; one that lists none applies to every change. Lookups filter freezes with
 `applies_to: { in: =record.cis.map(c, c.id) }` (only `in`; a freeze for everything always matches), and
 change-management 0.6.0's freeze rule and Implement guard do so, so a change is checked again when its items change.
@@ -1308,7 +1308,7 @@ does the same for relationships. `POST` to the same paths (cmdb:manage) with the
   most 5 MB and 10,000 rows. Exports start with a byte order mark and escape cells a spreadsheet would run as a
   formula; the import undoes that, so an export uploads again unchanged.
 - An import writes history like any change, as the person importing. It sends one `ci.changed` event with
-  `bulk: true` instead of one per row (migration 00036 quiets the triggers for the transaction via `app.ci_bulk`).
+  `bulk: true` instead of one per row (the triggers stay quiet for the transaction via `app.ci_bulk`).
 
 Web: `/cmdb/import` (Import on the CMDB list): pick a class or relationships, download the template or what is there,
 see what each column takes, upload, check the preview, import.
@@ -1318,7 +1318,7 @@ other than the name, such as a serial number), Excel files, clearing values by i
 
 ### 8.3 Knowledge base (built)
 
-Articles are **core data people write** (`kb_articles`, migration 00030), like configuration items; the
+Articles are **core data people write** (`kb_articles`, `00012_knowledge`), like configuration items; the
 `knowledge-base` app (0.2.0) ships who looks after them (the `knowledge-manager` role). An article has a reference
 (KB12, its own sequence), a title, a Markdown body (stored as written; the web renders it with `marked` and sanitises it
 with DOMPurify, so the body is never trusted HTML), a category (free text, offered from the ones in use), tags, an
@@ -1465,7 +1465,7 @@ In expressions a record is flat: `record.priority` and `record.resolution` both 
   foreign key `(task_id, type) → tasks(id, type)` with `CHECK (type = 'incident')`, so an incident row can never
   hang off a change. Its RLS is "visible when its task is; only staff write". Changing it also bumps the task's
   `updated_at`, which notifies live screens.
-- `changes` is the second (migration 00023, for change management): `change_type` (standard, normal, emergency),
+- `changes` is the second (`00007_records`, for change management): `change_type` (standard, normal, emergency),
   `risk` and `impact` (low, medium, high, or empty: not assessed), `planned_start`/`planned_end` (end after start),
   and the implementation, back-out and test plans. The API nests them as `change` on a change (absent on other
   types) and takes them nested on create and PATCH; expressions see them flat (`record.risk`,
@@ -1539,7 +1539,7 @@ depends on it. Running workflow executions of a removed app are cancelled and re
 
 ### 9.4 History (built)
 
-Every record and configuration item keeps what happened to it, field by field (`record_history`, migration 00032):
+Every record and configuration item keeps what happened to it, field by field (`record_history`, `00013_history`):
 when, who (a person; an app's principal and the person it acted for; or the system, such as the SLA timer), what
 (`created`, `changed`, `linked`, `unlinked`, `deleted`), which field (a column, an extra field as `fields.<name>`, or
 what was linked: an item, an article, a record, a relationship) and the old and new values as stored. It is written
@@ -1553,7 +1553,7 @@ an item they may not see reads as "an item". The ticket's Activity section shows
 everything in order (remembered per browser); an item's page has a History section. A new record type gets history
 for its `tasks` columns and extra fields at once; a new extension table needs a trigger like `changes_history`.
 
-**Choosing what is recorded** (migration 00033). The basics are always recorded: a record's creation, status,
+**Choosing what is recorded** (`00013_history`). The basics are always recorded: a record's creation, status,
 assignee and assignment group; an item's creation, deletion and status. Beyond them:
 
 - **Admin → History** (`history.record_types`: record types, or `*` for every type including later ones;
@@ -1603,7 +1603,7 @@ description: "Things Tyler tracks."
   the app's own is an error at compile time, so typos are still caught by `servicelater app validate`.
 
 **What installing does.** In the install's transaction, each `record_type` upserts its `task_types` row (new columns:
-`owner_app`, `plural`, `description`, `retired_at`; core rows have no owner; migration 00042). Inserting the row creates the type's
+`owner_app`, `plural`, `description`, `retired_at`; core rows have no owner; `00007_records`). Inserting the row creates the type's
 number sequence through the existing trigger, so numbering needs no new code. A type with no lifecycle anywhere uses the
 `task` lifecycle, as today; `Registry.Provides` still decides whether it may be filed (an app must give it a lifecycle,
 directly or through `task`). The record permissions `records:<verb>:tyler_thing` exist at once, because
@@ -1644,7 +1644,7 @@ catalog (`from_catalog` stays core), and a limit on types per instance (to be se
 figure).
 
 **Where it lives:** `internal/apps/recordtype.go` (the kind, `CoreRecordTypes`, `checkRecordTypes`), `checkTypeOwnership`
-and `syncTaskTypes` in `install.go`, the registry's `types` and `retired`, migration 00042 (the columns). A sample app
+and `syncTaskTypes` in `install.go`, the registry's `types` and `retired`, `00007_records` (the columns). A sample app
 for tests only is `backend/internal/apps/testdata/tyler` (Things, TYL1).
 Tests: `internal/apps/recordtype_test.go`, `internal/api/app_record_types_test.go`, `web/e2e/record-types.spec.ts`.
 
@@ -1655,7 +1655,7 @@ analysis, Fix in progress, Resolved, Closed, Cancelled; Start the fix needs the 
 (category, root cause, workaround, **known error** as a flag that needs a workaround, fix) and a `problem-manager` role.
 
 Core keeps the link (decided with the user 2026-11-17: **one problem per incident**, as in ServiceNow):
-`incidents.problem_id` (00045; a generated `problem_type` column makes the foreign key prove the target is a problem;
+`incidents.problem_id` (`00007_records`; a generated `problem_type` column makes the foreign key prove the target is a problem;
 no ON DELETE, so a linked problem cannot be deleted). It goes through the save path (`Patch.SetProblem`,
 `CreateInput.ProblemID`, `problemFor`: incidents only, a problem the saver can see), is in history (`problem_id`,
 shown as the problem's reference) and in expressions (`record.problem_id`, and `record.open_incidents` on a problem).
@@ -1666,7 +1666,7 @@ incident and `incidents` (at most 100) for a new problem, each linked as an edit
 transaction. Web: `ProblemLinks.svelte` (Problem section on incidents: link to an open problem, raise one, unlink;
 Incidents section on problems).
 
-**Changes that fix a problem** (00046, decided with the user: a change records the problem it fixes, several may):
+**Changes that fix a problem** (`00007_records`, decided with the user: a change records the problem it fixes, several may):
 `changes.problem_id`, same shape, same save path and API fields; problems carry `changes` (and `linked_changes` in
 lists). When a linked change reaches a `done` state (Review), **change-management's** `resolve-fixed-problem` comments
 on the problem and moves it to Resolved through its lifecycle (only from Fix in progress with root cause and fix; a
@@ -1678,7 +1678,7 @@ workaround) and All, title search, open incidents and changes per row, New probl
 `ui.newTicketType`). It reads `GET /tickets?type=problem` with `open_incidents`/`linked_changes` and the generic
 `fields.<name>=<value>` filter (`t.fields @>`), and takes the known-error and workaround labels from the problem form.
 
-**Suggested links** (00047, the user chose suggestions over automatic linking; a person always decides):
+**Suggested links** (`00015_search`, the user chose suggestions over automatic linking; a person always decides):
 `app_match_score(a, b)` is the better of the share of stemmed words the shorter title has in common and trigram word
 similarity; a shared configuration item adds 0.5; the cut-off is 0.3 (one distinctive word in three). Synonyms are not
 known ("disconnects" and "drops"). Candidates come from a word index (`tasks_title_words_idx`, `app_any_word_query`),
@@ -1826,7 +1826,7 @@ save, not built yet). `app install` takes several paths and installs dependencie
   install plan. Deletions are audited with a tombstone and stay visible in `action_runs`.
 - **Outbound calls** (`http.request`, `webhook`) may only reach hosts declared in the manifest, with timeouts and
   response-size caps.
-- **Secrets** are typed config values, stored encrypted (pgcrypto), never returned to clients, and available to
+- **Secrets** are typed config values, stored encrypted (AES-256-GCM in Go, `internal/secrets`; the key is never in the database), never returned to clients, and available to
   steps only through `config`.
 - **Loop protection**: events caused by an app's own writes carry a causation chain. A rule cannot re-trigger on
   its own changes, and chains are capped at a fixed depth.
@@ -1858,7 +1858,7 @@ save, not built yet). `app install` takes several paths and installs dependencie
   writes records whom it acted for, and expressions still see that person as `user`.
 - **`role('name')`** in workflow expressions resolves to everyone holding the role, like `group('name')`, so an
   approval step can ask `approvers: "role('cab-member')"`.
-- **Record permissions are scoped by type** (migration 00022): `records:<verb>:<type>`, with `*` for every type
+- **Record permissions are scoped by type** (`00004_access`): `records:<verb>:<type>`, with `*` for every type
   (`records:update:*`). The verbs are fixed: `read` (see every record of the type, not only your own), `create`
   (file one), `update` (edit and move them, be assigned one) and `delete`. A requester always sees their own
   records, whatever the type. Filing for someone else needs `create` and `update` on the type. A type can be open
@@ -1876,7 +1876,7 @@ save, not built yet). `app install` takes several paths and installs dependencie
 
 ### 11.2 Settings and secrets (built)
 
-**Settings** (`settings`, migration 00029, `internal/settings`) are instance configuration admins change at run time:
+**Settings** (`settings`, `00005_settings`, `internal/settings`) are instance configuration admins change at run time:
 the names, types, defaults and checks are Go (`settings.Email`), the table only stores values, and `settings:manage`
 (admins) reads and writes them. Email is the first group: `email.enabled`, `host`, `port`, `tls` (starttls, tls, or
 none only to localhost), `username`, `from_address`, `from_name`, `base_url`, `approvals`. API `GET|PUT

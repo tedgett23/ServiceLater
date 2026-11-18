@@ -62,6 +62,12 @@ The database (`pg_dump -Fc`), the attachments volume (unless they are in S3), ap
 - An upgrade from 09b7049 (migration 41) to the current image on a populated database: migrations 42-50 applied, a
   bundled app upgraded and a new one installed, and the old records, attachment, users and numbering intact.
 
+**Migrations were consolidated on 2026-11-18** (before any real deployment): the 56 files that grew with the code
+became 16, one per area (`backend/db/migrations/00001_foundation.sql` to `00016_sign_in.sql`), building the same
+schema. A database made by the old files cannot be upgraded by the new ones: create it again (`DROP DATABASE ... WITH
+(FORCE)`, `CREATE DATABASE ... OWNER servicelater`) and let the server migrate it. From here on migrations are
+additive again.
+
 Podman notes: it needs fully qualified image names (`docker.io/library/postgres:17`, as the Compose files now say);
 podman-compose ignores `--scale`, does not wait for health checks (the server's wait covers that), and leaves
 `${VAR:-default}` unexpanded when VAR is not in the env file (so keep every variable of `.env.example` in `.env`); in a container

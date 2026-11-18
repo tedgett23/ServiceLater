@@ -36,7 +36,7 @@ func TestNothingChecksRolesInSQL(t *testing.T) {
 		t.Errorf("policies that check a role instead of a permission: %v", bad)
 	}
 	rows, err = pool.Query(ctx, `SELECT proname FROM pg_proc WHERE pronamespace = 'public'::regnamespace
-		AND proname NOT IN ('app_is_staff', 'app_is_admin', 'app_seed_builtin_roles')
+		AND proname <> 'app_seed_builtin_roles'
 		AND (prosrc ~ 'app_is_(staff|admin)' OR prosrc ~ 'role IN \(''admin'', ''agent''\)')`)
 	if err != nil {
 		t.Fatal(err)

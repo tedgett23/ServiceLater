@@ -1,6 +1,6 @@
 // Package authz is the permission model: what a person (or, later, an app) may do, as named permissions that roles
 // bundle. Go checks a permission for a fast refusal before the database (auth.RequirePermission); Postgres checks the
-// same names in RLS (app_can, migration 00019), and that is the check that counts.
+// same names in RLS (app_can, migrations/00001_foundation.sql), and that is the check that counts.
 //
 // A person's permissions are the union of their base role (users.role: admin, agent or end_user), the roles granted
 // to them, and the roles granted to any group they are in. A deactivated person has none.
@@ -16,7 +16,7 @@ import (
 	"strings"
 )
 
-// Permission names. The database knows them only as text, so these must match the roles seeded in migration 00019
+// Permission names. The database knows them only as text, so these must match the roles seeded in migrations/00004_access.sql
 // and the policies that call app_can.
 const (
 	CommentsInternal = "comments:internal" // read and write internal notes

@@ -291,7 +291,7 @@ const searchRecordsByNumber = `-- name: SearchRecordsByNumber :many
 SELECT t.id, t.type, tt.label AS type_label, (tt.prefix || t.number::text)::text AS reference, t.title, t.status, t.state_category
 FROM generate_series(0, 6) AS e
 JOIN LATERAL (
-    SELECT k.id, k.number, k.title, k.description, k.status, k.priority, k.requester_id, k.assignee_id, k.created_at, k.updated_at, k.state_category, k.type, k.assignment_group_id, k.fields, k.parent_id FROM tasks k
+    SELECT k.id, k.type, k.number, k.title, k.description, k.status, k.state_category, k.priority, k.requester_id, k.assignee_id, k.assignment_group_id, k.parent_id, k.fields, k.created_at, k.updated_at FROM tasks k
     WHERE k.type = $1
       AND k.number BETWEEN $2::bigint * (10 ^ e)::bigint AND ($2::bigint + 1) * (10 ^ e)::bigint - 1
     ORDER BY k.number

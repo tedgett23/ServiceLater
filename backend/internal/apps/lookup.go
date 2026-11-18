@@ -69,7 +69,7 @@ var taskLookupFields = map[string]string{
 }
 
 // LookupTargets are what a lookup can count, and the fields each can be filtered by. The SQL function
-// app_lookup_count (migration 00024) maps the same names to columns; TestLookupTargetsMatchTheDatabase keeps them
+// app_lookup_count (migrations/00011_freezes_slas.sql) maps the same names to columns; TestLookupTargetsMatchTheDatabase keeps them
 // in step.
 var LookupTargets = func() map[string]map[string]string {
 	out := map[string]map[string]string{

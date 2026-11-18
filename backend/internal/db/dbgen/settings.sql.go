@@ -72,7 +72,7 @@ func (q *Queries) GetEmailDelivery(ctx context.Context, id uuid.UUID) (GetEmailD
 }
 
 const getNotificationForEmail = `-- name: GetNotificationForEmail :one
-SELECT id, user_id, kind, approval_id, created_at, read_at, task_id, app, template, actor_id FROM notifications WHERE id = $1
+SELECT id, user_id, kind, approval_id, task_id, app, template, actor_id, created_at, read_at FROM notifications WHERE id = $1
 `
 
 // The notification an email is about, read as its recipient (their RLS).
@@ -84,12 +84,12 @@ func (q *Queries) GetNotificationForEmail(ctx context.Context, id uuid.UUID) (No
 		&i.UserID,
 		&i.Kind,
 		&i.ApprovalID,
-		&i.CreatedAt,
-		&i.ReadAt,
 		&i.TaskID,
 		&i.App,
 		&i.Template,
 		&i.ActorID,
+		&i.CreatedAt,
+		&i.ReadAt,
 	)
 	return i, err
 }

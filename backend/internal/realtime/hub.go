@@ -53,15 +53,15 @@ type resyncEvent struct {
 	Type string `json:"type"` // resync: notifications may have been missed, refetch what you show
 }
 
-// freezeEvent says a change freeze was declared, changed or lifted (migration 00024). Everyone may read freezes, so
+// freezeEvent says a change freeze was declared, changed or lifted (migrations/00011_freezes_slas.sql). Everyone may read freezes, so
 // it goes to everyone.
 type freezeEvent struct {
 	Type string    `json:"type"` // freeze.changed
 	ID   uuid.UUID `json:"id"`
 }
 
-// ciEvent says a configuration item, or one of its relationships, changed (migration 00027). It goes to those who
-// may read the CMDB. Bulk (an import, migration 00036) means many items changed at once and carries no id: refetch
+// ciEvent says a configuration item, or one of its relationships, changed (migrations/00010_cmdb.sql). It goes to those who
+// may read the CMDB. Bulk (an import, app.ci_bulk) means many items changed at once and carries no id: refetch
 // whatever is shown.
 type ciEvent struct {
 	Type string    `json:"type"` // ci.changed
@@ -69,7 +69,7 @@ type ciEvent struct {
 	Bulk bool      `json:"bulk,omitempty"`
 }
 
-// Notification payloads produced by the triggers in migrations 00003, 00005 and 00006.
+// Notification payloads produced by the triggers in migrations/00007_records.sql.
 type ticketNote struct {
 	ID          uuid.UUID `json:"id"`
 	Type        string    `json:"type"`
@@ -84,7 +84,7 @@ type commentNote struct {
 	RequesterID *uuid.UUID `json:"requester_id"`
 }
 
-// Produced by the notification triggers in migration 00015: who to tell, never what happened, so a client always
+// Produced by the notification triggers in migrations/00009_notifications.sql: who to tell, never what happened, so a client always
 // refetches its own list through /notifications rather than trusting the wire.
 type notificationNote struct {
 	UserID uuid.UUID `json:"user_id"`
@@ -174,7 +174,7 @@ func (h *Hub) onCI(payload string) {
 	h.broadcast(mustJSON(ciEvent{Type: "ci.changed", ID: n.ID, Bulk: n.Bulk}), func(c *client) bool { return c.perms.Has(authz.CMDBRead) })
 }
 
-// runEvent says a workflow run started, moved to another step or ended (migration 00034). It goes to those who see
+// runEvent says a workflow run started, moved to another step or ended (migrations/00008_workflows.sql). It goes to those who see
 // every run (the builder and the runs page), with the run's id and its workflow's name only.
 type runEvent struct {
 	Type     string    `json:"type"` // run.changed

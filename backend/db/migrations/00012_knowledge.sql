@@ -17,6 +17,7 @@ CREATE FUNCTION app_kb_search(p_title text, p_tags text[], p_category text, p_bo
            setweight(to_tsvector('english', p_body), 'C')
 $$;
 -- +goose StatementEnd
+
 CREATE TABLE kb_articles (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     number      bigint NOT NULL UNIQUE DEFAULT nextval('kb_article_number'),
@@ -77,19 +78,19 @@ CREATE FUNCTION app_can_read_article(p_status text, p_audience text) RETURNS boo
     END
 $$;
 -- +goose StatementEnd
-
 ALTER TABLE kb_articles ENABLE ROW LEVEL SECURITY;
 CREATE POLICY kb_articles_select ON kb_articles FOR SELECT TO servicelater_app USING (app_can_read_article(status, audience));
+
 -- Writers add drafts; a published or retired article is changed only by those who publish.
 CREATE POLICY kb_articles_insert ON kb_articles FOR INSERT TO servicelater_app
     WITH CHECK ((app_can('knowledge:write') AND status IN ('draft', 'review')) OR app_can('knowledge:publish'));
 CREATE POLICY kb_articles_update ON kb_articles FOR UPDATE TO servicelater_app
     USING ((app_can('knowledge:write') AND status IN ('draft', 'review')) OR app_can('knowledge:publish'))
     WITH CHECK ((app_can('knowledge:write') AND status IN ('draft', 'review')) OR app_can('knowledge:publish'));
+
 -- Only an article never published can be deleted (by those who publish); retire one instead.
 CREATE POLICY kb_articles_delete ON kb_articles FOR DELETE TO servicelater_app
     USING (app_can('knowledge:publish') AND published_at IS NULL);
-
 ALTER TABLE kb_article_versions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY kb_article_versions_select ON kb_article_versions FOR SELECT TO servicelater_app
     USING (EXISTS (SELECT 1 FROM kb_articles a WHERE a.id = article_id));
@@ -106,46 +107,11 @@ CREATE POLICY task_articles_insert ON task_articles FOR INSERT TO servicelater_a
                 AND EXISTS (SELECT 1 FROM kb_articles a WHERE a.id = article_id));
 CREATE POLICY task_articles_delete ON task_articles FOR DELETE TO servicelater_app
     USING (EXISTS (SELECT 1 FROM tasks t WHERE t.id = task_id AND app_can_record('update', t.type)));
-
--- Linking an article changes what a record shows: tell its watchers, as a CI link does.
+-- Linking an article changes what a record shows: tell its watchers, as an item link does.
 CREATE TRIGGER task_articles_notify AFTER INSERT OR DELETE ON task_articles
-    FOR EACH ROW EXECUTE FUNCTION task_cis_notify();
-
--- Agents write drafts and read internal articles; admins also publish (and the knowledge-base app's
--- knowledge-manager role grants that).
--- +goose StatementBegin
-CREATE OR REPLACE FUNCTION app_seed_builtin_roles() RETURNS void
-    LANGUAGE sql
-    AS $$
-    INSERT INTO roles (name, label, description, permissions) VALUES
-        ('admin', 'Admin', 'Everything, including people, groups and roles.',
-         '{calendars:manage,cmdb:manage,cmdb:read,comments:delete,comments:internal,freezes:manage,groups:manage,knowledge:publish,knowledge:read_internal,knowledge:write,records:create:*,records:delete:*,records:read:*,records:update:*,roles:manage,settings:manage,users:manage,users:read,workflows:read_all,workflows:run}'),
-        ('agent', 'Agent', 'Works tickets of every type: sees, files and edits them, writes internal notes, runs workflows.',
-         '{cmdb:read,comments:internal,knowledge:read_internal,knowledge:write,records:create:*,records:read:*,records:update:*,users:read,workflows:read_all,workflows:run}'),
-        ('end_user', 'End user', 'Files tickets and follows their own.', '{}')
-    ON CONFLICT (name) DO UPDATE SET label = EXCLUDED.label, description = EXCLUDED.description,
-        permissions = EXCLUDED.permissions, updated_at = now();
-$$;
--- +goose StatementEnd
-SELECT app_seed_builtin_roles();
+    FOR EACH ROW EXECUTE FUNCTION task_link_notify();
 
 -- +goose Down
--- +goose StatementBegin
-CREATE OR REPLACE FUNCTION app_seed_builtin_roles() RETURNS void
-    LANGUAGE sql
-    AS $$
-    INSERT INTO roles (name, label, description, permissions) VALUES
-        ('admin', 'Admin', 'Everything, including people, groups and roles.',
-         '{calendars:manage,cmdb:manage,cmdb:read,comments:delete,comments:internal,freezes:manage,groups:manage,records:create:*,records:delete:*,records:read:*,records:update:*,roles:manage,settings:manage,users:manage,users:read,workflows:read_all,workflows:run}'),
-        ('agent', 'Agent', 'Works tickets of every type: sees, files and edits them, writes internal notes, runs workflows.',
-         '{cmdb:read,comments:internal,records:create:*,records:read:*,records:update:*,users:read,workflows:read_all,workflows:run}'),
-        ('end_user', 'End user', 'Files tickets and follows their own.', '{}')
-    ON CONFLICT (name) DO UPDATE SET label = EXCLUDED.label, description = EXCLUDED.description,
-        permissions = EXCLUDED.permissions, updated_at = now();
-$$;
--- +goose StatementEnd
-SELECT app_seed_builtin_roles();
-DROP TRIGGER task_articles_notify ON task_articles;
 DROP TABLE task_articles;
 DROP TABLE kb_article_versions;
 DROP TABLE kb_articles;

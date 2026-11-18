@@ -23,7 +23,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/settings"
 )
 
-// SMSKind is the job that sends one queued text message (enqueued by the notifications_sms trigger, migration 00051).
+// SMSKind is the job that sends one queued text message (enqueued by the notifications_sms trigger).
 const SMSKind = "notify.sms"
 
 // maxSMS is how long a text may be: two segments, so a long title is cut rather than sent as five.

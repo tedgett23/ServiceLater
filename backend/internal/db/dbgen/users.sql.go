@@ -63,7 +63,7 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (email, name, role)
 VALUES (lower($3::text), $1, $2)
-RETURNING id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id
+RETURNING id, email, name, role, manager_id, app_name, deactivated_at, email_notifications, theme, created_at
 `
 
 type CreateUserParams struct {
@@ -80,12 +80,12 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.Email,
 		&i.Name,
 		&i.Role,
-		&i.CreatedAt,
-		&i.DeactivatedAt,
+		&i.ManagerID,
 		&i.AppName,
+		&i.DeactivatedAt,
 		&i.EmailNotifications,
 		&i.Theme,
-		&i.ManagerID,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -128,7 +128,7 @@ func (q *Queries) DeleteUser(ctx context.Context, id uuid.UUID) (int64, error) {
 }
 
 const getUser = `-- name: GetUser :one
-SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id FROM users WHERE id = $1
+SELECT id, email, name, role, manager_id, app_name, deactivated_at, email_notifications, theme, created_at FROM users WHERE id = $1
 `
 
 func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
@@ -139,18 +139,18 @@ func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (User, error) {
 		&i.Email,
 		&i.Name,
 		&i.Role,
-		&i.CreatedAt,
-		&i.DeactivatedAt,
+		&i.ManagerID,
 		&i.AppName,
+		&i.DeactivatedAt,
 		&i.EmailNotifications,
 		&i.Theme,
-		&i.ManagerID,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id FROM users WHERE email = lower($1::text)
+SELECT id, email, name, role, manager_id, app_name, deactivated_at, email_notifications, theme, created_at FROM users WHERE email = lower($1::text)
 `
 
 func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error) {
@@ -161,18 +161,18 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email string) (User, error
 		&i.Email,
 		&i.Name,
 		&i.Role,
-		&i.CreatedAt,
-		&i.DeactivatedAt,
+		&i.ManagerID,
 		&i.AppName,
+		&i.DeactivatedAt,
 		&i.EmailNotifications,
 		&i.Theme,
-		&i.ManagerID,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listStaff = `-- name: ListStaff :many
-SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id FROM users
+SELECT id, email, name, role, manager_id, app_name, deactivated_at, email_notifications, theme, created_at FROM users
 WHERE deactivated_at IS NULL AND app_name IS NULL
   AND NOT EXISTS (SELECT 1 FROM service_accounts s WHERE s.user_id = users.id)
   AND (CASE WHEN $1::text IS NULL THEN app_user_can_record_any(id, 'update')
@@ -196,12 +196,12 @@ func (q *Queries) ListStaff(ctx context.Context, recordType pgtype.Text) ([]User
 			&i.Email,
 			&i.Name,
 			&i.Role,
-			&i.CreatedAt,
-			&i.DeactivatedAt,
+			&i.ManagerID,
 			&i.AppName,
+			&i.DeactivatedAt,
 			&i.EmailNotifications,
 			&i.Theme,
-			&i.ManagerID,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -214,7 +214,7 @@ func (q *Queries) ListStaff(ctx context.Context, recordType pgtype.Text) ([]User
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id FROM users
+SELECT id, email, name, role, manager_id, app_name, deactivated_at, email_notifications, theme, created_at FROM users
 WHERE app_name IS NULL
   AND ($1::text IS NULL OR name ILIKE '%' || $1 || '%' ESCAPE '\' OR email ILIKE '%' || $1 || '%' ESCAPE '\')
   AND ($2::text IS NULL OR role = $2)
@@ -253,12 +253,12 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]User, e
 			&i.Email,
 			&i.Name,
 			&i.Role,
-			&i.CreatedAt,
-			&i.DeactivatedAt,
+			&i.ManagerID,
 			&i.AppName,
+			&i.DeactivatedAt,
 			&i.EmailNotifications,
 			&i.Theme,
-			&i.ManagerID,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -332,7 +332,7 @@ UPDATE users SET
         ELSE NULL END,
     manager_id = CASE WHEN $5::bool THEN $6::uuid ELSE manager_id END
 WHERE id = $7
-RETURNING id, email, name, role, created_at, deactivated_at, app_name, email_notifications, theme, manager_id
+RETURNING id, email, name, role, manager_id, app_name, deactivated_at, email_notifications, theme, created_at
 `
 
 type UpdateUserParams struct {
@@ -362,12 +362,12 @@ func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (User, e
 		&i.Email,
 		&i.Name,
 		&i.Role,
-		&i.CreatedAt,
-		&i.DeactivatedAt,
+		&i.ManagerID,
 		&i.AppName,
+		&i.DeactivatedAt,
 		&i.EmailNotifications,
 		&i.Theme,
-		&i.ManagerID,
+		&i.CreatedAt,
 	)
 	return i, err
 }
