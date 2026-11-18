@@ -995,9 +995,29 @@ label and help and the same conditions, never a type or options.
 
 **It lays them out and says when each applies.** `layout.create` is the form for filing one (it must include
 `title`); `layout.detail` is the record's sections (title, description and priority have places of their own).
-Every extra field must be in one of them. Conditions are CEL in the rule environment (no lookups):
+Every extra field must be in one of them. `create` is a list of fields, or a list of sections like `detail`'s. A
+section's `fields` flow into as many columns as fit, never more than three (long text, and fields named in its
+`wide`, take a whole row); or a section gives `columns` instead (at most three, each a list of fields, read down), and
+each field stays in the column it was put in. Columns fold by the room the section has, not the window's: three
+become two in a middling space, everything one column on a phone (`FormGrid.svelte`, container queries). In memory
+`Section.Fields` is always every field in order and `Form.Create` the plain list (`normalizeLayout`), so code that
+walks a layout never looks at columns. Conditions are CEL in the rule environment (no lookups):
 `required` or `required_when`, `visible_when` (a hidden field is never required), `read_only_when` (people may not
 change it; rules and workflows may), and `validate` checks on the whole record (`when` must hold, else `error`).
+
+```yaml
+layout:
+  create:
+    - fields: [title, description]
+    - section: Where
+      columns: [[category, site], [seats]]
+  detail:
+    - section: Schedule
+      columns: [[planned_start, implementation_plan], [planned_end, backout_plan]]
+    - section: Notes
+      fields: [notes, site]
+      wide: [site]
+```
 
 ```yaml
 kind: form
@@ -1047,12 +1067,34 @@ the dialog asks again when a reactive field changes. The web keeps no field list
 (`apps.FormFor`).
 
 **Customising.** Operators change a shipped form in `local/` like any definition: fields merge by name, so a
-local file can add a field or relabel one; layout lists replace the shipped ones whole. Editing forms in the UI
-would write the same local layer, once it can be kept in the database (open question 16).
+local file can add a field or relabel one; layout lists replace the shipped ones whole.
+
+**The form editor** (Admin → Forms, `forms:manage`, admins; 00053) does the same from the UI, into the studio layer
+(§4.5), like the catalog editor (`internal/api/form_editor.go`; web `FormEditor.svelte`, `FieldSettings.svelte`,
+`ConditionInput.svelte`, `lib/formEditor.ts`, `lib/conditions.ts`). Decided with the user 2026-11-17:
+
+- *Where an edit goes.* Into the app whose form it is; for a type with no form of its own, into the app that owns
+  the type (its `record_type` definition, else its lifecycle): Tasks' form goes in service-catalog as a new
+  `forms/work_task.yaml`. Over a shipped form only the change is kept (`apps.FormOverride`, else `override:
+  replace`); "Undo" (`DELETE /forms/{type}/edits`) goes back to the shipped or built-in form. If the app later ships
+  a form for that type, the edit applies over it like any local file. Requests are edited per catalog item; `task`
+  is not editable.
+- *Taking a field off* removes it from the form and its layouts only: records keep their values (and history), and
+  a field of the same name brings them back. The editor shows how many records hold a value
+  (`CountFieldValues`, counted as the system: it protects every record); a field with values keeps its name and its
+  type (text and long text may swap), which the server enforces on save.
+- *Conditions* are Always/Never, **Simple** ("Category is Hardware and Status is not Closed": extra choice, yes-or-no,
+  text and number fields, status, priority; written as guarded CEL, read back only from those exact shapes) or an
+  **Expression**. A friendlier condition builder for non-technical admins is wanted later.
+- *Layout* is dragged (or moved with the arrow buttons) between sections and columns; each section is Automatic, 2 or
+  3 columns. A preview beside renders the same `FormGrid` and works out simple conditions as it is filled in.
+- *Checking.* `POST /forms/{type}/definition/check` compiles the app with the draft without saving, as the editor
+  changes; `PUT /forms/{type}/definition` installs it (422 with every problem, such as a rule reading a field taken
+  off). The catalog editor's questions use the same `FieldSettings`.
 
 Not built yet: forms on `task` (inherited by every type), user and group pickers as field types, reading another
 app's fields, per-field read permissions (a hidden field is not a secret: anyone who can read the record can read
-its fields through the API), extra fields in list views, search and lookups, and editing forms in the UI.
+its fields through the API), extra fields in list views and lookups, and a visual condition builder.
 
 ### 8.2 CMDB (built)
 
@@ -1786,8 +1828,8 @@ A key service (KMS, Vault) is not supported; the keyring is the seam where one w
     outside the binary (§4.5).
 15. **Signing and marketplace.** Out of scope for v1; worth deciding the archive format so signatures can be added.
 16. **Editing definitions in the UI.** Partly resolved: the studio layer (§4.5) is the local layer kept in the
-    database, and the workflow builder writes it. A form editor, and editors for lifecycle labels or a notification's
-    wording, can write the same layer the same way.
+    database; the workflow builder, the catalog editor and the form editor write it. Editors for lifecycle labels or
+    a notification's wording can write the same layer the same way.
 
 ## 14. Roadmap in small slices
 

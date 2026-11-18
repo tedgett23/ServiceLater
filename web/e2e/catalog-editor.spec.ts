@@ -47,7 +47,9 @@ test('an admin adds an item people can order, and the server explains a mistake'
 		await ed.getByLabel('Summary').fill('A lamp for your desk.');
 		await ed.getByRole('button', { name: 'Add a question' }).click();
 		await ed.getByLabel('Question', { exact: true }).fill('Which desk?');
-		await ed.getByLabel('Always required').check();
+		await ed.getByRole('group', { name: 'Required: how' }).getByRole('button', { name: 'Always' }).click();
+		// Conditions are Simple or an expression; a mistake in one is listed as an install would list it.
+		await ed.getByRole('group', { name: 'Shown: how' }).getByRole('button', { name: 'Expression' }).click();
 		await ed.getByLabel('Shown when').fill('record.fields.nope');
 		await ed.getByRole('button', { name: 'Save' }).click();
 		await expect(ed.getByRole('alert')).toContainText('nope'); // every problem, as an install would list it

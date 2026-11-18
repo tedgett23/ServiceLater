@@ -139,6 +139,13 @@
             },
             "type": "array"
           },
+          "create_sections": {
+            "description": "Lays them out: each section's fields flow into as many columns as fit (up to three), or sit in the columns it gives.",
+            "items": {
+              "$ref": "#/components/schemas/Section"
+            },
+            "type": "array"
+          },
           "detail": {
             "description": "Lists the sections of fields shown on the record, in order. Title, description and priority have places of their own there and are not listed.",
             "items": {
@@ -165,6 +172,7 @@
         },
         "required": [
           "create",
+          "create_sections",
           "detail",
           "fields",
           "reactive",
@@ -2021,6 +2029,41 @@
         },
         "type": "object"
       },
+      "CoreField": {
+        "description": "One of a type's own fields, which a form may relabel, explain, lay out and set conditions on.",
+        "properties": {
+          "detail": {
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "on_create": {
+            "description": "Says it may be asked when filing; Detail that it may be laid out on the record.",
+            "type": "boolean"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/Option"
+            },
+            "type": "array"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail",
+          "label",
+          "name",
+          "on_create",
+          "type"
+        ],
+        "type": "object"
+      },
       "CreateAttachmentRequest": {
         "description": "Starts uploading a file.",
         "properties": {
@@ -2270,6 +2313,12 @@
             },
             "type": "array"
           },
+          "create_sections": {
+            "items": {
+              "$ref": "#/components/schemas/Section"
+            },
+            "type": "array"
+          },
           "detail": {
             "items": {
               "$ref": "#/components/schemas/Section"
@@ -2299,6 +2348,144 @@
           "create",
           "detail",
           "fields",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "FormDef": {
+        "description": "A form as the editor changes it: the definition its file holds, and what the editor needs around it.",
+        "properties": {
+          "app": {
+            "description": "The app the form is (or an edit would be) kept in.",
+            "type": "string"
+          },
+          "builtin": {
+            "type": "boolean"
+          },
+          "core_fields": {
+            "description": "The type's own fields.",
+            "items": {
+              "$ref": "#/components/schemas/CoreField"
+            },
+            "type": "array"
+          },
+          "edited": {
+            "type": "boolean"
+          },
+          "edited_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "edited_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "form": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Form"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "layers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "override": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "shipped": {
+            "type": "boolean"
+          },
+          "values": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "description": "Counts the records holding a value for each extra field, by name, including fields the form no longer has: a field with values keeps its name and type.",
+            "type": "object"
+          },
+          "yaml": {
+            "description": "The form as a file; Override the edit as it is kept (what `servicelater app export-local` writes).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "builtin",
+          "core_fields",
+          "edited",
+          "form",
+          "label",
+          "layers",
+          "path",
+          "record_type",
+          "shipped",
+          "values",
+          "yaml"
+        ],
+        "type": "object"
+      },
+      "FormEntry": {
+        "description": "A record type in the editor's list.",
+        "properties": {
+          "app": {
+            "description": "The app whose form it is, or that an edit goes in (the type's owner when it has no form).",
+            "type": "string"
+          },
+          "builtin": {
+            "description": "Says no app gives the type a form: it has the one made of its own fields.",
+            "type": "boolean"
+          },
+          "catalog": {
+            "description": "Says its forms are its catalog items' questions, edited in the catalog editor.",
+            "type": "boolean"
+          },
+          "edited": {
+            "type": "boolean"
+          },
+          "extra_fields": {
+            "description": "Counts the fields the form adds.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "builtin",
+          "catalog",
+          "edited",
+          "extra_fields",
+          "label",
+          "prefix",
           "record_type"
         ],
         "type": "object"
@@ -2373,6 +2560,22 @@
         "required": [
           "name"
         ],
+        "type": "object"
+      },
+      "FormSaveRequest": {
+        "description": "A form as the editor saves it.",
+        "properties": {
+          "form": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Form"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
         "type": "object"
       },
       "FormStates": {
@@ -4080,6 +4283,15 @@
       },
       "Section": {
         "properties": {
+          "columns": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          },
           "fields": {
             "items": {
               "type": "string"
@@ -4088,6 +4300,12 @@
           },
           "label": {
             "type": "string"
+          },
+          "wide": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -10491,6 +10709,120 @@
         ]
       }
     },
+    "/api/v1/forms": {
+      "get": {
+        "description": "(forms:manage): every record type in use, with where its form comes from and whether it was changed here.\n\nRequires the `forms:manage` permission.",
+        "operationId": "listFormDefs",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/FormEntry"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List form defs",
+        "tags": [
+          "forms"
+        ],
+        "x-permissions": [
+          "forms:manage"
+        ]
+      }
+    },
     "/api/v1/forms/{type}": {
       "get": {
         "description": "The form for a record type, for anyone signed in (people file incidents). A type no app gives a form to has one made of its own fields. With item, a request's: the catalog item's questions, which is how a request ordered from it is laid out (the type's form when the item is gone).",
@@ -10555,6 +10887,487 @@
         "summary": "Get form",
         "tags": [
           "forms"
+        ]
+      }
+    },
+    "/api/v1/forms/{type}/definition": {
+      "get": {
+        "description": "(forms:manage): a type's form for the editor: its definition (the built-in one when no app gives it a form), where it is kept, whether it was changed here, the type's own fields, and how many records hold a value for each extra field.\n\nRequires the `forms:manage` permission.",
+        "operationId": "getFormDef",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormDef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get form def",
+        "tags": [
+          "forms"
+        ],
+        "x-permissions": [
+          "forms:manage"
+        ]
+      },
+      "put": {
+        "description": "(forms:manage) with {\"form\"}: save a type's form into its app's studio layer (adding a form for a type that had none) and reinstall the app with it at once. It is checked as an install checks it; every problem is listed (422 with problems), such as a rule that reads a field taken off the form. Fields taken off keep their values in the records that have them; a field with values keeps its type.\n\nRequires the `forms:manage` permission.",
+        "operationId": "putFormDef",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormDef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Put form def",
+        "tags": [
+          "forms"
+        ],
+        "x-permissions": [
+          "forms:manage"
+        ]
+      }
+    },
+    "/api/v1/forms/{type}/definition/check": {
+      "post": {
+        "description": "(forms:manage) with {\"form\"}: what saving it would refuse, without saving: {\"problems\": [...]}, empty when it would save. The editor asks as it is changed.\n\nRequires the `forms:manage` permission.",
+        "operationId": "checkFormDef",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "problems": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "problems"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Check form def",
+        "tags": [
+          "forms"
+        ],
+        "x-permissions": [
+          "forms:manage"
+        ]
+      }
+    },
+    "/api/v1/forms/{type}/edits": {
+      "delete": {
+        "description": "(forms:manage): undo the changes made here: the form goes back to the one its app ships, or, for a type that had none, to the built-in form. Records keep the values they hold.\n\nRequires the `forms:manage` permission.",
+        "operationId": "resetFormDef",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormDef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Reset form def",
+        "tags": [
+          "forms"
+        ],
+        "x-permissions": [
+          "forms:manage"
         ]
       }
     },

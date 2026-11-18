@@ -3,6 +3,7 @@
 	import { api, ApiError } from '$lib/api';
 	import CatalogIcon from '$lib/components/CatalogIcon.svelte';
 	import FieldInput from '$lib/components/FieldInput.svelte';
+	import FieldSettings from '$lib/components/FieldSettings.svelte';
 	import {
 		isDescription,
 		itemNameFrom,
@@ -11,6 +12,7 @@
 		parseValue,
 		previewField,
 		questionTypes,
+		simpleFields,
 		valueText,
 		type DefField,
 		type ItemDef,
@@ -100,28 +102,6 @@
 	function remove(i: number) {
 		item.form.fields.splice(i, 1);
 		open = null;
-	}
-
-	function setLabelOf(f: DefField, v: string) {
-		const auto = !f.label || f.name === nameFrom(f.label, item.form.fields.filter((x) => x !== f).map((x) => x.name));
-		f.label = v;
-		// A question's name follows its label until it is saved as part of the item (answers are stored by name).
-		const saved = def?.item.form.fields.some((x) => x.name === f.name);
-		if (auto && !saved && !isDescription(f) && v.trim()) {
-			f.name = nameFrom(v, item.form.fields.filter((x) => x !== f).map((x) => x.name));
-		}
-	}
-
-	function setType(f: DefField, t: DefField['type']) {
-		f.type = t;
-		if (t === 'choice' && !f.options?.length) f.options = [{ value: '', label: '' }];
-		if (t !== 'choice') delete f.options;
-		if (t !== 'text' && t !== 'textarea') delete f.max_length;
-		if (t !== 'number') {
-			delete f.min;
-			delete f.max;
-		}
-		delete f.default;
 	}
 
 	function setAudience(on: boolean) {
@@ -310,83 +290,15 @@
 							<button type="button" class="btn quiet reject" onclick={() => remove(i)} aria-label="Remove {f.label || f.name}">Remove</button>
 						</div>
 						{#if open === i}
-							<div class="qbody grid">
-								<label class="field wide">
-									<span>Question</span>
-									<input value={f.label ?? ''} oninput={(e) => setLabelOf(f, e.currentTarget.value)} maxlength="100" placeholder="What do you need it for?" />
-								</label>
-								{#if !isDescription(f)}
-									<label class="field">
-										<span>Kind of answer</span>
-										<select value={f.type} onchange={(e) => setType(f, e.currentTarget.value as DefField['type'])}>
-											{#each questionTypes as t (t.type)}<option value={t.type}>{t.label}</option>{/each}
-										</select>
-									</label>
-									<label class="field">
-										<span>Name</span>
-										<input bind:value={f.name} pattern="[a-z][a-z0-9_]*" maxlength="40" />
-										<small class="help">Answers are kept, and workflows read them, as record.fields.{f.name}.</small>
-									</label>
-								{/if}
-								<label class="field wide">
-									<span>Help</span>
-									<input bind:value={f.help} maxlength="300" placeholder="A hint under the question" />
-								</label>
-								{#if f.type === 'choice'}
-									<fieldset class="wide options">
-										<legend>Choices</legend>
-										{#each f.options ?? [] as o, j (j)}
-											<div class="option">
-												<input
-													aria-label="Choice {j + 1}"
-													value={o.label}
-													placeholder="What people see"
-													oninput={(e) => {
-														// The value kept follows the label until someone sets it apart.
-														if (!o.value || o.value === o.label) o.value = e.currentTarget.value;
-														o.label = e.currentTarget.value;
-													}}
-												/>
-												<input aria-label="Choice {j + 1} value" bind:value={o.value} placeholder="Value kept" />
-												<input aria-label="Choice {j + 1} offered when" bind:value={o.when} placeholder="Offered when (optional)" />
-												<button type="button" class="btn quiet" onclick={() => f.options!.splice(j, 1)} aria-label="Remove choice {j + 1}">×</button>
-											</div>
-										{/each}
-										<button type="button" class="btn" onclick={() => (f.options ??= []).push({ value: '', label: '' })}>Add a choice</button>
-									</fieldset>
-								{/if}
-								<label class="check wide"><input type="checkbox" bind:checked={f.required} /> Always required</label>
-								<label class="field">
-									<span>Required when</span>
-									<input bind:value={f.required_when} placeholder={'record.fields.replacing'} disabled={f.required} />
-								</label>
-								<label class="field">
-									<span>Shown when</span>
-									<input bind:value={f.visible_when} placeholder={'record.fields.access_level == "administrator"'} />
-								</label>
-								{#if !isDescription(f)}
-									<label class="field">
-										<span>Starts as</span>
-										<input value={valueText(f.default)} oninput={(e) => (f.default = parseValue(e.currentTarget.value, f.type))} placeholder={f.type === 'boolean' ? 'true or false' : 'Empty'} />
-									</label>
-								{/if}
-								{#if f.type === 'text' || f.type === 'textarea'}
-									<label class="field">
-										<span>Longest answer</span>
-										<input type="number" min="1" value={f.max_length ?? ''} oninput={(e) => (f.max_length = Number(e.currentTarget.value) || undefined)} placeholder="Characters" />
-									</label>
-								{/if}
-								{#if f.type === 'number'}
-									<label class="field">
-										<span>At least</span>
-										<input type="number" value={f.min ?? ''} oninput={(e) => (f.min = e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value))} />
-									</label>
-									<label class="field">
-										<span>At most</span>
-										<input type="number" value={f.max ?? ''} oninput={(e) => (f.max = e.currentTarget.value === '' ? undefined : Number(e.currentTarget.value))} />
-									</label>
-								{/if}
-								<p class="help wide">Conditions are expressions over the answers so far, such as record.fields.replacing or has(record.fields.model).</p>
+							<div class="qbody">
+								<FieldSettings
+									bind:field={item.form.fields[i]}
+									labels={{ label: 'Question', type: 'Kind of answer' }}
+									plain={isDescription(f)}
+									saved={!!def?.item.form.fields.some((x) => x.name === f.name)}
+									others={item.form.fields.filter((x) => x !== f).map((x) => x.name)}
+									fields={simpleFields(item.form.fields, f.name)}
+								/>
 							</div>
 						{/if}
 					</li>
@@ -616,22 +528,12 @@
 	.btn.reject {
 		color: var(--red);
 	}
-	.options {
-		display: grid;
-		gap: 0.4rem;
-		justify-items: start;
-	}
-	.option,
 	.check-row {
 		display: grid;
-		grid-template-columns: 1fr 1fr 1fr auto;
+		grid-template-columns: 2fr 1.4fr auto;
 		gap: 0.4rem;
 		width: 100%;
 	}
-	.check-row {
-		grid-template-columns: 2fr 1.4fr auto;
-	}
-	.option input,
 	.check-row input {
 		min-width: 0;
 		min-height: 2.5rem;
@@ -642,7 +544,6 @@
 		color: var(--ink);
 		font: inherit;
 	}
-	.option input:focus-visible,
 	.check-row input:focus-visible {
 		outline-offset: 0;
 		border-color: var(--focus);
@@ -724,12 +625,6 @@
 		.grid,
 		.audience {
 			grid-template-columns: minmax(0, 1fr);
-		}
-		.option {
-			grid-template-columns: 1fr 1fr auto;
-		}
-		.option input:nth-child(3) {
-			grid-column: 1 / 3;
 		}
 		.check-row {
 			grid-template-columns: 1fr auto;

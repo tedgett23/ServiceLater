@@ -171,14 +171,28 @@ export interface FormField {
 	max?: number;
 }
 
+/**
+ * A group of fields under a heading. Without columns its fields flow into as many columns as fit (at most three; long
+ * text and `wide` fields take a whole row); with columns, each field sits in the column it was put in, read down.
+ */
+export interface FormSection {
+	label?: string;
+	/** Every field of the section, in order (with columns: column by column). */
+	fields: string[];
+	columns?: string[][];
+	wide?: string[];
+}
+
 /** How a record type is filled in and shown, from GET /forms/{type}. */
 export interface FormDef {
 	record_type: string;
 	fields: FormField[];
 	/** The fields on the form for filing one, in order. */
 	create: string[];
+	/** How they are laid out. */
+	create_sections?: FormSection[];
 	/** The sections shown on the record. */
-	detail: { label?: string; fields: string[] }[];
+	detail: FormSection[];
 	/** Fields the form's conditions read: ask for the states again when one changes while filing. */
 	reactive: string[];
 	app?: string;
@@ -314,7 +328,8 @@ export const P = {
 	knowledgeWrite: 'knowledge:write',
 	knowledgePublish: 'knowledge:publish',
 	workflowsEdit: 'workflows:edit',
-	catalogManage: 'catalog:manage'
+	catalogManage: 'catalog:manage',
+	formsManage: 'forms:manage'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */
@@ -372,7 +387,8 @@ export const canAdmin = (u: User | null | undefined) =>
 	can(u, P.rolesManage) ||
 	can(u, P.calendarsManage) ||
 	can(u, P.settingsManage) ||
-	can(u, P.catalogManage);
+	can(u, P.catalogManage) ||
+	can(u, P.formsManage);
 
 export interface LifecycleState {
 	id: string;

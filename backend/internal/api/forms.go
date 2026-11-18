@@ -19,6 +19,9 @@ type formDTO struct {
 	Fields     []formFieldDTO `json:"fields"`
 	// Create lists the fields on the form for filing one, in order.
 	Create []string `json:"create"`
+	// CreateSections lays them out: each section's fields flow into as many columns as fit (up to three), or sit in
+	// the columns it gives.
+	CreateSections []apps.Section `json:"create_sections"`
 	// Detail lists the sections of fields shown on the record, in order. Title, description and priority have places
 	// of their own there and are not listed.
 	Detail []apps.Section `json:"detail"`
@@ -56,9 +59,13 @@ type optionDTO struct {
 }
 
 func toFormDTO(f *apps.Form) formDTO {
-	out := formDTO{RecordType: f.RecordType, Fields: []formFieldDTO{}, Create: f.Create, Detail: f.Detail, Reactive: f.Reactive(), App: f.App}
+	out := formDTO{RecordType: f.RecordType, Fields: []formFieldDTO{}, Create: f.Create, CreateSections: f.CreateSections,
+		Detail: f.Detail, Reactive: f.Reactive(), App: f.App}
 	if out.Create == nil {
 		out.Create = []string{}
+	}
+	if out.CreateSections == nil {
+		out.CreateSections = []apps.Section{}
 	}
 	if out.Detail == nil {
 		out.Detail = []apps.Section{}

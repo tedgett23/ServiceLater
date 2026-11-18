@@ -1,5 +1,6 @@
 <script lang="ts">
 	import FieldInput from '$lib/components/FieldInput.svelte';
+	import FormGrid from '$lib/components/FormGrid.svelte';
 	import { display, valueOf, wide } from '$lib/fields';
 	import type { FieldValue, FormDef, FormField, Ticket } from '$lib/types';
 
@@ -41,13 +42,15 @@
 {#each form.detail as section, i (i)}
 	{@const fields = shown(section.fields)}
 	{#if fields.length}
+		{@const names = new Set(fields.map((f) => f.name))}
 		<section class="record-section" aria-labelledby={section.label ? `section-${slug(section.label)}` : undefined}>
 			{#if section.label}<h2 id="section-{slug(section.label)}">{section.label}</h2>{/if}
-			<div class="grid">
-				{#each fields as f (f.name)}
+			<FormGrid {section} show={(n) => names.has(n)} isWide={(n) => wide(byName.get(n)!)}>
+				{#snippet item(name)}
+					{@const f = byName.get(name)!}
 					{@const st = states[f.name] ?? {}}
 					{#if canEdit}
-						<div class="field" class:wide={wide(f)}>
+						<div class="field">
 							<label for="field-{f.name}">{f.label}{#if st.required}<span class="req" aria-hidden="true"> *</span>{/if}</label>
 							<FieldInput
 								field={f}
@@ -59,13 +62,13 @@
 							/>
 						</div>
 					{:else}
-						<div class="read" class:wide={wide(f)}>
+						<div class="read">
 							<h3>{f.label}</h3>
 							<p>{display(f, valueOf(ticket, f))}</p>
 						</div>
 					{/if}
-				{/each}
-			</div>
+				{/snippet}
+			</FormGrid>
 		</section>
 	{/if}
 {/each}
@@ -80,15 +83,6 @@
 	h2 {
 		font: 650 1.0625rem/1.3 var(--font-display);
 		letter-spacing: -0.015em;
-	}
-	.grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
-		gap: 0.9rem 1rem;
-		align-items: start;
-	}
-	.wide {
-		grid-column: 1 / -1;
 	}
 	.req {
 		color: var(--red);

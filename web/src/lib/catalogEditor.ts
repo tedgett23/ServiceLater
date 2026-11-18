@@ -2,6 +2,7 @@
  * Catalog items as the editor changes them: the same definition as their YAML file (GET /catalog-items/{name}). The
  * server checks everything when an item is saved; this only shapes what the editor shows and sends.
  */
+import type { SimpleField } from './conditions';
 import type { FieldType, FieldValue, FormField } from './types';
 
 /** A value as a definition holds it: an =expression, or a literal. */
@@ -164,4 +165,19 @@ export function previewField(f: DefField): FormField {
 		min: f.min,
 		max: f.max
 	};
+}
+
+/** The fields a simple condition can test, other than the one being edited: choices, yes-or-no, text and numbers. */
+export function simpleFields(fields: DefField[], except: string): SimpleField[] {
+	const out: SimpleField[] = [];
+	for (const f of fields) {
+		if (f.name === except || !f.type || !['choice', 'boolean', 'text', 'number'].includes(f.type)) continue;
+		out.push({
+			name: f.name,
+			label: f.label || f.name,
+			type: f.type as SimpleField['type'],
+			options: f.type === 'choice' ? (f.options ?? []).filter((o) => o.value).map((o) => ({ value: o.value, label: o.label || o.value })) : undefined
+		});
+	}
+	return out;
 }

@@ -322,6 +322,12 @@ func NewRouter(d Deps) http.Handler {
 					r.With(auth.RequirePermission(authz.CMDBManage)).Delete("/relationships/{relId}", h.deleteCIRelationship)
 				})
 			})
+			// The form editor: forms:manage.
+			r.With(auth.RequirePermission(authz.FormsManage)).Get("/forms", h.listFormDefs)
+			r.With(auth.RequirePermission(authz.FormsManage)).Get("/forms/{type}/definition", h.getFormDef)
+			r.With(auth.RequirePermission(authz.FormsManage)).Put("/forms/{type}/definition", h.putFormDef)
+			r.With(auth.RequirePermission(authz.FormsManage)).Post("/forms/{type}/definition/check", h.checkFormDef)
+			r.With(auth.RequirePermission(authz.FormsManage)).Delete("/forms/{type}/edits", h.resetFormDef)
 			r.Route("/catalog-items", func(r chi.Router) {
 				r.Use(auth.RequirePermission(authz.CatalogManage))
 				r.Get("/", h.listCatalogItems)

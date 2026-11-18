@@ -106,14 +106,18 @@ func problems(msg string, err error) error {
 	}
 	out := &problemsError{msg: msg}
 	for _, x := range p {
-		// A problem in a workflow is about what is on screen; one elsewhere (a rule naming it) says which file.
-		msg := x.Message
-		if x.File != "" && !strings.Contains(x.File, "workflows/") {
-			msg = x.File + ": " + msg
-		}
-		out.problems = append(out.problems, msg)
+		out.problems = append(out.problems, problemText(x))
 	}
 	return out
+}
+
+// problemText is a problem as an editor shows it: one in a workflow or form is about what is on screen; one elsewhere
+// (a rule naming it) says which file.
+func problemText(x apps.Problem) string {
+	if x.File != "" && !strings.Contains(x.File, "workflows/") && !strings.Contains(x.File, "forms/") {
+		return x.File + ": " + x.Message
+	}
+	return x.Message
 }
 
 // definition finds a workflow among the compiled app's definitions.
