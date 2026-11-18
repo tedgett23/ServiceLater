@@ -26,8 +26,8 @@
 			{#if d.activity.failed}<span class="failed">{d.activity.failed} failed</span>{/if}
 		</span>
 	{/if}
-	{#each d.exits as e, i (e.field)}
-		<Handle type="source" id={e.field} position={Position.Right} style="top: {top(i, d.exits.length)}" isConnectable={d.editable} />
+	{#each d.exits as e, i (e.key)}
+		<Handle type="source" id={e.key} position={Position.Right} style="top: {top(i, d.exits.length)}" isConnectable={d.editable} />
 		{#if d.exits.length > 1}<span class="exit" style="top: {top(i, d.exits.length)}">{e.label}</span>{/if}
 	{/each}
 </div>

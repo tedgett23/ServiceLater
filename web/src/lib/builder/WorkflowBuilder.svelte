@@ -5,10 +5,11 @@
 	import '@xyflow/svelte/dist/style.css';
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import StepNode from './StepNode.svelte';
+	import QueryEditor from './QueryEditor.svelte';
 	import StepForm from './StepForm.svelte';
 	import { autoLayout, NODE_H, NODE_W } from './layout';
 	import { when } from '$lib/format';
-	import { exitsOf, freshId, linkFields, stepTypes, tidy, typeInfo, type Step, type StepType, type WorkflowActivity, type WorkflowDef } from './workflow';
+	import { exitsOf, freshId, linkOf, retarget, scriptTemplate, setLink, stepTypes, tidy, typeInfo, type Step, type StepType, type Schedule, type WorkflowActivity, type WorkflowDef } from './workflow';
 
 	/**
 	 * The workflow builder: the steps as a diagram to drag, connect and delete, and the selected step's fields beside it.
@@ -18,21 +19,25 @@
 	let {
 		def,
 		editable,
+		canScript = false,
 		activity = null,
 		onsave,
 		tools
 	}: {
 		def: WorkflowDef;
 		editable: boolean;
+		/** May change scripts (scripts:edit), not only the rest of the workflow. */
+		canScript?: boolean;
 		/** Where the workflow's runs are, live; null hides it. */
 		activity?: WorkflowActivity | null;
-		onsave: (body: { record_type: string; start: string; steps: Step[]; layout: Record<string, { x: number; y: number }> }) => Promise<boolean>;
+		onsave: (body: { record_type: string; start: string; steps: Step[]; layout: Record<string, { x: number; y: number }>; schedule: Schedule | null }) => Promise<boolean>;
 		/** More controls for the toolbar, before Save (the page's "Show where its runs are"). */
 		tools?: Snippet;
 	} = $props();
 
 	let steps = $state<Step[]>(untrack(() => structuredClone($state.snapshot(def.steps) as Step[])));
 	let start = $state(untrack(() => def.start));
+	let schedule = $state<Schedule | null>(untrack(() => (def.schedule ? structuredClone($state.snapshot(def.schedule) as Schedule) : null)));
 	let selectedId = $state<string | null>(null);
 	let dirty = $state(false);
 	let saving = $state(false);
@@ -77,12 +82,12 @@
 		const out: Edge[] = [];
 		for (const s of steps) {
 			for (const e of exitsOf(s)) {
-				const to = s[e.field];
+				const to = linkOf(s, e.key);
 				if (!to || !ids.has(to)) continue;
 				out.push({
-					id: `${s.id}:${e.field}`,
+					id: `${s.id}:${e.key}`,
 					source: s.id,
-					sourceHandle: e.field,
+					sourceHandle: e.key,
 					target: to,
 					type: 'smoothstep',
 					deletable: editable,
@@ -113,16 +118,17 @@
 	function connect(c: Connection) {
 		const s = steps.find((x) => x.id === c.source);
 		if (!s || !c.sourceHandle || c.source === c.target) return;
-		(s as unknown as Record<string, string>)[c.sourceHandle] = c.target;
+		setLink(s, c.sourceHandle, c.target);
 		changed();
 	}
 
 	function removed({ nodes: gone, edges: cut }: { nodes: Node[]; edges: Edge[] }) {
 		const goneIds = new Set(gone.map((n) => n.id));
 		for (const e of cut) {
-			const [source, field] = e.id.split(':');
-			const s = steps.find((x) => x.id === source);
-			if (s && (linkFields as readonly string[]).includes(field)) delete (s as unknown as Record<string, unknown>)[field];
+			// The edge id is step:key, and a branch's key has a colon of its own.
+			const at = e.id.indexOf(':');
+			const s = steps.find((x) => x.id === e.id.slice(0, at));
+			if (s) setLink(s, e.id.slice(at + 1), undefined);
 		}
 		if (goneIds.size) removeSteps(goneIds);
 		changed();
@@ -130,7 +136,7 @@
 
 	function removeSteps(ids: Set<string>) {
 		steps = steps.filter((s) => !ids.has(s.id));
-		for (const s of steps) for (const f of linkFields) if (s[f] && ids.has(s[f]!)) delete s[f];
+		for (const s of steps) for (const id of ids) retarget(s, id, null);
 		if (ids.has(start)) start = steps[0]?.id ?? '';
 		if (selectedId && ids.has(selectedId)) selectedId = null;
 	}
@@ -141,11 +147,16 @@
 		const near = selected ? nodes.find((n) => n.id === selected.id)?.position : undefined;
 		const step: Step = { id, type };
 		if (type === 'comment.add') step.body = { literal: '' };
+		if (type === 'script') step.script = scriptTemplate;
+		if (type === 'http.request') step.method = 'GET';
+		if (type === 'query') step.find = { type: def.record_type };
+		if (type === 'record.create') step.title = { literal: '' };
+		if (type === 'notify') step.recipients = ['assignee'];
 		steps = [...steps, step];
 		// A new step after the selected one, joined to it when its way out is free.
 		if (selected) {
-			const exit = exitsOf(selected).find((e) => !selected[e.field]);
-			if (exit) (selected as unknown as Record<string, string>)[exit.field] = id;
+			const exit = exitsOf(selected).find((e) => !linkOf(selected, e.key));
+			if (exit) setLink(selected, exit.key, id);
 		}
 		if (!start) start = id;
 		selectedId = id;
@@ -161,7 +172,7 @@
 		const renamed = next.id !== prev.id ? { from: prev.id, to: next.id } : undefined;
 		steps = steps.map((s) => (s.id === prev.id ? next : s));
 		if (renamed) {
-			for (const s of steps) for (const f of linkFields) if (s[f] === renamed.from) s[f] = renamed.to;
+			for (const s of steps) retarget(s, renamed.from, renamed.to);
 			if (start === renamed.from) start = renamed.to;
 			selectedId = renamed.to;
 		}
@@ -181,7 +192,7 @@
 			if (moved || def.layout[n.id]) layout[n.id] = { x: Math.round(n.position.x), y: Math.round(n.position.y) };
 		}
 		try {
-			if (await onsave({ record_type: def.record_type, start, steps: steps.map(tidy), layout })) dirty = false;
+			if (await onsave({ record_type: def.record_type, start, steps: steps.map(tidy), layout, schedule: schedule ?? null })) dirty = false;
 		} finally {
 			saving = false;
 		}
@@ -289,6 +300,12 @@
 						recordType={def.record_type}
 						isStart={selected.id === start}
 						{editable}
+						{canScript}
+						app={def.app}
+						workflowName={def.name}
+						appWorkflows={def.app_workflows ?? []}
+						appSecrets={def.app_secrets ?? []}
+						appHosts={def.app_hosts ?? []}
 						onchange={update}
 						onstart={() => ((start = selected!.id), changed())}
 						ondelete={() => (removeSteps(new Set([selected!.id])), changed())}
@@ -307,6 +324,33 @@
 						{#each steps as s (s.id)}<option value={s.id}>{s.id}</option>{/each}
 					</select>
 				</div>
+				<fieldset class="schedule">
+					<legend>Schedule</legend>
+					<label class="check">
+						<input type="checkbox" checked={!!schedule} disabled={!editable} onchange={(e) => ((schedule = e.currentTarget.checked ? { cron: '0 8 * * 1-5' } : null), changed())} />
+						Also start it by the clock
+					</label>
+					{#if schedule}
+						<div class="field">
+							<label for="wf-cron">When (cron)</label>
+							<input id="wf-cron" value={schedule.cron} disabled={!editable} placeholder="0 8 * * 1-5" onchange={(e) => ((schedule = { ...schedule!, cron: e.currentTarget.value.trim() }), changed())} />
+							<small class="hint">Minute hour day month weekday: 0 8 * * 1-5 is 8:00 on weekdays; */15 * * * * every 15 minutes.</small>
+						</div>
+						<div class="field">
+							<label for="wf-tz">Time zone</label>
+							<input id="wf-tz" value={schedule.timezone ?? ''} disabled={!editable} placeholder="UTC, or Europe/London" onchange={(e) => ((schedule = { ...schedule!, timezone: e.currentTarget.value.trim() || undefined }), changed())} />
+						</div>
+						<label class="check">
+							<input type="checkbox" checked={!!schedule.for_each} disabled={!editable}
+								onchange={(e) => ((schedule = { ...schedule!, for_each: e.currentTarget.checked ? { type: def.record_type, where: { state_category: { eq: { literal: 'open' } } } } : undefined }), changed())} />
+							Once for each {lifecycle.typeLabel(def.record_type).toLowerCase()} that matches
+						</label>
+						{#if schedule.for_each}
+							<QueryEditor query={schedule.for_each} {editable} fixedType={def.record_type} idPrefix="wf-each" onchange={(q) => ((schedule = { ...schedule!, for_each: q }), changed())} />
+						{/if}
+						<p class="hint">Scheduled runs act as the {def.app} app, for nobody{schedule.for_each ? '' : ', with no record'}.</p>
+					{/if}
+				</fieldset>
 				<p class="hint">
 					Its steps act as the {def.app} app for whoever started it, so they can do only what the app may:
 					{def.app_permissions?.length ? def.app_permissions.join(', ') : 'nothing on records'}.
@@ -481,5 +525,25 @@
 		.panel {
 			max-height: none;
 		}
+	}
+	.schedule {
+		display: grid;
+		gap: 0.55rem;
+		margin: 0.4rem 0 0;
+		padding: 0.6rem 0 0;
+		border: 0;
+		border-top: 1px solid var(--rule);
+		min-width: 0;
+	}
+	.schedule legend {
+		padding: 0;
+		font-size: 0.85rem;
+		font-weight: 700;
+	}
+	.check {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		font-size: 0.875rem;
 	}
 </style>

@@ -329,7 +329,8 @@ export const P = {
 	knowledgePublish: 'knowledge:publish',
 	workflowsEdit: 'workflows:edit',
 	catalogManage: 'catalog:manage',
-	formsManage: 'forms:manage'
+	formsManage: 'forms:manage',
+	scriptsEdit: 'scripts:edit'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */
@@ -433,6 +434,9 @@ export interface WorkflowRun {
 	// Only when one run is fetched: the graph it started with, its variables now, and what happened.
 	start?: string;
 	graph?: GraphStep[];
+	/** The run whose subflow or foreach step started this one; and the runs this one's steps started. */
+	parent_id?: string;
+	children?: { id: string; workflow: string; status: RunStatus; step: string; index: number }[];
 	vars?: Record<string, unknown>;
 	steps?: RunStep[];
 }

@@ -25,6 +25,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/ruleruns"
 	"github.com/servicelater/servicelater/backend/internal/rules"
+	"github.com/servicelater/servicelater/backend/internal/script"
 )
 
 // Handler runs a queued async rule. It locks and reads the ticket as it is now, as the person who made the change,
@@ -105,7 +106,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, svc *records.Service, rule *ap
 		rec := t.ExprRecord()
 		// The old record is not kept: the rule's own filter was decided at the save, with both. Action filters
 		// see the ticket as it is, twice.
-		in := expr.Input{Record: rec, Old: rec, Event: event, Now: time.Now(), Count: records.Counter(q),
+		in := expr.Input{Record: rec, Old: rec, Event: event, Now: time.Now(), Count: records.Counter(q), Records: records.ScriptReader(q),
 			User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role}}
 		res, fx, err := rules.RunAsync(ctx, rule, in)
 		if err != nil {
@@ -138,11 +139,22 @@ func Run(ctx context.Context, pool *pgxpool.Pool, svc *records.Service, rule *ap
 			}
 		}
 		patch, err := patchFrom(ctx, q, t, res)
-		if err != nil || patch.Empty() {
+		if err != nil {
 			return err
 		}
-		_, err = svc.Update(ctx, q, actor, cause, recordID, patch)
-		return err
+		if !patch.Empty() {
+			if _, err := svc.Update(ctx, q, actor, cause, recordID, patch); err != nil {
+				return err
+			}
+		}
+		// Scripts' changes last, each through the save path as the app, for the person: in this transaction, so a
+		// refused one undoes the run and the retry starts clean.
+		for _, sc := range fx.Scripts {
+			if err := svc.ApplyScript(ctx, q, actor, cause, sc.Result); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
 
@@ -150,6 +162,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, svc *records.Service, rule *ap
 func Outcome(err error) (outcome, detail string, retry error) {
 	var pe *pgconn.PgError
 	var re *records.Error
+	var se *script.Error
 	switch {
 	case err == nil:
 		return ruleruns.OK, "", nil
@@ -161,6 +174,9 @@ func Outcome(err error) (outcome, detail string, retry error) {
 		// The save refused the rule's change (a before rule said no, a value was not allowed). Trying again
 		// would be refused the same way.
 		return ruleruns.Failed, "the change was refused: " + re.Msg, jobs.Permanent(err)
+	case errors.As(err, &se):
+		// The script's own mistake (or abort): running it again gives the same.
+		return ruleruns.Failed, "the script failed at " + se.Error(), jobs.Permanent(err)
 	default:
 		return ruleruns.Failed, err.Error(), err
 	}

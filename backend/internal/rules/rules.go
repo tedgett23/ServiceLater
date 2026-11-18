@@ -14,6 +14,7 @@ import (
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/expr"
+	"github.com/servicelater/servicelater/backend/internal/script"
 )
 
 const (
@@ -81,13 +82,20 @@ type Linked struct {
 	Internal                  bool
 }
 
+// Script is what an async rule's script action asked for, for the caller to apply through the save path.
+type Script struct {
+	App, Rule string
+	Result    *script.Result
+}
+
 // Effects are what rules asked for besides changing the record: comments to write, workflows to start,
-// notifications to send and linked records to change.
+// notifications to send, linked records to change and scripts' changes to make.
 type Effects struct {
 	Comments []Comment
 	Starts   []Start
 	Notifies []Notify
 	Linked   []Linked
+	Scripts  []Script
 }
 
 // Before runs before rules in order against in.Record, which it never changes: the record as the rules left it is
@@ -275,6 +283,8 @@ func perform(ctx context.Context, r *apps.Rule, a *apps.Action, in expr.Input, f
 		}
 		fx.Linked = append(fx.Linked, l)
 		return nil
+	case "script":
+		return runScript(ctx, r, a, in, fx)
 	case "set", "record.update":
 		// Both change the record in memory. In a before rule that is the save itself; in an async rule the caller
 		// saves the difference afterwards, through the same path a person's edit takes.
@@ -366,6 +376,49 @@ func Assign(rec *expr.Record, field string, x any) error {
 		}
 	default:
 		return fmt.Errorf("cannot set %q", a.Field)
+	}
+	return nil
+}
+
+// runScript runs a script action. In a before rule it changes the record being saved (in memory, like set) or
+// refuses the save with abort(); in an async rule everything it asks for goes back to the caller, which makes the
+// changes through the save path as the app, for the person.
+func runScript(ctx context.Context, r *apps.Rule, a *apps.Action, in expr.Input, fx *Effects) error {
+	prog, err := a.Program()
+	if err != nil {
+		return err
+	}
+	env := script.Env{Record: in.Record, User: in.User, Now: in.Now, Reader: in.Records, Count: in.Count}
+	async := r.Timing == apps.TimingAsync
+	if async {
+		env.Limits, env.Allow = script.RunLimits, script.Allow{Own: true, Others: true, Comments: true}
+	} else {
+		env.Limits, env.Allow = script.BeforeLimits, script.Allow{Own: true, Abort: true}
+	}
+	res, err := prog.Run(ctx, env)
+	var ab *script.Abort
+	if errors.As(err, &ab) {
+		return &Abort{App: r.App, Rule: r.Name, Message: ab.Message}
+	}
+	if err != nil {
+		return err
+	}
+	if res.Next != "" || len(res.Vars) > 0 {
+		return fmt.Errorf("a rule's script returns nothing: vars and next are for workflow steps")
+	}
+	if async {
+		fx.Scripts = append(fx.Scripts, Script{App: r.App, Rule: r.Name, Result: res})
+		return nil
+	}
+	for _, u := range res.Updates {
+		if u.Status != "" {
+			return fmt.Errorf("a before rule's script cannot move the record to %s: moves go through the lifecycle (use a workflow)", u.Status)
+		}
+		for name, v := range u.Fields {
+			if err := Assign(in.Record, name, v); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

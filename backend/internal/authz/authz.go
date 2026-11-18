@@ -26,6 +26,7 @@ const (
 	WorkflowsEdit    = "workflows:edit"    // change, add and reset workflows in the builder
 	CatalogManage    = "catalog:manage"    // change, add and reset service catalog items in the editor
 	FormsManage      = "forms:manage"      // change record types' forms in the form editor
+	ScriptsEdit      = "scripts:edit"      // change scripts in workflows and rules, and test-run them
 	UsersRead        = "users:read"        // the people directory and pickers
 	UsersManage      = "users:manage"      // add, edit, deactivate and delete people, and set passwords
 	GroupsManage     = "groups:manage"     // create and change groups and who is in them
@@ -120,6 +121,7 @@ var Catalog = []Permission{
 	{WorkflowsEdit, "Change, add and reset workflows in the workflow builder"},
 	{CatalogManage, "Change, add and reset service catalog items, and see every item"},
 	{FormsManage, "Change record types' forms: their fields, conditions and layout"},
+	{ScriptsEdit, "Change the Starlark scripts in workflow steps and rules, and test-run them"},
 	{UsersRead, "Look people up in the directory and pickers"},
 	{UsersManage, "Add, edit, deactivate and delete people, and set their passwords"},
 	{GroupsManage, "Create and change groups and their members"},

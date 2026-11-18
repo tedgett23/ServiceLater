@@ -322,6 +322,19 @@ func NewRouter(d Deps) http.Handler {
 					r.With(auth.RequirePermission(authz.CMDBManage)).Delete("/relationships/{relId}", h.deleteCIRelationship)
 				})
 			})
+			// Apps' connections: the hosts they may call and their secrets.
+			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/connections", h.listConnections)
+			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/connections/{app}/secrets/{key}", h.putConnectionSecret)
+			// Scripts: checked as they are typed and tried against a record by those who may change them; the apps'
+			// script files read by whoever may read workflows.
+			r.Route("/scripts", func(r chi.Router) {
+				r.With(auth.RequirePermission(authz.ScriptsEdit)).Post("/check", h.checkScript)
+				r.With(auth.RequirePermission(authz.ScriptsEdit)).Post("/test", h.testScript)
+				r.With(auth.RequirePermission(authz.WorkflowsReadAll, authz.WorkflowsEdit)).Get("/", h.listScriptFiles)
+				r.With(auth.RequirePermission(authz.WorkflowsReadAll, authz.WorkflowsEdit)).Get("/{app}/{file}", h.getScriptFile)
+				r.With(auth.RequirePermission(authz.ScriptsEdit)).Put("/{app}/{file}", h.putScriptFile)
+				r.With(auth.RequirePermission(authz.ScriptsEdit)).Delete("/{app}/{file}/edits", h.resetScriptFile)
+			})
 			// The form editor: forms:manage.
 			r.With(auth.RequirePermission(authz.FormsManage)).Get("/forms", h.listFormDefs)
 			r.With(auth.RequirePermission(authz.FormsManage)).Get("/forms/{type}/definition", h.getFormDef)

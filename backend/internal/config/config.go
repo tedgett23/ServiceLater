@@ -53,6 +53,11 @@ type Config struct {
 	// at least 1s).
 	MailPoll time.Duration
 
+	// HTTPAllowPrivate lets workflows' http.request steps call this machine and private networks
+	// (SL_HTTP_ALLOW_PRIVATE=true). Off, they reach only public addresses: a workflow cannot probe the network
+	// ServiceLater runs in.
+	HTTPAllowPrivate bool
+
 	// Optional: create the first admin on startup when no users exist.
 	BootstrapEmail, BootstrapName, BootstrapPassword string
 }
@@ -78,6 +83,7 @@ func Load() (Config, error) {
 		RefreshTTL:        30 * 24 * time.Hour,
 		WorkerConcurrency: 4,
 		MailPoll:          time.Minute,
+		HTTPAllowPrivate:  os.Getenv("SL_HTTP_ALLOW_PRIVATE") == "true",
 		MaxLiveConns:      10,
 		BundledApps:       os.Getenv("SL_BUNDLED_APPS"),
 		AppsLocalDir:      os.Getenv("SL_APPS_LOCAL_DIR"),

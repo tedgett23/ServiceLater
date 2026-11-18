@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/servicelater/servicelater/backend/internal/expr"
+	"github.com/servicelater/servicelater/backend/internal/script"
 )
 
 // Rule timings and events. Delete events arrive later.
@@ -145,11 +146,16 @@ type Action struct {
 	Linked string            `json:"linked,omitempty"`
 	Status string            `json:"status,omitempty"`
 	Set    map[string]*Value `json:"set,omitempty"`
+	// Script is a script action's Starlark (docs/apps-platform.md §6.7): in a before rule it changes the record being
+	// saved or refuses the save; in an async rule it also changes and comments on other records.
+	Script string `json:"script,omitempty"`
 
-	when    *expr.Program
-	whenErr error
-	to      []*expr.Program // per To entry: the compiled =expression, nil for a named recipient
-	toErr   []error
+	program    *script.Program
+	programErr error
+	when       *expr.Program
+	whenErr    error
+	to         []*expr.Program // per To entry: the compiled =expression, nil for a named recipient
+	toErr      []error
 }
 
 // Rule is "on this event, if this is true, do these things", at a point in the save.
@@ -165,8 +171,10 @@ type Rule struct {
 	// of as the person saving. Async rules always run as the app; before rules always as the person.
 	RunAs string `json:"run_as,omitempty"`
 	// Lookups are counted before the rule's expressions run, which read them as lookups.name.
-	Lookups Lookups  `json:"lookups,omitempty"`
-	Run     []Action `json:"run"`
+	Lookups Lookups `json:"lookups,omitempty"`
+	// Modules are the app's script files its script actions load (name to source), as they were at install.
+	Modules map[string]string `json:"modules,omitempty"`
+	Run     []Action          `json:"run"`
 	// Fields are the extra fields of the app's form the rule reads or sets, with their types when it was installed.
 	Fields expr.FieldTypes `json:"fields,omitempty"`
 
@@ -208,9 +216,10 @@ type actionFile struct {
 	Linked   string            `yaml:"linked"`
 	Status   string            `yaml:"status"`
 	Set      map[string]*Value `yaml:"set"`
+	Script   string            `yaml:"script"`
 }
 
-func parseRule(file string, data []byte, forms formSet, p *Problems) *Rule {
+func parseRule(file string, data []byte, forms formSet, scripts map[string]string, p *Problems) *Rule {
 	var f ruleFile
 	if err := decodeStrict(data, &f); err != nil {
 		p.add(file, "%v", err)
@@ -230,8 +239,13 @@ func parseRule(file string, data []byte, forms formSet, p *Problems) *Rule {
 	}
 	for _, a := range f.Run {
 		r.Run = append(r.Run, Action{Action: a.Action, When: a.When, Field: a.Field, Value: a.Value, Message: a.Message, Body: a.Body, Internal: a.Internal, Workflow: a.Workflow, Template: a.Template, To: a.To,
-			Linked: a.Linked, Status: a.Status, Set: a.Set})
+			Linked: a.Linked, Status: a.Status, Set: a.Set, Script: strings.TrimRight(a.Script, "\n")})
 	}
+	var sources []string
+	for _, a := range r.Run {
+		sources = append(sources, a.Script)
+	}
+	r.Modules = modulesFor(scripts, sources...)
 	before := len(*p)
 	r.validate(file, p)
 	if len(*p) > before {
@@ -265,6 +279,9 @@ func (r *Rule) validate(file string, p *Problems) {
 		a := &r.Run[i]
 		if a.whenErr != nil {
 			p.add(file, "run[%d]: when: %v", i, a.whenErr)
+		}
+		if a.programErr != nil {
+			p.add(file, "run[%d]: script: %v", i, a.programErr)
 		}
 		declared(fmt.Sprintf("run[%d]: when", i), a.when)
 		for j, err := range a.toErr {
@@ -451,6 +468,18 @@ func (a *Action) structureProblems(r *Rule, _ int) (out []string) {
 		extra("message", a.Message != nil)
 		extra("body", a.Body != nil)
 		extra("workflow", a.Workflow != "")
+	case "script":
+		switch {
+		case r.Timing == TimingAfter:
+			add("script runs in a before rule (changing the record being saved) or an async rule (changing it and others afterwards), not an after rule")
+		case strings.TrimSpace(a.Script) == "":
+			add("script needs script: the Starlark to run")
+		}
+		extra("field", a.Field != "")
+		extra("value", a.Value != nil)
+		extra("message", a.Message != nil)
+		extra("body", a.Body != nil)
+		extra("workflow", a.Workflow != "")
 	case "linked.update":
 		out = append(out, a.linkedProblems(r)...)
 		extra("field", a.Field != "")
@@ -458,9 +487,12 @@ func (a *Action) structureProblems(r *Rule, _ int) (out []string) {
 		extra("message", a.Message != nil)
 		extra("workflow", a.Workflow != "")
 	case "":
-		add("an action needs a name: abort, set, comment.add, record.update, linked.update, workflow.start or notify")
+		add("an action needs a name: abort, set, comment.add, record.update, linked.update, workflow.start, notify or script")
 	default:
-		add("unknown action %q (available: abort, set, comment.add, record.update, linked.update, workflow.start, notify)", a.Action)
+		add("unknown action %q (available: abort, set, comment.add, record.update, linked.update, workflow.start, notify, script)", a.Action)
+	}
+	if a.Action != "script" {
+		extra("script", a.Script != "")
 	}
 	if a.Action != "notify" {
 		extra("template", a.Template != "")
@@ -611,6 +643,10 @@ func (r *Rule) compile() {
 		if err == nil && a.When != "" {
 			a.when, a.whenErr = env.Compile(a.When)
 		}
+		a.program, a.programErr = nil, nil
+		if a.Script != "" {
+			a.program, a.programErr = script.Compile(a.Script, r.Modules)
+		}
 		want := expr.String
 		if SettableFields[a.Field] == "number" {
 			want = expr.Int
@@ -686,6 +722,9 @@ func (r *Rule) Condition() (*expr.Program, error) { return r.when, r.whenErr }
 
 // Condition returns the action's compiled filter (nil when it has none) and any reason it cannot be evaluated.
 func (a *Action) Condition() (*expr.Program, error) { return a.when, a.whenErr }
+
+// Program is a script action's compiled script.
+func (a *Action) Program() (*script.Program, error) { return a.program, a.programErr }
 
 // Compiled returns the value's expression program (nil for a literal) and any reason it cannot be evaluated.
 func (v *Value) Compiled() (*expr.Program, error) {

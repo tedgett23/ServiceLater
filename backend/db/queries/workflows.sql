@@ -101,3 +101,43 @@ GROUP BY s.step_id, s.outcome;
 SELECT status, count(*)::bigint AS n FROM workflow_executions
 WHERE app = sqlc.arg('app') AND workflow = sqlc.arg('workflow') AND created_at >= sqlc.arg('since')
 GROUP BY status;
+
+-- name: InsertChildExecution :one
+-- A subflow's or foreach's child run, started by a step of its parent, as the parent runs.
+INSERT INTO workflow_executions (app, workflow, app_version, definition, record_id, started_by, cause, current_step, run_as,
+                                 vars, parent_id, parent_step, parent_index, depth)
+VALUES (sqlc.arg('app'), sqlc.arg('workflow'), sqlc.arg('app_version'), sqlc.arg('definition'), sqlc.narg('record_id'),
+        sqlc.arg('started_by'), sqlc.arg('cause'), sqlc.arg('current_step'), app_principal(sqlc.arg('app')),
+        sqlc.arg('vars'), sqlc.arg('parent_id'), sqlc.arg('parent_step'), sqlc.arg('parent_index'), sqlc.arg('depth'))
+RETURNING id;
+
+-- name: ListChildExecutions :many
+-- The children a step of a run started, in order.
+SELECT id, status, vars, parent_index, error, record_id
+FROM workflow_executions
+WHERE parent_id = $1 AND parent_step = $2
+ORDER BY parent_index;
+
+-- name: ClaimSchedule :one
+-- Takes a scheduled workflow's due time if no one has: true for the one worker that should start it.
+INSERT INTO workflow_schedules (app, workflow, last_due) VALUES ($1, $2, $3)
+ON CONFLICT (app, workflow) DO UPDATE SET last_due = EXCLUDED.last_due
+WHERE workflow_schedules.last_due < EXCLUDED.last_due
+RETURNING true;
+
+-- name: GetScheduleLastDue :one
+SELECT last_due FROM workflow_schedules WHERE app = $1 AND workflow = $2;
+
+-- name: FindRecords :many
+-- A query step's or schedule's records: ids of one type matching every filter, as the caller sees them.
+SELECT id::uuid AS id FROM app_find_records(sqlc.arg('type')::text, sqlc.arg('filters')::jsonb, sqlc.arg('max')::integer) AS f(id);
+
+-- name: CancelChildExecutions :exec
+-- Stops a step's children still going (the step gave up waiting for them).
+UPDATE workflow_executions SET status = 'cancelled', error = 'the step that started it stopped waiting', finished_at = now(), updated_at = now()
+WHERE parent_id = $1 AND parent_step = $2 AND status IN ('queued', 'running', 'waiting');
+
+-- name: ListRunChildren :many
+-- Every child run a run's steps started, in order, as the reader may see them.
+SELECT id, workflow, status, parent_step, parent_index FROM workflow_executions
+WHERE parent_id = $1 ORDER BY parent_step, parent_index;

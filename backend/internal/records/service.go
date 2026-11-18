@@ -686,7 +686,7 @@ func GuardInput(q *dbgen.Queries, cur Ticket, to string, lc *apps.Lifecycle, u d
 		next.StateCategory = string(c)
 	}
 	return expr.Input{
-		Record: next.ExprRecord(), Old: cur.ExprRecord(), Now: time.Now(), Count: Counter(q),
+		Record: next.ExprRecord(), Old: cur.ExprRecord(), Now: time.Now(), Count: Counter(q), Records: ScriptReader(q),
 		User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role},
 	}
 }
@@ -700,7 +700,7 @@ func (s *Service) ruleInput(ctx context.Context, q *dbgen.Queries, a Actor, even
 		return expr.Input{}, err
 	}
 	in := expr.Input{
-		Record: next.ExprRecord(), Event: event, Now: time.Now(), Count: Counter(q),
+		Record: next.ExprRecord(), Event: event, Now: time.Now(), Count: Counter(q), Records: ScriptReader(q),
 		User: &expr.User{ID: u.ID.String(), Name: u.Name, Email: u.Email, Role: u.Role},
 	}
 	if old != nil {

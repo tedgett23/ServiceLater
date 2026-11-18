@@ -14,7 +14,7 @@ This document settles how apps are structured, how their logic runs, and how we 
 | # | Decision | Status |
 |---|---|---|
 | D1 | Conditions and calculations are **expressions** (CEL): pure, type-checked at install, always cheap. | Decided |
-| D2 | Logic comes in two tiers. **Basic** is a rule: a CEL expression plus built-in actions. **Advanced** is a workflow: a graph of steps implemented in Go. There is **no scripting language** in v1. | Decided |
+| D2 | Logic comes in two tiers. **Basic** is a rule: a CEL expression plus built-in actions. **Advanced** is a workflow: a graph of steps implemented in Go. **Revised 2026-11-18 (the user's decision):** Starlark scripts are a step and a rule action, limited to looping and record editing: a script computes, and its changes are made by the engine through the save path, as whoever the rule or step runs as (§6.7). There is still no network, file or database access from a script. | Decided |
 | D3 | Rules have three timings: **before**, **after** and **async**. Before and after run inside the save and can block it, using only expressions and built-in actions, with no external I/O and tight budgets. They fail closed. | Decided |
 | D4 | v1 apps have **declarative UI only**: forms, list views and layouts as data. No custom UI code. | Decided |
 | D5 | No Python, Starlark, Lua or WASM in v1. Actions and steps name a `type`, so a script step could be added later without changing the app format. | Decided |
@@ -81,8 +81,10 @@ my-app/
     lifecycles/ ...   the same folders, holding only what differs
 ```
 
-`app.yaml` is identity, not configuration, so it is not layered. There is no `scripts/` (D2) and no `migrations/`
-(D6): the validator rejects both anywhere in the app. `ui/` holds declarative view definitions only (D4).
+`app.yaml` is identity, not configuration, so it is not layered. `scripts/` holds Starlark files (`<name>.star`)
+that the app's own script steps and actions load (D2, §6.7); a layer's file replaces the one below it whole, since
+code is never merged. There is no `migrations/` (D6): the validator rejects it anywhere in the app. `ui/` holds
+declarative view definitions only (D4).
 
 **Values in definitions.** A value is a literal unless it starts with `=`, in which case the rest is a CEL
 expression. `title: New ticket` is text; `to: =record.assignee.email` is computed. Fields that are always
@@ -718,6 +720,39 @@ Not built yet: SLA reporting (met and missed rates), a reset condition (a new cl
 reassigned to another team), pause reasons, per-SLA schedules chosen by expression, and SLAs on records other than
 tasks.
 
+### 6.7 Scripts (built: Starlark)
+
+Starlark (`go.starlark.net`, a Python dialect made for embedding) for logic that needs loops and local variables:
+the `script` workflow step, and the `script` action in before and async rules. CEL stays for conditions and guards:
+it is checked against the types before anything runs and is far faster. Decided with the user 2026-11-18: **limited
+to looping and record editing**; HTTP is the dedicated `http.request` step, never a script.
+
+- **A script computes; the engine acts.** It reads `record`, `vars` (workflows), `user` and `now`, and other records
+  through `children(record, open=False)`, `get("INC42")` and `count(target, where)` (the lookups rules have), all as
+  whoever it runs as, under RLS. `update(record, {...}, comment=None)` (a `"status"` in the fields moves it through
+  its lifecycle), `comment(record, text, internal=False)` and `abort(message)` only queue: the caller makes the
+  changes through `records.Service` (`ApplyScript`), so rules, permissions, the form, history and loop protection all
+  apply, and a script can never do more than the step or rule around it. No database, network, files or imports.
+- **Where it runs decides what it may do** (`script.Allow`): a before rule changes only the record being saved (in
+  memory, like `set`; no status moves) or refuses the save; an async rule changes and comments on its record and
+  others, made by the worker in its transaction as the app for the person; a workflow step does all of it in the
+  step's transaction, so a refused change undoes the step's other changes. A step returns `{"vars": {...}, "next":
+  "branch"}` to set variables (lists and dicts allowed, 64 KB) and leave by one of its `branches`.
+- **Limits:** before rules 200k steps and 100 ms, async rules and steps 2M steps and 5 s; at most 1000 changes per
+  run; errors fail closed (a before rule refuses the save, a step fails, an async run is not retried), with the line.
+- **Script files.** `scripts/<name>.star` in an app holds functions its scripts `load("helpers.star", "fn")`; files
+  may load each other. Only the same app (no `@other//`); a file and the names loaded from it must exist, and loops
+  between files are refused, all at install. Each workflow and rule keeps the sources of the files it loads
+  (`modules`), so a run in flight keeps the code it started with. Edited in the UI into the studio layer like
+  workflows (`/workflows/<app>/scripts/<name>`, `GET|PUT /scripts/{app}/{file}`, `DELETE .../edits`), checked with
+  everything that loads them (a change that breaks a workflow is refused). Cross-app sharing was discussed and left
+  out (not a common need); if it comes back: exports in `app.yaml`, private by default, a dependency required,
+  shared code running as the caller, and subflows for anything that needs the owner's permissions.
+- **Editing.** `scripts:edit` (admins; 00054) is separate from `workflows:edit`: workflows are not scripts, and a
+  builder save that adds or changes a script needs both. CodeMirror 6 (loaded only where a script is edited),
+  completion of the built-ins and record fields, mistakes marked as typed (`POST /scripts/check`), and a test run
+  against a record (`POST /scripts/test`: runs as the person, lists what it would change, changes nothing).
+
 ## 7. Workflows
 
 Workflows are the advanced tier: anything that waits, branches, loops, asks a person, or calls another system.
@@ -933,6 +968,50 @@ execution's time is waiting for a free executor and for the database.
 and the `schedule` trigger. Steps run as the workflow's app (its service principal, §11.1) on behalf of the person who
 started it: they can do what the app's manifest declares, whoever started it, and `user` is still that person. Live
 highlighting of the running step arrives with the visual builder; the viewer refreshes by polling.
+
+### 7.8 Subflows, foreach, HTTP, queries, records, notify and schedules (built 2026-11-18)
+
+Agreed with the user 2026-11-18, alongside scripts (§6.7). Each runs in the step's transaction as the run's actor
+(the app, for the person), like every step.
+
+- **`subflow`** runs another workflow of the same app (`workflow`), with `inputs` as its variables, on this run's
+  record or `record:` (an id or reference), and waits. Back come `vars.<step>_vars` (its variables when it ended) and
+  `<step>_outcome` (done, failed, timeout). A failed child takes `on_error`, or fails the run; `timeout`/`on_timeout`
+  as for task.create.
+- **`foreach`** runs a workflow per item of `items` (an expression; at most 1000), `parallel` at a time (1-10), each
+  child getting `vars.item` and `vars.index` (`each: record`: each item is a record id or reference the child runs
+  on). Results: `<step>_results` (each child's variables, in order), `<step>_failed`, `<step>_outcome`; a failure stops
+  further starts (unless `keep_going`) and, once the rest finish, takes `on_error`.
+- How: a child is a `workflow_executions` row with `parent_id`, `parent_step`, `parent_index` and `depth` (00055;
+  at most 5 deep; a workflow that reaches itself through subflows is refused at install). The parent waits (`until`);
+  a trigger wakes it when a child ends, and cancels its children when it fails or is cancelled. Every visit counts the
+  child rows, starts what may start and finishes when none is left, so retries never double-start. Runs show their
+  parent and children in the run viewer.
+- **`http.request`**: `method`, `url` (text or =expression), `headers`, `body` (text, or an =expression sent as
+  JSON), `retries` (0-5; network faults, 429 and 5xx, backing off), `timeout` (1-30 s), `on_error`. The host must be
+  one the app's manifest lists as `http:host` (or `http:*.domain`), checked at install for a literal URL and at every
+  call against the installed manifest. `secret` names a secret the manifest declares (`config`, `type: secret`), set
+  by an admin under Admin → Connections (`GET /connections`, `PUT /connections/{app}/secrets/{key}`; kept as
+  `apps.<app>.<key>` in the secrets store), sent as `auth: bearer | basic | header` (`auth_header`). Connections are
+  refused to loopback, private and link-local addresses at dial time (`SL_HTTP_ALLOW_PRIVATE=true` lifts it for tests
+  and private deployments); redirects are not followed; at most 1 MB is read and 64 KB kept. Each try carries
+  `Idempotency-Key: servicelater-<run>-<step>-<visit>`: calls are at least once (a job retried after a crash repeats
+  the step), so the other side can tell a repeat. Results: `<step>_status`, `<step>_ok`, `<step>_body` (parsed JSON or
+  text), `<step>_error`.
+- **`query`** finds records: `find: {type, where: {field: {op: value}}, limit}` (the lookup syntax and operators; the
+  fields are a lookup's plus `parent_id`, `created_at`, `updated_at`: `apps.QueryFields`, mirrored by the SQL function
+  `app_find_records`, 00055, kept in step by `TestQueryFieldsMatchTheDatabase`), as the actor under RLS, oldest
+  first, at most 1000. Results: `<step>_ids`, `<step>_references`, `<step>_count`.
+- **`record.create`** files any type through the save path (`record_type`, `title`, `description`, `group` by name,
+  `parent`, `fields`), for the person the run is for; `<step>_id` and `<step>_reference` (kept in the same
+  transaction, so a retry never files twice).
+- **`notify`** sends one of the app's templates (`template`, checked at install) to `recipients` (assignee,
+  requester, assignment_group, or =an expression giving user ids), exactly as a rule's notify does.
+- **Schedules**: a workflow may have `schedule: {cron, timezone, for_each}` (five-field cron in an IANA zone). The
+  worker checks every 30 s (`Engine.RunSchedules`); each due time is claimed in `workflow_schedules`, so one worker
+  starts it, as the app for nobody: once with no record, or once per record `for_each` (a query) finds. A schedule seen
+  for the first time only notes the time (no backlog after an install or upgrade). Edited in the builder's workflow
+  panel.
 
 ### 7.7 The workflow builder (built, slice 9)
 

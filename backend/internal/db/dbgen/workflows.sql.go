@@ -12,6 +12,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cancelChildExecutions = `-- name: CancelChildExecutions :exec
+UPDATE workflow_executions SET status = 'cancelled', error = 'the step that started it stopped waiting', finished_at = now(), updated_at = now()
+WHERE parent_id = $1 AND parent_step = $2 AND status IN ('queued', 'running', 'waiting')
+`
+
+type CancelChildExecutionsParams struct {
+	ParentID   uuid.NullUUID `json:"parent_id"`
+	ParentStep pgtype.Text   `json:"parent_step"`
+}
+
+// Stops a step's children still going (the step gave up waiting for them).
+func (q *Queries) CancelChildExecutions(ctx context.Context, arg CancelChildExecutionsParams) error {
+	_, err := q.db.Exec(ctx, cancelChildExecutions, arg.ParentID, arg.ParentStep)
+	return err
+}
+
 const cancelExecution = `-- name: CancelExecution :execrows
 UPDATE workflow_executions SET status = 'cancelled', finished_at = now(), updated_at = now(), wake_at = NULL, error = 'cancelled'
 WHERE id = $1 AND status IN ('queued', 'running', 'waiting')
@@ -23,6 +39,27 @@ func (q *Queries) CancelExecution(ctx context.Context, id uuid.UUID) (int64, err
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const claimSchedule = `-- name: ClaimSchedule :one
+INSERT INTO workflow_schedules (app, workflow, last_due) VALUES ($1, $2, $3)
+ON CONFLICT (app, workflow) DO UPDATE SET last_due = EXCLUDED.last_due
+WHERE workflow_schedules.last_due < EXCLUDED.last_due
+RETURNING true
+`
+
+type ClaimScheduleParams struct {
+	App      string             `json:"app"`
+	Workflow string             `json:"workflow"`
+	LastDue  pgtype.Timestamptz `json:"last_due"`
+}
+
+// Takes a scheduled workflow's due time if no one has: true for the one worker that should start it.
+func (q *Queries) ClaimSchedule(ctx context.Context, arg ClaimScheduleParams) (bool, error) {
+	row := q.db.QueryRow(ctx, claimSchedule, arg.App, arg.Workflow, arg.LastDue)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const countExecutionsByStatus = `-- name: CountExecutionsByStatus :many
@@ -54,8 +91,39 @@ func (q *Queries) CountExecutionsByStatus(ctx context.Context) ([]CountExecution
 	return items, nil
 }
 
+const findRecords = `-- name: FindRecords :many
+SELECT id::uuid AS id FROM app_find_records($1::text, $2::jsonb, $3::integer) AS f(id)
+`
+
+type FindRecordsParams struct {
+	Type    string `json:"type"`
+	Filters []byte `json:"filters"`
+	Max     int32  `json:"max"`
+}
+
+// A query step's or schedule's records: ids of one type matching every filter, as the caller sees them.
+func (q *Queries) FindRecords(ctx context.Context, arg FindRecordsParams) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, findRecords, arg.Type, arg.Filters, arg.Max)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getExecution = `-- name: GetExecution :one
-SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as FROM workflow_executions WHERE id = $1
+SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as, parent_id, parent_step, parent_index, depth FROM workflow_executions WHERE id = $1
 `
 
 func (q *Queries) GetExecution(ctx context.Context, id uuid.UUID) (WorkflowExecution, error) {
@@ -83,12 +151,16 @@ func (q *Queries) GetExecution(ctx context.Context, id uuid.UUID) (WorkflowExecu
 		&i.UpdatedAt,
 		&i.FinishedAt,
 		&i.RunAs,
+		&i.ParentID,
+		&i.ParentStep,
+		&i.ParentIndex,
+		&i.Depth,
 	)
 	return i, err
 }
 
 const getExecutionForUpdate = `-- name: GetExecutionForUpdate :one
-SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as FROM workflow_executions WHERE id = $1 FOR UPDATE
+SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as, parent_id, parent_step, parent_index, depth FROM workflow_executions WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetExecutionForUpdate(ctx context.Context, id uuid.UUID) (WorkflowExecution, error) {
@@ -116,6 +188,10 @@ func (q *Queries) GetExecutionForUpdate(ctx context.Context, id uuid.UUID) (Work
 		&i.UpdatedAt,
 		&i.FinishedAt,
 		&i.RunAs,
+		&i.ParentID,
+		&i.ParentStep,
+		&i.ParentIndex,
+		&i.Depth,
 	)
 	return i, err
 }
@@ -139,7 +215,7 @@ func (q *Queries) GetExecutionOwner(ctx context.Context, id uuid.UUID) (GetExecu
 }
 
 const getExecutionView = `-- name: GetExecutionView :one
-SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, e.run_as, COALESCE(tt.prefix || t.number::text, '')::text AS reference
+SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, e.run_as, e.parent_id, e.parent_step, e.parent_index, e.depth, COALESCE(tt.prefix || t.number::text, '')::text AS reference
 FROM workflow_executions e
 LEFT JOIN tasks t ON t.id = e.record_id
 LEFT JOIN task_types tt ON tt.type = t.type
@@ -176,9 +252,76 @@ func (q *Queries) GetExecutionView(ctx context.Context, id uuid.UUID) (GetExecut
 		&i.WorkflowExecution.UpdatedAt,
 		&i.WorkflowExecution.FinishedAt,
 		&i.WorkflowExecution.RunAs,
+		&i.WorkflowExecution.ParentID,
+		&i.WorkflowExecution.ParentStep,
+		&i.WorkflowExecution.ParentIndex,
+		&i.WorkflowExecution.Depth,
 		&i.Reference,
 	)
 	return i, err
+}
+
+const getScheduleLastDue = `-- name: GetScheduleLastDue :one
+SELECT last_due FROM workflow_schedules WHERE app = $1 AND workflow = $2
+`
+
+type GetScheduleLastDueParams struct {
+	App      string `json:"app"`
+	Workflow string `json:"workflow"`
+}
+
+func (q *Queries) GetScheduleLastDue(ctx context.Context, arg GetScheduleLastDueParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, getScheduleLastDue, arg.App, arg.Workflow)
+	var last_due pgtype.Timestamptz
+	err := row.Scan(&last_due)
+	return last_due, err
+}
+
+const insertChildExecution = `-- name: InsertChildExecution :one
+INSERT INTO workflow_executions (app, workflow, app_version, definition, record_id, started_by, cause, current_step, run_as,
+                                 vars, parent_id, parent_step, parent_index, depth)
+VALUES ($1, $2, $3, $4, $5,
+        $6, $7, $8, app_principal($1),
+        $9, $10, $11, $12, $13)
+RETURNING id
+`
+
+type InsertChildExecutionParams struct {
+	App         string        `json:"app"`
+	Workflow    string        `json:"workflow"`
+	AppVersion  string        `json:"app_version"`
+	Definition  []byte        `json:"definition"`
+	RecordID    uuid.NullUUID `json:"record_id"`
+	StartedBy   uuid.UUID     `json:"started_by"`
+	Cause       []byte        `json:"cause"`
+	CurrentStep string        `json:"current_step"`
+	Vars        []byte        `json:"vars"`
+	ParentID    uuid.NullUUID `json:"parent_id"`
+	ParentStep  pgtype.Text   `json:"parent_step"`
+	ParentIndex pgtype.Int4   `json:"parent_index"`
+	Depth       int32         `json:"depth"`
+}
+
+// A subflow's or foreach's child run, started by a step of its parent, as the parent runs.
+func (q *Queries) InsertChildExecution(ctx context.Context, arg InsertChildExecutionParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertChildExecution,
+		arg.App,
+		arg.Workflow,
+		arg.AppVersion,
+		arg.Definition,
+		arg.RecordID,
+		arg.StartedBy,
+		arg.Cause,
+		arg.CurrentStep,
+		arg.Vars,
+		arg.ParentID,
+		arg.ParentStep,
+		arg.ParentIndex,
+		arg.Depth,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertExecution = `-- name: InsertExecution :one
@@ -246,8 +389,57 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 	return err
 }
 
+const listChildExecutions = `-- name: ListChildExecutions :many
+SELECT id, status, vars, parent_index, error, record_id
+FROM workflow_executions
+WHERE parent_id = $1 AND parent_step = $2
+ORDER BY parent_index
+`
+
+type ListChildExecutionsParams struct {
+	ParentID   uuid.NullUUID `json:"parent_id"`
+	ParentStep pgtype.Text   `json:"parent_step"`
+}
+
+type ListChildExecutionsRow struct {
+	ID          uuid.UUID     `json:"id"`
+	Status      string        `json:"status"`
+	Vars        []byte        `json:"vars"`
+	ParentIndex pgtype.Int4   `json:"parent_index"`
+	Error       string        `json:"error"`
+	RecordID    uuid.NullUUID `json:"record_id"`
+}
+
+// The children a step of a run started, in order.
+func (q *Queries) ListChildExecutions(ctx context.Context, arg ListChildExecutionsParams) ([]ListChildExecutionsRow, error) {
+	rows, err := q.db.Query(ctx, listChildExecutions, arg.ParentID, arg.ParentStep)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListChildExecutionsRow
+	for rows.Next() {
+		var i ListChildExecutionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.Vars,
+			&i.ParentIndex,
+			&i.Error,
+			&i.RecordID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listExecutionViews = `-- name: ListExecutionViews :many
-SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, e.run_as, COALESCE(tt.prefix || t.number::text, '')::text AS reference
+SELECT e.id, e.app, e.workflow, e.app_version, e.definition, e.record_id, e.started_by, e.cause, e.status, e.current_step, e.vars, e.steps_run, e.wait_started_at, e.wait_deadline, e.wait_until, e.wake_at, e.error, e.created_at, e.updated_at, e.finished_at, e.run_as, e.parent_id, e.parent_step, e.parent_index, e.depth, COALESCE(tt.prefix || t.number::text, '')::text AS reference
 FROM workflow_executions e
 LEFT JOIN tasks t ON t.id = e.record_id
 LEFT JOIN task_types tt ON tt.type = t.type
@@ -309,6 +501,10 @@ func (q *Queries) ListExecutionViews(ctx context.Context, arg ListExecutionViews
 			&i.WorkflowExecution.UpdatedAt,
 			&i.WorkflowExecution.FinishedAt,
 			&i.WorkflowExecution.RunAs,
+			&i.WorkflowExecution.ParentID,
+			&i.WorkflowExecution.ParentStep,
+			&i.WorkflowExecution.ParentIndex,
+			&i.WorkflowExecution.Depth,
 			&i.Reference,
 		); err != nil {
 			return nil, err
@@ -322,7 +518,7 @@ func (q *Queries) ListExecutionViews(ctx context.Context, arg ListExecutionViews
 }
 
 const listExecutions = `-- name: ListExecutions :many
-SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as FROM workflow_executions
+SELECT id, app, workflow, app_version, definition, record_id, started_by, cause, status, current_step, vars, steps_run, wait_started_at, wait_deadline, wait_until, wake_at, error, created_at, updated_at, finished_at, run_as, parent_id, parent_step, parent_index, depth FROM workflow_executions
 WHERE ($1::text IS NULL OR status = $1)
   AND ($2::uuid IS NULL OR record_id = $2)
   AND ($3::text IS NULL OR workflow = $3)
@@ -375,6 +571,50 @@ func (q *Queries) ListExecutions(ctx context.Context, arg ListExecutionsParams) 
 			&i.UpdatedAt,
 			&i.FinishedAt,
 			&i.RunAs,
+			&i.ParentID,
+			&i.ParentStep,
+			&i.ParentIndex,
+			&i.Depth,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRunChildren = `-- name: ListRunChildren :many
+SELECT id, workflow, status, parent_step, parent_index FROM workflow_executions
+WHERE parent_id = $1 ORDER BY parent_step, parent_index
+`
+
+type ListRunChildrenRow struct {
+	ID          uuid.UUID   `json:"id"`
+	Workflow    string      `json:"workflow"`
+	Status      string      `json:"status"`
+	ParentStep  pgtype.Text `json:"parent_step"`
+	ParentIndex pgtype.Int4 `json:"parent_index"`
+}
+
+// Every child run a run's steps started, in order, as the reader may see them.
+func (q *Queries) ListRunChildren(ctx context.Context, parentID uuid.NullUUID) ([]ListRunChildrenRow, error) {
+	rows, err := q.db.Query(ctx, listRunChildren, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRunChildrenRow
+	for rows.Next() {
+		var i ListRunChildrenRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Workflow,
+			&i.Status,
+			&i.ParentStep,
+			&i.ParentIndex,
 		); err != nil {
 			return nil, err
 		}

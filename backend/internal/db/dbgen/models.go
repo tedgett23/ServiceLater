@@ -539,6 +539,16 @@ type WorkflowExecution struct {
 	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
 	FinishedAt    pgtype.Timestamptz `json:"finished_at"`
 	RunAs         uuid.NullUUID      `json:"run_as"`
+	ParentID      uuid.NullUUID      `json:"parent_id"`
+	ParentStep    pgtype.Text        `json:"parent_step"`
+	ParentIndex   pgtype.Int4        `json:"parent_index"`
+	Depth         int32              `json:"depth"`
+}
+
+type WorkflowSchedule struct {
+	App      string             `json:"app"`
+	Workflow string             `json:"workflow"`
+	LastDue  pgtype.Timestamptz `json:"last_due"`
 }
 
 type WorkflowStep struct {

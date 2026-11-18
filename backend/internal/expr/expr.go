@@ -24,6 +24,7 @@ import (
 	"cel.dev/cel-go/common/types"
 	"cel.dev/cel-go/common/types/ref"
 	"cel.dev/cel-go/ext"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 const (
@@ -313,6 +314,16 @@ type Input struct {
 	// Count runs one lookup: how many records of a kind match every filter, under the acting person's RLS. The caller
 	// supplies it, because expressions do no database work; where it is nil, lookups are not available.
 	Count func(ctx context.Context, target string, filters []Filter) (int64, error)
+	// Records reads other records for a script action, under the acting person's RLS; nil where scripts cannot.
+	Records RecordReader
+}
+
+// RecordReader reads records other than the one a rule or step runs for, as whoever it runs as (scripts use it).
+type RecordReader interface {
+	// Children are the records under one (a request's tasks), open ones only when asked.
+	Children(ctx context.Context, parentID string, open bool) ([]*Record, error)
+	// Get finds a record by reference (INC42) or id; nil when there is none the reader may see.
+	Get(ctx context.Context, ref string) (*Record, error)
 }
 
 // Filter is one condition of a lookup: field op value, where value is text, a time, or (for in) a list of text.
@@ -775,4 +786,45 @@ func (p *Program) EvalStringList(ctx context.Context, in Input) ([]string, error
 		return nil, fmt.Errorf("expression produced %T, not a list of text", native)
 	}
 	return list, nil
+}
+
+// EvalJSON runs an expression and returns its value as JSON holds it: text, numbers (whole numbers as int64), true or
+// false, null, lists and maps of them; a time is RFC 3339 text. For values that become variables or request bodies.
+func (p *Program) EvalJSON(ctx context.Context, in Input) (any, error) {
+	out, err := p.eval(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	switch v := out.Value().(type) {
+	case time.Time:
+		return v.UTC().Format(time.RFC3339), nil
+	case string, bool, int64, float64, nil:
+		return v, nil
+	case uint64:
+		return int64(v), nil //nolint:gosec // an expression's whole number
+	}
+	native, err := out.ConvertToNative(reflect.TypeOf(&structpb.Value{}))
+	if err != nil {
+		return nil, fmt.Errorf("the value cannot be kept: %w", err)
+	}
+	return wholeNumbers(native.(*structpb.Value).AsInterface()), nil
+}
+
+// wholeNumbers turns JSON's floats that are whole back into int64, as definitions keep integers.
+func wholeNumbers(x any) any {
+	switch v := x.(type) {
+	case float64:
+		if v == float64(int64(v)) {
+			return int64(v)
+		}
+	case []any:
+		for i := range v {
+			v[i] = wholeNumbers(v[i])
+		}
+	case map[string]any:
+		for k := range v {
+			v[k] = wholeNumbers(v[k])
+		}
+	}
+	return x
 }

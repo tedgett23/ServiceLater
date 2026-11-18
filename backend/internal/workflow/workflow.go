@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
@@ -63,6 +64,49 @@ func Start(ctx context.Context, q *dbgen.Queries, p StartParams) (uuid.UUID, err
 		arg.RecordID = uuid.NullUUID{UUID: *p.RecordID, Valid: true}
 	}
 	id, err := q.InsertExecution(ctx, arg)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("starting workflow %s: %w", p.Def.Name, err)
+	}
+	if _, err := jobs.Enqueue(ctx, q, RunKind, RunPayload{ExecutionID: id}, jobs.EnqueueOptions{}); err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
+}
+
+// ChildParams is a run a subflow or foreach step starts: another workflow of the same app, as the parent runs, with
+// its variables set, under the step that started it (Index: its place in a foreach).
+type ChildParams struct {
+	Def      *apps.Workflow
+	RecordID *uuid.UUID
+	UserID   uuid.UUID
+	Cause    ruleruns.Cause
+	Vars     map[string]any
+	Parent   uuid.UUID
+	Step     string
+	Index    int
+	Depth    int
+}
+
+// StartChild creates a child run and queues its first step, inside the parent step's transaction: if the step rolls
+// back, the child never existed.
+func StartChild(ctx context.Context, q *dbgen.Queries, p ChildParams) (uuid.UUID, error) {
+	snapshot, err := json.Marshal(p.Def)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	vars, err := json.Marshal(p.Vars)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	cause, _ := json.Marshal(p.Cause.ThroughKey(p.Def.App + "/" + p.Def.Name))
+	arg := dbgen.InsertChildExecutionParams{App: p.Def.App, Workflow: p.Def.Name, AppVersion: p.Def.Version, Definition: snapshot,
+		StartedBy: p.UserID, Cause: cause, CurrentStep: p.Def.Start, Vars: vars,
+		ParentID: uuid.NullUUID{UUID: p.Parent, Valid: true}, ParentStep: pgtype.Text{String: p.Step, Valid: true},
+		ParentIndex: pgtype.Int4{Int32: int32(p.Index), Valid: true}, Depth: int32(p.Depth)} //nolint:gosec // bounded by MaxForeachItems and MaxSubflowDepth
+	if p.RecordID != nil {
+		arg.RecordID = uuid.NullUUID{UUID: *p.RecordID, Valid: true}
+	}
+	id, err := q.InsertChildExecution(ctx, arg)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("starting workflow %s: %w", p.Def.Name, err)
 	}

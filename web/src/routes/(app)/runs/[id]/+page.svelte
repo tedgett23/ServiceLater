@@ -84,6 +84,7 @@
 		{#if run.status === 'failed'}
 			<p class="failure" role="alert"><strong>It stopped at {run.current_step}.</strong> {run.error}</p>
 		{/if}
+		{#if run.parent_id}<p class="note">Started by a step of <a href="/runs/{run.parent_id}">another run</a>.</p>{/if}
 
 		<section aria-labelledby="steps">
 			<h2 id="steps">Steps</h2>
@@ -114,6 +115,17 @@
 				</table>
 			{/if}
 		</section>
+
+		{#if run.children?.length}
+			<section aria-labelledby="children">
+				<h2 id="children">Runs it started</h2>
+				<ul class="children">
+					{#each run.children as c (c.id)}
+						<li><a href="/runs/{c.id}">{c.workflow}</a> <span class="type">{c.step}{run.children.filter((x) => x.step === c.step).length > 1 ? ` #${c.index + 1}` : ''}</span> <RunStatus status={c.status} /></li>
+					{/each}
+				</ul>
+			</section>
+		{/if}
 
 		{#if run.vars && Object.keys(run.vars).length}
 			<section aria-labelledby="vars">
@@ -231,5 +243,18 @@
 		td:nth-child(5) {
 			display: none;
 		}
+	}
+	.children {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: 0.35rem;
+	}
+	.children li {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
 	}
 </style>

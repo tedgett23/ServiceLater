@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/jobs"
 	"github.com/servicelater/servicelater/backend/internal/records"
+	"github.com/servicelater/servicelater/backend/internal/secrets"
 	"github.com/servicelater/servicelater/backend/internal/workflow"
 )
 
@@ -50,8 +52,14 @@ type Engine struct {
 	// PollEvery is how often a condition wait re-checks on its own (default 30s).
 	PollEvery time.Duration
 
-	mu    sync.Mutex
-	cache map[string]*apps.Workflow
+	// Keys reads the secrets http.request steps send.
+	Keys *secrets.Keyring
+	// AllowPrivateHTTP lets http.request reach this machine and private networks (SL_HTTP_ALLOW_PRIVATE).
+	AllowPrivateHTTP bool
+
+	mu     sync.Mutex
+	cache  map[string]*apps.Workflow
+	client *http.Client
 }
 
 // New returns an engine that saves tickets through svc.

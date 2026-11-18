@@ -44,6 +44,18 @@ type runDTO struct {
 	Graph []graphStep `json:"graph,omitempty"`
 	Vars  any         `json:"vars,omitempty"`
 	Steps []stepDTO   `json:"steps,omitempty"`
+	// ParentID is the run whose subflow or foreach step started this one; Children the runs this one's steps started.
+	ParentID *uuid.UUID    `json:"parent_id,omitempty"`
+	Children []childRunDTO `json:"children,omitempty"`
+}
+
+// childRunDTO is a run a subflow or foreach step started.
+type childRunDTO struct {
+	ID       uuid.UUID `json:"id"`
+	Workflow string    `json:"workflow"`
+	Status   string    `json:"status"`
+	Step     string    `json:"step"`
+	Index    int32     `json:"index"`
 }
 
 type graphStep struct {
@@ -106,6 +118,10 @@ func graphOf(definition []byte) ([]graphStep, string) {
 		add(s.Then, "then")
 		add(s.Else, "else")
 		add(s.OnTimeout, "timeout")
+		add(s.OnError, "error")
+		for _, name := range s.BranchNames() {
+			add(s.Branches[name], name)
+		}
 		out = append(out, g)
 	}
 	return out, wf.Start
@@ -240,7 +256,14 @@ func (h *handlers) getRun(w http.ResponseWriter, r *http.Request) {
 		for _, s := range steps {
 			out.Steps = append(out.Steps, stepDTO{Seq: s.Seq, StepID: s.StepID, Type: s.Type, Outcome: s.Outcome, Detail: s.Detail, Error: s.Error, DurationMs: s.DurationMs, At: s.CreatedAt.Time})
 		}
-		return nil
+		if p := v.WorkflowExecution.ParentID; p.Valid {
+			out.ParentID = &p.UUID
+		}
+		children, err := q.ListRunChildren(r.Context(), uuid.NullUUID{UUID: id, Valid: true})
+		for _, c := range children {
+			out.Children = append(out.Children, childRunDTO{ID: c.ID, Workflow: c.Workflow, Status: c.Status, Step: c.ParentStep.String, Index: c.ParentIndex.Int32})
+		}
+		return err
 	}) {
 		return
 	}
