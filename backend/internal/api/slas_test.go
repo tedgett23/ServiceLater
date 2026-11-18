@@ -334,7 +334,7 @@ func TestCalendarsAreManagedByThoseAllowed(t *testing.T) {
 	} {
 		refusal(t, admin.do(h, "POST", "/api/v1/business-calendars", strings.Replace(b, "uk-office", "other", 1)), 422, want, b)
 	}
-	if got := decodeBody[struct{ Items []calendarBody }](t, lena.do(h, "GET", "/api/v1/business-calendars", "")).Items; len(got) != 2 {
+	if got := decodeBody[struct{ Items []calendarBody }](t, lena.do(h, "GET", "/api/v1/business-calendars", "")).Items; len(got) != 3 { // business and extended hours ship
 		t.Errorf("an end user reads them: %+v", got)
 	}
 	renamed := decodeBody[calendarBody](t, admin.do(h, "PATCH", "/api/v1/business-calendars/"+cal.ID, `{"label":"London"}`))

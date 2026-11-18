@@ -58,3 +58,7 @@ ORDER BY lower(g.name);
 SELECT m.user_id FROM group_members m JOIN users u ON u.id = m.user_id
 WHERE m.group_id = $1 AND u.deactivated_at IS NULL
 ORDER BY m.user_id;
+
+-- name: SetGroupCalendar :exec
+-- A group's own working hours (null: none), which SLAs counting "the assignment group's calendar" use.
+UPDATE groups SET calendar_id = sqlc.narg('calendar_id') WHERE id = sqlc.arg('id');

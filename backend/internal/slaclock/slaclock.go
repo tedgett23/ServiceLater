@@ -63,6 +63,8 @@ type Clock struct {
 	Problem         string
 	StartedAt       time.Time
 	StoppedAt       time.Time
+	// Calendar is the business calendar it counts by now ("" counts every hour); an SLA may change it on a save.
+	Calendar string
 }
 
 func ts(t pgtype.Timestamptz) time.Time {
@@ -84,7 +86,7 @@ func FromRow(r dbgen.TaskSla) Clock {
 	return Clock{ID: r.ID, TaskID: r.TaskID, App: r.App, SLA: r.Sla, Definition: r.Definition, Checksum: r.Checksum,
 		Stage: r.Stage, Target: time.Duration(r.TargetMs) * time.Millisecond, Elapsed: time.Duration(r.ElapsedMs) * time.Millisecond,
 		RunningSince: ts(r.RunningSince), DueAt: ts(r.DueAt), BreachedAt: ts(r.BreachedAt), WarningsSent: int(r.WarningsSent),
-		NextAlertAt: ts(r.NextAlertAt), Problem: r.Problem, StartedAt: ts(r.StartedAt), StoppedAt: ts(r.StoppedAt)}
+		NextAlertAt: ts(r.NextAlertAt), Problem: r.Problem, StartedAt: ts(r.StartedAt), StoppedAt: ts(r.StoppedAt), Calendar: r.Calendar}
 }
 
 // Create writes a new clock and returns its id.
@@ -93,7 +95,7 @@ func Create(ctx context.Context, q *dbgen.Queries, c Clock) (uuid.UUID, error) {
 		Checksum: c.Checksum, Stage: c.Stage, TargetMs: c.Target.Milliseconds(), ElapsedMs: c.Elapsed.Milliseconds(),
 		RunningSince: pgts(c.RunningSince), DueAt: pgts(c.DueAt), BreachedAt: pgts(c.BreachedAt),
 		WarningsSent: int32(c.WarningsSent), NextAlertAt: pgts(c.NextAlertAt), Problem: c.Problem, //nolint:gosec // at most 3 warnings
-		StartedAt: pgts(c.StartedAt), StoppedAt: pgts(c.StoppedAt)})
+		StartedAt: pgts(c.StartedAt), StoppedAt: pgts(c.StoppedAt), Calendar: c.Calendar})
 }
 
 // Save writes a clock's state back.
@@ -101,7 +103,7 @@ func Save(ctx context.Context, q *dbgen.Queries, c Clock) error {
 	return q.UpdateTaskSLA(ctx, dbgen.UpdateTaskSLAParams{ID: c.ID, Stage: c.Stage, TargetMs: c.Target.Milliseconds(),
 		ElapsedMs: c.Elapsed.Milliseconds(), RunningSince: pgts(c.RunningSince), DueAt: pgts(c.DueAt), BreachedAt: pgts(c.BreachedAt),
 		WarningsSent: int32(c.WarningsSent), NextAlertAt: pgts(c.NextAlertAt), Problem: c.Problem, //nolint:gosec // at most 3 warnings
-		StoppedAt: pgts(c.StoppedAt)})
+		StoppedAt: pgts(c.StoppedAt), Calendar: c.Calendar})
 }
 
 // Same reports whether two states would write the same row.
@@ -109,7 +111,8 @@ func Same(a, b Clock) bool {
 	eq := func(x, y time.Time) bool { return x.Equal(y) }
 	return a.Stage == b.Stage && a.Target.Milliseconds() == b.Target.Milliseconds() && a.Elapsed.Milliseconds() == b.Elapsed.Milliseconds() &&
 		eq(a.RunningSince, b.RunningSince) && eq(a.DueAt, b.DueAt) && eq(a.BreachedAt, b.BreachedAt) &&
-		a.WarningsSent == b.WarningsSent && eq(a.NextAlertAt, b.NextAlertAt) && a.Problem == b.Problem && eq(a.StoppedAt, b.StoppedAt)
+		a.WarningsSent == b.WarningsSent && eq(a.NextAlertAt, b.NextAlertAt) && a.Problem == b.Problem && eq(a.StoppedAt, b.StoppedAt) &&
+		a.Calendar == b.Calendar
 }
 
 // Used is the working time the clock has used by now.
@@ -138,6 +141,19 @@ func (c *Clock) MoveTo(stage string, now time.Time, cal *businesstime.Calendar) 
 	default:
 		c.StoppedAt = time.Time{}
 	}
+}
+
+// SwitchCalendar makes the clock count by another calendar from now: the working time used so far is banked by the
+// calendar it was counting by (cal), and a running clock carries on from now by the new one.
+func (c *Clock) SwitchCalendar(name string, now time.Time, cal *businesstime.Calendar) {
+	if name == c.Calendar {
+		return
+	}
+	if c.Stage == Running {
+		c.Elapsed = c.Used(now, cal)
+		c.RunningSince = now
+	}
+	c.Calendar = name
 }
 
 // share is pct percent of the target.
@@ -279,6 +295,7 @@ type Calendars struct {
 type loaded struct {
 	cal     *businesstime.Calendar
 	problem string
+	label   string
 }
 
 // NewCalendars is a calendar cache for one transaction.
@@ -300,10 +317,26 @@ func (c *Calendars) Get(ctx context.Context, name string) (*businesstime.Calenda
 	case err != nil:
 		return nil, "", err
 	default:
+		l.label = row.Label
 		if l.cal, err = FromCalendarRow(row); err != nil {
 			l.problem = fmt.Sprintf("the calendar %s cannot be used (%v), so every hour is counted", name, err)
 		}
 	}
 	c.seen[name] = l
 	return l.cal, l.problem, nil
+}
+
+// Label is what people call the hours a clock counts by: the calendar's label, "Every hour" for none, and the name
+// of one that no longer exists.
+func (c *Calendars) Label(ctx context.Context, name string) (string, error) {
+	if name == "" {
+		return "Every hour", nil
+	}
+	if _, _, err := c.Get(ctx, name); err != nil {
+		return "", err
+	}
+	if l := c.seen[name].label; l != "" {
+		return l, nil
+	}
+	return name, nil
 }

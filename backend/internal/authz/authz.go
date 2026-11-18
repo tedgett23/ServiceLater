@@ -27,6 +27,8 @@ const (
 	CatalogManage    = "catalog:manage"    // change, add and reset service catalog items in the editor
 	FormsManage      = "forms:manage"      // change record types' forms in the form editor
 	ScriptsEdit      = "scripts:edit"      // change scripts in workflows and rules, and test-run them
+	SLAsManage       = "slas:manage"       // choose which hours each SLA counts
+	ReportsRead      = "reports:read"      // read reports (the SLA report)
 	UsersRead        = "users:read"        // the people directory and pickers
 	UsersManage      = "users:manage"      // add, edit, deactivate and delete people, and set passwords
 	GroupsManage     = "groups:manage"     // create and change groups and who is in them
@@ -122,6 +124,8 @@ var Catalog = []Permission{
 	{CatalogManage, "Change, add and reset service catalog items, and see every item"},
 	{FormsManage, "Change record types' forms: their fields, conditions and layout"},
 	{ScriptsEdit, "Change the Starlark scripts in workflow steps and rules, and test-run them"},
+	{SLAsManage, "Choose which hours each SLA counts, by priority, team or any condition"},
+	{ReportsRead, "Read reports: how records met their SLAs"},
 	{UsersRead, "Look people up in the directory and pickers"},
 	{UsersManage, "Add, edit, deactivate and delete people, and set their passwords"},
 	{GroupsManage, "Create and change groups and their members"},

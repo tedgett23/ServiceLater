@@ -28,7 +28,7 @@ func (q *Queries) AddGroupMember(ctx context.Context, arg AddGroupMemberParams) 
 }
 
 const createGroup = `-- name: CreateGroup :one
-INSERT INTO groups (name, description, restricted) VALUES ($1, $2, $3) RETURNING id, name, description, created_at, updated_at, restricted
+INSERT INTO groups (name, description, restricted) VALUES ($1, $2, $3) RETURNING id, name, description, created_at, updated_at, restricted, calendar_id
 `
 
 type CreateGroupParams struct {
@@ -47,6 +47,7 @@ func (q *Queries) CreateGroup(ctx context.Context, arg CreateGroupParams) (Group
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Restricted,
+		&i.CalendarID,
 	)
 	return i, err
 }
@@ -64,7 +65,7 @@ func (q *Queries) DeleteGroup(ctx context.Context, id uuid.UUID) (int64, error) 
 }
 
 const getGroup = `-- name: GetGroup :one
-SELECT g.id, g.name, g.description, g.created_at, g.updated_at, g.restricted, (SELECT count(*) FROM group_members m WHERE m.group_id = g.id) AS member_count
+SELECT g.id, g.name, g.description, g.created_at, g.updated_at, g.restricted, g.calendar_id, (SELECT count(*) FROM group_members m WHERE m.group_id = g.id) AS member_count
 FROM groups g WHERE g.id = $1
 `
 
@@ -75,6 +76,7 @@ type GetGroupRow struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	Restricted  bool               `json:"restricted"`
+	CalendarID  uuid.NullUUID      `json:"calendar_id"`
 	MemberCount int64              `json:"member_count"`
 }
 
@@ -88,13 +90,14 @@ func (q *Queries) GetGroup(ctx context.Context, id uuid.UUID) (GetGroupRow, erro
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Restricted,
+		&i.CalendarID,
 		&i.MemberCount,
 	)
 	return i, err
 }
 
 const getGroupByName = `-- name: GetGroupByName :one
-SELECT id, name, description, created_at, updated_at, restricted FROM groups WHERE lower(name) = lower($1::text)
+SELECT id, name, description, created_at, updated_at, restricted, calendar_id FROM groups WHERE lower(name) = lower($1::text)
 `
 
 func (q *Queries) GetGroupByName(ctx context.Context, name string) (Group, error) {
@@ -107,6 +110,7 @@ func (q *Queries) GetGroupByName(ctx context.Context, name string) (Group, error
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Restricted,
+		&i.CalendarID,
 	)
 	return i, err
 }
@@ -226,7 +230,7 @@ func (q *Queries) ListGroupMembers(ctx context.Context, groupID uuid.UUID) ([]Li
 
 const listGroups = `-- name: ListGroups :many
 
-SELECT g.id, g.name, g.description, g.created_at, g.updated_at, g.restricted, (SELECT count(*) FROM group_members m WHERE m.group_id = g.id) AS member_count
+SELECT g.id, g.name, g.description, g.created_at, g.updated_at, g.restricted, g.calendar_id, (SELECT count(*) FROM group_members m WHERE m.group_id = g.id) AS member_count
 FROM groups g
 ORDER BY lower(g.name)
 `
@@ -238,6 +242,7 @@ type ListGroupsRow struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	Restricted  bool               `json:"restricted"`
+	CalendarID  uuid.NullUUID      `json:"calendar_id"`
 	MemberCount int64              `json:"member_count"`
 }
 
@@ -258,6 +263,7 @@ func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Restricted,
+			&i.CalendarID,
 			&i.MemberCount,
 		); err != nil {
 			return nil, err
@@ -271,7 +277,7 @@ func (q *Queries) ListGroups(ctx context.Context) ([]ListGroupsRow, error) {
 }
 
 const listUserGroups = `-- name: ListUserGroups :many
-SELECT g.id, g.name, g.description, g.created_at, g.updated_at, g.restricted FROM groups g JOIN group_members m ON m.group_id = g.id
+SELECT g.id, g.name, g.description, g.created_at, g.updated_at, g.restricted, g.calendar_id FROM groups g JOIN group_members m ON m.group_id = g.id
 WHERE m.user_id = $1
 ORDER BY lower(g.name)
 `
@@ -292,6 +298,7 @@ func (q *Queries) ListUserGroups(ctx context.Context, userID uuid.UUID) ([]Group
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Restricted,
+			&i.CalendarID,
 		); err != nil {
 			return nil, err
 		}
@@ -320,13 +327,28 @@ func (q *Queries) RemoveGroupMember(ctx context.Context, arg RemoveGroupMemberPa
 	return result.RowsAffected(), nil
 }
 
+const setGroupCalendar = `-- name: SetGroupCalendar :exec
+UPDATE groups SET calendar_id = $1 WHERE id = $2
+`
+
+type SetGroupCalendarParams struct {
+	CalendarID uuid.NullUUID `json:"calendar_id"`
+	ID         uuid.UUID     `json:"id"`
+}
+
+// A group's own working hours (null: none), which SLAs counting "the assignment group's calendar" use.
+func (q *Queries) SetGroupCalendar(ctx context.Context, arg SetGroupCalendarParams) error {
+	_, err := q.db.Exec(ctx, setGroupCalendar, arg.CalendarID, arg.ID)
+	return err
+}
+
 const updateGroup = `-- name: UpdateGroup :one
 UPDATE groups SET
     name        = COALESCE($1, name),
     description = COALESCE($2, description),
     restricted  = COALESCE($3, restricted)
 WHERE id = $4
-RETURNING id, name, description, created_at, updated_at, restricted
+RETURNING id, name, description, created_at, updated_at, restricted, calendar_id
 `
 
 type UpdateGroupParams struct {
@@ -351,6 +373,7 @@ func (q *Queries) UpdateGroup(ctx context.Context, arg UpdateGroupParams) (Group
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Restricted,
+		&i.CalendarID,
 	)
 	return i, err
 }

@@ -239,7 +239,11 @@ func (h *handlers) deleteBusinessCalendar(w http.ResponseWriter, r *http.Request
 			return &apiError{http.StatusConflict, fmt.Sprintf("%d SLA clocks still count by this calendar", inUse)}
 		}
 		n, err := q.DeleteBusinessCalendar(r.Context(), id)
-		if err == nil && n == 0 {
+		var pe *pgconn.PgError
+		switch {
+		case errors.As(err, &pe) && pe.Code == "23503":
+			return &apiError{http.StatusConflict, "a group works by this calendar; choose other hours for it first"}
+		case err == nil && n == 0:
 			return notFound()
 		}
 		return err

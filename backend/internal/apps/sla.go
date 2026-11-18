@@ -1,6 +1,7 @@
 package apps
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/servicelater/servicelater/backend/internal/expr"
 )
@@ -53,10 +56,12 @@ type SLA struct {
 	// Target is how much working time the record has: a literal such as "4h" or "2d", or an =expression giving a
 	// duration, so it can depend on the priority. It is worked out again on every save, keeping the time used.
 	Target *Value `json:"target"`
-	// Calendar names a business calendar (business_calendars); empty counts every hour.
-	Calendar string       `json:"calendar,omitempty"`
-	Warnings []SLAWarning `json:"warnings,omitempty"`
-	OnBreach []Action     `json:"on_breach,omitempty"`
+	// Calendar names a business calendar (business_calendars); empty counts every hour. With CalendarRules it is
+	// unused: the first rule that holds for the record decides, and none counts every hour.
+	Calendar      string         `json:"calendar,omitempty"`
+	CalendarRules []CalendarRule `json:"calendar_rules,omitempty"`
+	Warnings      []SLAWarning   `json:"warnings,omitempty"`
+	OnBreach      []Action       `json:"on_breach,omitempty"`
 	// Fields are the extra fields of the app's form the SLA reads, with their types when it was installed.
 	Fields expr.FieldTypes `json:"fields,omitempty"`
 
@@ -68,6 +73,8 @@ type SLA struct {
 	// Body is the definition as stored, which a new clock keeps.
 	Body json.RawMessage `json:"-"`
 
+	calWhen                     []*expr.Program
+	calErr                      error
 	start, pause, stop          *expr.Program
 	startErr, pauseErr, stopErr error
 	warnRules                   []*Rule
@@ -89,7 +96,7 @@ type slaFile struct {
 	Pause      string           `yaml:"pause"`
 	Stop       string           `yaml:"stop"`
 	Target     *Value           `yaml:"target"`
-	Calendar   string           `yaml:"calendar"`
+	Calendar   calendarChoice   `yaml:"calendar"`
 	Warnings   []slaWarningFile `yaml:"warnings"`
 	OnBreach   []actionFile     `yaml:"on_breach"`
 }
@@ -119,7 +126,7 @@ func parseSLA(file string, data []byte, forms formSet, p *Problems) *SLA {
 		return nil
 	}
 	s := &SLA{Name: f.Name, Label: f.Label, RecordType: f.RecordType, Start: f.Start, Pause: f.Pause, Stop: f.Stop,
-		Target: f.Target, Calendar: f.Calendar, OnBreach: actionsFrom(f.OnBreach), Fields: forms.fieldsUsed(f.RecordType, data)}
+		Target: f.Target, Calendar: f.Calendar.name, CalendarRules: f.Calendar.rules, OnBreach: actionsFrom(f.OnBreach), Fields: forms.fieldsUsed(f.RecordType, data)}
 	if s.Start == "" {
 		s.Start = DefaultSLAStart
 	}
@@ -158,6 +165,9 @@ func (s *SLA) validate(file string, p *Problems) {
 		} else if names := Lookups(nil).undeclared(c.prog); len(names) > 0 {
 			p.add(file, "%s: an SLA cannot read lookups", c.name)
 		}
+	}
+	if s.calErr != nil {
+		p.add(file, "%v", s.calErr)
 	}
 	if s.Target.err != nil {
 		p.add(file, "target: %v", s.Target.err)
@@ -238,6 +248,14 @@ func (s *SLA) validateStructure(file string, p *Problems) {
 	if s.Calendar != "" && !ruleNameRE.MatchString(s.Calendar) {
 		p.add(file, "calendar %q is not a calendar name (lowercase letters, digits and hyphens)", s.Calendar)
 	}
+	if len(s.CalendarRules) > maxCalendarRules {
+		p.add(file, "calendar: at most %d rules", maxCalendarRules)
+	}
+	for i, r := range s.CalendarRules {
+		if r.Use != CalendarAlways && r.Use != CalendarGroup && !ruleNameRE.MatchString(r.Use) {
+			p.add(file, "calendar[%d]: use must be %s, %s, or a calendar's name, got %q", i, CalendarAlways, CalendarGroup, r.Use)
+		}
+	}
 	if len(s.Warnings) > maxSLAWarnings {
 		p.add(file, "an SLA may have at most %d warnings", maxSLAWarnings)
 	}
@@ -281,6 +299,17 @@ func (s *SLA) compile() {
 			return nil, err
 		}
 		return env.Compile(src)
+	}
+	s.calWhen, s.calErr = make([]*expr.Program, len(s.CalendarRules)), nil
+	for i, r := range s.CalendarRules {
+		if r.When == "" {
+			continue
+		}
+		p, cerr := compile(r.When)
+		if cerr != nil && s.calErr == nil {
+			s.calErr = fmt.Errorf("calendar[%d]: when: %w", i, cerr)
+		}
+		s.calWhen[i] = p
 	}
 	s.start, s.startErr = compile(s.Start)
 	s.pause, s.pauseErr = compile(s.Pause)
@@ -366,4 +395,72 @@ func SLAFromSnapshot(body json.RawMessage, checksum, app string) (*SLA, error) {
 func Checksum(body []byte) string {
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:])
+}
+
+// Calendar choices besides a calendar's name: every hour, and the record's assignment group's own working hours.
+const (
+	CalendarAlways = "24x7"
+	CalendarGroup  = "group"
+)
+
+const maxCalendarRules = 20
+
+// CalendarRule is one step of choosing an SLA's calendar for a record: when When holds (always, when empty), count
+// by Use (a calendar's name, 24x7, or group: the assignment group's calendar, skipped when it has none).
+type CalendarRule struct {
+	When string `json:"when,omitempty" yaml:"when"`
+	Use  string `json:"use" yaml:"use"`
+}
+
+// calendarChoice is calendar: in an SLA file, either a calendar's name or a list of rules.
+type calendarChoice struct {
+	name  string
+	rules []CalendarRule
+}
+
+func (c *calendarChoice) UnmarshalYAML(n *yaml.Node) error {
+	switch n.Kind {
+	case yaml.ScalarNode:
+		return n.Decode(&c.name)
+	case yaml.SequenceNode:
+		return decodeNodeStrict(n, &c.rules)
+	}
+	return fmt.Errorf("line %d: calendar is a calendar's name, or a list of rules (when, use)", n.Line)
+}
+
+// CalendarFor is the calendar a clock counts by for the record in in: the first calendar rule that holds (group is
+// the assignment group's calendar from groupCalendar, skipped when it has none), else Calendar. "" counts every hour.
+func (s *SLA) CalendarFor(ctx context.Context, in expr.Input, groupCalendar func() (string, error)) (string, error) {
+	if len(s.CalendarRules) == 0 {
+		return s.Calendar, nil
+	}
+	if s.calErr != nil {
+		return "", s.calErr
+	}
+	for i, r := range s.CalendarRules {
+		if p := s.calWhen[i]; p != nil {
+			ok, err := p.Eval(ctx, in)
+			if err != nil {
+				return "", fmt.Errorf("calendar[%d]: when: %w", i, err)
+			}
+			if !ok {
+				continue
+			}
+		}
+		switch r.Use {
+		case CalendarAlways:
+			return "", nil
+		case CalendarGroup:
+			name, err := groupCalendar()
+			if err != nil {
+				return "", err
+			}
+			if name != "" {
+				return name, nil
+			}
+		default:
+			return r.Use, nil
+		}
+	}
+	return "", nil
 }

@@ -94,7 +94,9 @@ func (s *Service) trackSLAs(ctx context.Context, q *dbgen.Queries, a Actor, even
 // stepClock applies one save to one clock: alerts owed up to now are queued, then the clock moves to the stage its
 // conditions give, with its target worked out again, and is scheduled. A new clock (no stage yet) starts here.
 func (s *Service) stepClock(ctx context.Context, q *dbgen.Queries, cals *slaclock.Calendars, def *apps.SLA, c *slaclock.Clock, in expr.Input, now time.Time) error {
-	cal, calProblem, err := cals.Get(ctx, def.Calendar)
+	// The calendar it has counted by until now; alerts owed so far are worked out by it. (Its problem, if any, is
+	// said below for the calendar it counts by from now.)
+	cal, _, err := cals.Get(ctx, c.Calendar)
 	if err != nil {
 		return err
 	}
@@ -112,6 +114,20 @@ func (s *Service) stepClock(ctx context.Context, q *dbgen.Queries, cals *slacloc
 	if err != nil {
 		return problem(err.Error())
 	}
+	// The calendar it counts by from now, chosen by the record (its priority, its team...).
+	want, err := def.CalendarFor(ctx, in, func() (string, error) {
+		if in.Record == nil || in.Record.AssignmentGroupID == nil {
+			return "", nil
+		}
+		gid, err := uuid.Parse(*in.Record.AssignmentGroupID)
+		if err != nil {
+			return "", nil
+		}
+		return q.GroupCalendarName(ctx, gid)
+	})
+	if err != nil {
+		return problem(err.Error())
+	}
 	if c.Stage != "" {
 		fire, breach := c.Owed(now, cal, warnings)
 		if len(fire) > 0 || breach {
@@ -122,6 +138,15 @@ func (s *Service) stepClock(ctx context.Context, q *dbgen.Queries, cals *slacloc
 				return err
 			}
 		}
+	}
+	if c.Stage == "" {
+		c.Calendar = want // a new clock starts by it
+	} else if want != c.Calendar {
+		c.SwitchCalendar(want, now, cal)
+	}
+	cal, calProblem, err := cals.Get(ctx, c.Calendar)
+	if err != nil {
+		return err
 	}
 	c.MoveTo(stage, now, cal)
 	c.Target = target
@@ -201,8 +226,10 @@ type SLAClock struct {
 	// TargetMS is the working time allowed and UsedMS the working time used, as of the response.
 	TargetMS int64 `json:"target_ms"`
 	UsedMS   int64 `json:"used_ms"`
-	// Calendar is the business calendar it counts by; empty means every hour counts.
-	Calendar string `json:"calendar"`
+	// Calendar is the business calendar it counts by now; empty means every hour counts. CalendarLabel is what people
+	// call those hours (Business hours, Every hour).
+	Calendar      string `json:"calendar"`
+	CalendarLabel string `json:"calendar_label"`
 	// DueAt is when the target is used up, while running.
 	DueAt      *time.Time `json:"due_at"`
 	BreachedAt *time.Time `json:"breached_at"`
@@ -233,11 +260,15 @@ func LoadSLAs(ctx context.Context, q *dbgen.Queries, taskID uuid.UUID) ([]SLAClo
 		v := SLAClock{ID: c.ID, App: c.App, Name: c.SLA, Label: c.SLA, Stage: c.Stage, TargetMS: c.Target.Milliseconds(),
 			DueAt: optTime(c.DueAt), BreachedAt: optTime(c.BreachedAt), StartedAt: c.StartedAt, StoppedAt: optTime(c.StoppedAt), Problem: c.Problem}
 		var cal *businesstime.Calendar
+		v.Calendar = c.Calendar
 		if def, err := apps.SLAFromSnapshot(c.Definition, c.Checksum, c.App); err == nil {
-			v.Label, v.Calendar = def.Label, def.Calendar
-			if cal, _, err = cals.Get(ctx, def.Calendar); err != nil {
-				return nil, err
-			}
+			v.Label = def.Label
+		}
+		if cal, _, err = cals.Get(ctx, c.Calendar); err != nil {
+			return nil, err
+		}
+		if v.CalendarLabel, err = cals.Label(ctx, c.Calendar); err != nil {
+			return nil, err
 		}
 		v.UsedMS = c.Used(now, cal).Milliseconds()
 		out = append(out, v)

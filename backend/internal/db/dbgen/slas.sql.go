@@ -13,7 +13,7 @@ import (
 )
 
 const claimDueSLAs = `-- name: ClaimDueSLAs :many
-SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at FROM task_slas
+SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at, calendar FROM task_slas
 WHERE stage = 'running' AND next_alert_at <= now()
 ORDER BY next_alert_at
 LIMIT $1
@@ -50,6 +50,7 @@ func (q *Queries) ClaimDueSLAs(ctx context.Context, max int32) ([]TaskSla, error
 			&i.StartedAt,
 			&i.StoppedAt,
 			&i.UpdatedAt,
+			&i.Calendar,
 		); err != nil {
 			return nil, err
 		}
@@ -62,7 +63,7 @@ func (q *Queries) ClaimDueSLAs(ctx context.Context, max int32) ([]TaskSla, error
 }
 
 const countClocksByCalendar = `-- name: CountClocksByCalendar :one
-SELECT count(*)::bigint FROM task_slas WHERE stage IN ('running', 'paused') AND definition ->> 'calendar' = $1::text
+SELECT count(*)::bigint FROM task_slas WHERE stage IN ('running', 'paused') AND calendar = $1::text
 `
 
 // How many clocks still running or paused count by a calendar, so deleting one in use can be refused.
@@ -102,11 +103,11 @@ func (q *Queries) CreateBusinessCalendar(ctx context.Context, arg CreateBusiness
 
 const createTaskSLA = `-- name: CreateTaskSLA :one
 INSERT INTO task_slas (task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at,
-                       breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at)
+                       breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, calendar)
 VALUES ($1, $2, $3, $4, $5,
         $6, $7, $8, $9, $10,
         $11, $12, $13, $14,
-        $15, $16)
+        $15, $16, $17)
 RETURNING id
 `
 
@@ -127,6 +128,7 @@ type CreateTaskSLAParams struct {
 	Problem      string             `json:"problem"`
 	StartedAt    pgtype.Timestamptz `json:"started_at"`
 	StoppedAt    pgtype.Timestamptz `json:"stopped_at"`
+	Calendar     string             `json:"calendar"`
 }
 
 func (q *Queries) CreateTaskSLA(ctx context.Context, arg CreateTaskSLAParams) (uuid.UUID, error) {
@@ -147,6 +149,7 @@ func (q *Queries) CreateTaskSLA(ctx context.Context, arg CreateTaskSLAParams) (u
 		arg.Problem,
 		arg.StartedAt,
 		arg.StoppedAt,
+		arg.Calendar,
 	)
 	var id uuid.UUID
 	err := row.Scan(&id)
@@ -216,7 +219,7 @@ func (q *Queries) GetBusinessCalendarByName(ctx context.Context, name string) (B
 }
 
 const getTaskSLA = `-- name: GetTaskSLA :one
-SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at FROM task_slas WHERE id = $1
+SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at, calendar FROM task_slas WHERE id = $1
 `
 
 func (q *Queries) GetTaskSLA(ctx context.Context, id uuid.UUID) (TaskSla, error) {
@@ -241,8 +244,21 @@ func (q *Queries) GetTaskSLA(ctx context.Context, id uuid.UUID) (TaskSla, error)
 		&i.StartedAt,
 		&i.StoppedAt,
 		&i.UpdatedAt,
+		&i.Calendar,
 	)
 	return i, err
+}
+
+const groupCalendarName = `-- name: GroupCalendarName :one
+SELECT coalesce((SELECT c.name FROM groups g JOIN business_calendars c ON c.id = g.calendar_id WHERE g.id = $1), '')::text AS name
+`
+
+// The calendar a group works by, or ” when it has none: what an SLA's "the assignment group's calendar" counts.
+func (q *Queries) GroupCalendarName(ctx context.Context, id uuid.UUID) (string, error) {
+	row := q.db.QueryRow(ctx, groupCalendarName, id)
+	var name string
+	err := row.Scan(&name)
+	return name, err
 }
 
 const listBusinessCalendars = `-- name: ListBusinessCalendars :many
@@ -289,7 +305,7 @@ func (q *Queries) ListBusinessCalendars(ctx context.Context) ([]ListBusinessCale
 
 const listTaskSLAs = `-- name: ListTaskSLAs :many
 
-SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at FROM task_slas WHERE task_id = $1 AND stage <> 'cancelled' ORDER BY started_at, sla
+SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at, calendar FROM task_slas WHERE task_id = $1 AND stage <> 'cancelled' ORDER BY started_at, sla
 `
 
 // SLA clocks (task_slas, migration 00025). A save reads and writes them as the person saving; the SLA timer as the
@@ -323,6 +339,7 @@ func (q *Queries) ListTaskSLAs(ctx context.Context, taskID uuid.UUID) ([]TaskSla
 			&i.StartedAt,
 			&i.StoppedAt,
 			&i.UpdatedAt,
+			&i.Calendar,
 		); err != nil {
 			return nil, err
 		}
@@ -335,7 +352,7 @@ func (q *Queries) ListTaskSLAs(ctx context.Context, taskID uuid.UUID) ([]TaskSla
 }
 
 const listTaskSLAsForUpdate = `-- name: ListTaskSLAsForUpdate :many
-SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at FROM task_slas WHERE task_id = $1 ORDER BY started_at, sla FOR UPDATE
+SELECT id, task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at, breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, updated_at, calendar FROM task_slas WHERE task_id = $1 ORDER BY started_at, sla FOR UPDATE
 `
 
 // Every clock of a record, locked, for the save that is about to move them.
@@ -367,6 +384,7 @@ func (q *Queries) ListTaskSLAsForUpdate(ctx context.Context, taskID uuid.UUID) (
 			&i.StartedAt,
 			&i.StoppedAt,
 			&i.UpdatedAt,
+			&i.Calendar,
 		); err != nil {
 			return nil, err
 		}
@@ -411,8 +429,8 @@ const updateTaskSLA = `-- name: UpdateTaskSLA :exec
 UPDATE task_slas SET stage = $1, target_ms = $2, elapsed_ms = $3,
     running_since = $4, due_at = $5, breached_at = $6,
     warnings_sent = $7, next_alert_at = $8, problem = $9,
-    stopped_at = $10, updated_at = now()
-WHERE id = $11
+    stopped_at = $10, calendar = $11, updated_at = now()
+WHERE id = $12
 `
 
 type UpdateTaskSLAParams struct {
@@ -426,6 +444,7 @@ type UpdateTaskSLAParams struct {
 	NextAlertAt  pgtype.Timestamptz `json:"next_alert_at"`
 	Problem      string             `json:"problem"`
 	StoppedAt    pgtype.Timestamptz `json:"stopped_at"`
+	Calendar     string             `json:"calendar"`
 	ID           uuid.UUID          `json:"id"`
 }
 
@@ -441,6 +460,7 @@ func (q *Queries) UpdateTaskSLA(ctx context.Context, arg UpdateTaskSLAParams) er
 		arg.NextAlertAt,
 		arg.Problem,
 		arg.StoppedAt,
+		arg.Calendar,
 		arg.ID,
 	)
 	return err

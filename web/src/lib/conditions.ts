@@ -17,7 +17,8 @@ export interface Clause {
 export interface SimpleField {
 	name: string;
 	label: string;
-	type: 'choice' | 'boolean' | 'text' | 'number' | 'status' | 'priority';
+	/** group is the record's assignment group (by name): a field of its own that may be empty, like a form's. */
+	type: 'choice' | 'boolean' | 'text' | 'number' | 'status' | 'priority' | 'group';
 	options?: { value: string; label: string }[];
 }
 
@@ -27,7 +28,7 @@ export const opLabels: Record<Op, string> = { is: 'is', is_not: 'is not', set: '
 export const opsFor = (f: SimpleField): Op[] => (f.type === 'status' || f.type === 'priority' ? ['is', 'is_not'] : ['is', 'is_not', 'set', 'not_set']);
 
 const core = (f: SimpleField) => f.type === 'status' || f.type === 'priority';
-const ref = (f: SimpleField) => (core(f) ? `record.${f.name}` : `record.fields.${f.name}`);
+const ref = (f: SimpleField) => (core(f) || f.type === 'group' ? `record.${f.name}` : `record.fields.${f.name}`);
 
 function literal(f: SimpleField, v: Clause['value']): string {
 	switch (f.type) {
@@ -71,17 +72,19 @@ export function toExpression(clauses: Clause[], fields: SimpleField[]): string {
 }
 
 const VALUE = String.raw`("(?:[^"\\]|\\.)*"|true|false|-?\d+(?:\.\d+)?)`;
+// Each shape reads the field's path (fields.category, assignment_group, status); parseSimple finds the field by it.
+const PATH = String.raw`((?:fields\.)?\w+)`;
 const shapes: { re: RegExp; read: (m: RegExpExecArray) => Clause | null }[] = [
 	{
-		re: new RegExp(String.raw`has\(record\.fields\.(\w+)\) && record\.fields\.(\w+) == ${VALUE}`, 'y'),
+		re: new RegExp(String.raw`has\(record\.${PATH}\) && record\.${PATH} == ${VALUE}`, 'y'),
 		read: (m) => (m[1] === m[2] ? { field: m[1], op: 'is', value: value(m[3]) } : null)
 	},
 	{
-		re: new RegExp(String.raw`\(!has\(record\.fields\.(\w+)\) \|\| record\.fields\.(\w+) != ${VALUE}\)`, 'y'),
+		re: new RegExp(String.raw`\(!has\(record\.${PATH}\) \|\| record\.${PATH} != ${VALUE}\)`, 'y'),
 		read: (m) => (m[1] === m[2] ? { field: m[1], op: 'is_not', value: value(m[3]) } : null)
 	},
-	{ re: /!has\(record\.fields\.(\w+)\)/y, read: (m) => ({ field: m[1], op: 'not_set' }) },
-	{ re: /has\(record\.fields\.(\w+)\)/y, read: (m) => ({ field: m[1], op: 'set' }) },
+	{ re: new RegExp(String.raw`!has\(record\.${PATH}\)`, 'y'), read: (m) => ({ field: m[1], op: 'not_set' }) },
+	{ re: new RegExp(String.raw`has\(record\.${PATH}\)`, 'y'), read: (m) => ({ field: m[1], op: 'set' }) },
 	{
 		re: new RegExp(String.raw`record\.(status|priority) (==|!=) ${VALUE}`, 'y'),
 		read: (m) => ({ field: m[1], op: m[2] === '==' ? 'is' : 'is_not', value: value(m[3]) })
@@ -118,8 +121,12 @@ export function parseSimple(expression: string, fields: SimpleField[]): Clause[]
 				break;
 			}
 		}
-		if (!found || !fields.some((f) => f.name === found.field)) return null;
-		out.push(found);
+		if (!found) return null;
+		// The path names the field: fields.x is a form's field x, anything else the record's own.
+		const path = 'record.' + found.field;
+		const f = fields.find((x) => ref(x) === path);
+		if (!f) return null;
+		out.push({ ...found, field: f.name });
 	}
 	return out;
 }

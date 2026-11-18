@@ -1256,6 +1256,20 @@
         },
         "type": "object"
       },
+      "CalendarRule": {
+        "properties": {
+          "use": {
+            "type": "string"
+          },
+          "when": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "use"
+        ],
+        "type": "object"
+      },
       "CatalogApp": {
         "description": "An app new items can be added to, with the workflows an item of it may name.",
         "properties": {
@@ -3036,6 +3050,14 @@
       "Group": {
         "description": "A team: what a ticket is routed to, and what group('name') in a workflow resolves to.",
         "properties": {
+          "calendar_id": {
+            "description": "The business calendar the group works by, or null: SLAs that count \"the assignment group's calendar\" use it for records routed here.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -3065,6 +3087,7 @@
           }
         },
         "required": [
+          "calendar_id",
           "created_at",
           "description",
           "id",
@@ -3078,6 +3101,14 @@
       "GroupDetail": {
         "description": "A group with everyone in it, and the roles it gives them.",
         "properties": {
+          "calendar_id": {
+            "description": "The business calendar the group works by, or null: SLAs that count \"the assignment group's calendar\" use it for records routed here.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "type": "string"
@@ -3119,6 +3150,7 @@
           }
         },
         "required": [
+          "calendar_id",
           "created_at",
           "description",
           "id",
@@ -4413,6 +4445,9 @@
           "calendar": {
             "type": "string"
           },
+          "calendar_label": {
+            "type": "string"
+          },
           "due_at": {
             "format": "date-time",
             "type": [
@@ -4460,6 +4495,7 @@
           "app",
           "breached_at",
           "calendar",
+          "calendar_label",
           "due_at",
           "id",
           "label",
@@ -4859,6 +4895,464 @@
         "required": [
           "passwords",
           "providers"
+        ],
+        "type": "object"
+      },
+      "SlaCalendarRequest": {
+        "description": "How an SLA chooses its hours.",
+        "properties": {
+          "calendar": {
+            "description": "The rules, in order: when (a condition on the record; empty always holds) and use (a calendar's name, 24x7 or group). The last should hold always, so every record gets hours.",
+            "items": {
+              "$ref": "#/components/schemas/CalendarRule"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "SlaDef": {
+        "description": "An SLA and the hours it counts.",
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "calendar": {
+            "description": "How it chooses its hours: the first rule whose when holds (always, when empty) decides; use is a calendar's name, 24x7 (every hour) or group (the assignment group's own hours, skipped when it has none).",
+            "items": {
+              "$ref": "#/components/schemas/CalendarRule"
+            },
+            "type": "array"
+          },
+          "edited": {
+            "description": "Says the choice was changed here, apart from the app.",
+            "type": "boolean"
+          },
+          "label": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "record_type": {
+            "description": "The type it runs on; RecordTypeLabel what people call those records (Incidents).",
+            "type": "string"
+          },
+          "record_type_label": {
+            "type": "string"
+          },
+          "target": {
+            "description": "The working time allowed when it is fixed (8h), else empty and TargetRule is the expression that works it out from the record.",
+            "type": "string"
+          },
+          "target_rule": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "calendar",
+          "edited",
+          "label",
+          "name",
+          "record_type",
+          "record_type_label",
+          "target",
+          "target_rule"
+        ],
+        "type": "object"
+      },
+      "SlaReport": {
+        "description": "The SLA report for a period.",
+        "properties": {
+          "at_risk": {
+            "items": {
+              "$ref": "#/components/schemas/SlaReportClock"
+            },
+            "type": "array"
+          },
+          "breaches": {
+            "items": {
+              "$ref": "#/components/schemas/SlaReportClock"
+            },
+            "type": "array"
+          },
+          "bucket": {
+            "description": "What each point of the trend counts: day, week or month.",
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/SlaReportBreak"
+            },
+            "type": "array"
+          },
+          "options": {
+            "$ref": "#/components/schemas/SlaReportOptions"
+          },
+          "partial": {
+            "type": "boolean"
+          },
+          "period": {
+            "type": "string"
+          },
+          "priorities": {
+            "items": {
+              "$ref": "#/components/schemas/SlaReportBreak"
+            },
+            "type": "array"
+          },
+          "series": {
+            "description": "The trend's lines (one per SLA), in the order each point's values list them.",
+            "items": {
+              "$ref": "#/components/schemas/SlaReportSeries"
+            },
+            "type": "array"
+          },
+          "slas": {
+            "items": {
+              "$ref": "#/components/schemas/SlaReportSLA"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/SlaReportSummary"
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "trend": {
+            "items": {
+              "$ref": "#/components/schemas/SlaReportPoint"
+            },
+            "type": "array"
+          },
+          "types": {
+            "items": {
+              "$ref": "#/components/schemas/SlaReportBreak"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "at_risk",
+          "breaches",
+          "bucket",
+          "from",
+          "groups",
+          "options",
+          "partial",
+          "period",
+          "priorities",
+          "series",
+          "slas",
+          "summary",
+          "to",
+          "trend",
+          "types"
+        ],
+        "type": "object"
+      },
+      "SlaReportBreak": {
+        "description": "One row of a breakdown (an assignment group, a priority, a type): clocks that ended in the period, met or breached, and those still running or paused now.",
+        "properties": {
+          "breached": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ended": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "met": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "met_pct": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "running": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "breached",
+          "ended",
+          "key",
+          "label",
+          "met",
+          "met_pct",
+          "running"
+        ],
+        "type": "object"
+      },
+      "SlaReportClock": {
+        "description": "A clock in a list: at risk now, or breached lately.",
+        "properties": {
+          "breached_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "calendar": {
+            "description": "The label of the hours it counts by, \"Every hour\" when every hour counts.",
+            "type": "string"
+          },
+          "due_at": {
+            "description": "When a running clock's target is used up; OverMS how far past it a breached clock went.",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "group": {
+            "type": "string"
+          },
+          "link": {
+            "type": "string"
+          },
+          "over_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "sla": {
+            "type": "string"
+          },
+          "target_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "used_ms": {
+            "description": "Of TargetMS is the working time used; UsedPct the same as a whole percentage.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "used_pct": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "calendar",
+          "group",
+          "link",
+          "over_ms",
+          "reference",
+          "sla",
+          "target_ms",
+          "title",
+          "used_ms",
+          "used_pct"
+        ],
+        "type": "object"
+      },
+      "SlaReportCounted": {
+        "properties": {
+          "ended": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "met": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "met_pct": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ended",
+          "met",
+          "met_pct"
+        ],
+        "type": "object"
+      },
+      "SlaReportOptions": {
+        "description": "The choices the filters offer.",
+        "properties": {
+          "priorities": {
+            "items": {
+              "$ref": "#/components/schemas/SlaReportSeries"
+            },
+            "type": "array"
+          },
+          "slas": {
+            "items": {
+              "$ref": "#/components/schemas/SlaReportSeries"
+            },
+            "type": "array"
+          },
+          "types": {
+            "items": {
+              "$ref": "#/components/schemas/SlaReportSeries"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "priorities",
+          "slas",
+          "types"
+        ],
+        "type": "object"
+      },
+      "SlaReportPoint": {
+        "description": "One bucket of the trend: for each series (in Series order), how many clocks ended and met.",
+        "properties": {
+          "start": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/SlaReportCounted"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "start",
+          "values"
+        ],
+        "type": "object"
+      },
+      "SlaReportSLA": {
+        "description": "One SLA's figures for the period: MedianMS is the median working time its ended clocks used, and MedianTargetMS their median target.",
+        "properties": {
+          "ended": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "median_ms": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "median_target_ms": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "met": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "met_pct": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ended",
+          "key",
+          "label",
+          "median_ms",
+          "median_target_ms",
+          "met",
+          "met_pct"
+        ],
+        "type": "object"
+      },
+      "SlaReportSeries": {
+        "description": "A line of the trend: an SLA, in the order the trend's points list it.",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "label"
+        ],
+        "type": "object"
+      },
+      "SlaReportSummary": {
+        "description": "The headline: clocks that ended in the period and how many met their target, the same for the period before (to compare), and what is running and at risk now.",
+        "properties": {
+          "at_risk": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "breached": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ended": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "met": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "met_pct": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "prev_met_pct": {
+            "description": "The share met in the period of the same length before this one.",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "running": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "at_risk",
+          "breached",
+          "ended",
+          "met",
+          "met_pct",
+          "prev_met_pct",
+          "running"
         ],
         "type": "object"
       },
@@ -13291,7 +13785,7 @@
         ]
       },
       "patch": {
-        "description": "With {\"name\"?, \"description\"?, \"restricted\"?}. Renaming a group breaks any expression that names it. Changing restricted needs roles:manage.\n\nRequires the `groups:manage` permission.",
+        "description": "With {\"name\"?, \"description\"?, \"restricted\"?, \"calendar_id\"?}. Renaming a group breaks any expression that names it. Changing restricted needs roles:manage. calendar_id (null for none) is the group's working hours; a change applies to its records' SLA clocks from their next save.\n\nRequires the `groups:manage` permission.",
         "operationId": "updateGroup",
         "parameters": [
           {
@@ -13309,6 +13803,14 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "calendar_id": {
+                    "description": "The business calendar the group works by; null for none.",
+                    "format": "uuid",
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "description": {
                     "type": [
                       "string",
@@ -15855,6 +16357,205 @@
         "summary": "List record types",
         "tags": [
           "record-types"
+        ]
+      }
+    },
+    "/api/v1/reports/slas": {
+      "get": {
+        "description": "(reports:read) with ?period=7d|30d|90d|12m (default 30d), type, sla (app/name), group (an id or none) and priority: how clocks that ended in the period met their SLAs (overall, against the period before, per SLA, over time, by assignment group, priority and type), the running clocks most at risk now and the latest breaches. Working time is each clock's own business hours. Only records the reader may see count.\n\nRequires the `reports:read` permission.",
+        "operationId": "slaReport",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlaReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Sla report",
+        "tags": [
+          "reports"
+        ],
+        "x-permissions": [
+          "reports:read"
+        ]
+      }
+    },
+    "/api/v1/reports/slas/export": {
+      "get": {
+        "description": "(reports:read) with the report's filters: the clocks behind the report as a CSV file, one row each: those that ended or breached in the period and those running or paused now, with working time in hours.\n\nRequires the `reports:read` permission.",
+        "operationId": "slaReportExport",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Sla report export",
+        "tags": [
+          "reports"
+        ],
+        "x-permissions": [
+          "reports:read"
         ]
       }
     },
@@ -19626,6 +20327,372 @@
         ],
         "x-permissions": [
           "settings:manage"
+        ]
+      }
+    },
+    "/api/v1/slas": {
+      "get": {
+        "description": "(slas:manage): every installed app's SLAs and the hours each counts, by record type then label.\n\nRequires the `slas:manage` permission.",
+        "operationId": "listSLADefs",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/SlaDef"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List SLA defs",
+        "tags": [
+          "slas"
+        ],
+        "x-permissions": [
+          "slas:manage"
+        ]
+      }
+    },
+    "/api/v1/slas/{app}/{name}/calendar": {
+      "put": {
+        "description": "(slas:manage) with {\"calendar\": [{\"when\", \"use\"}...]}: choose which hours an SLA counts. It is saved into the app's studio layer and the app reinstalled at once, checked as an install checks it (422 with problems, such as a condition that does not compile). Clocks that start from now use it, and running clocks from their next save, keeping the time they have used.\n\nRequires the `slas:manage` permission.",
+        "operationId": "putSLACalendar",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlaCalendarRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlaDef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Put SLA calendar",
+        "tags": [
+          "slas"
+        ],
+        "x-permissions": [
+          "slas:manage"
+        ]
+      }
+    },
+    "/api/v1/slas/{app}/{name}/edits": {
+      "delete": {
+        "description": "(slas:manage): undo the changes made here: the SLA counts the hours its app ships.\n\nRequires the `slas:manage` permission.",
+        "operationId": "resetSLADef",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlaDef"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Reset SLA def",
+        "tags": [
+          "slas"
+        ],
+        "x-permissions": [
+          "slas:manage"
         ]
       }
     },
@@ -24870,6 +25937,9 @@
       "name": "record-types"
     },
     {
+      "name": "reports"
+    },
+    {
       "name": "roles"
     },
     {
@@ -24883,6 +25953,9 @@
     },
     {
       "name": "settings"
+    },
+    {
+      "name": "slas"
     },
     {
       "name": "sso-providers"

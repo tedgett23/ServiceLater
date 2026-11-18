@@ -30,10 +30,13 @@ type groupDTO struct {
 	Description string `json:"description"`
 	// Restricted keeps the records routed to it to its members (and their requesters, assignees and those who hold
 	// restricted:read): other staff do not see them.
-	Restricted  bool      `json:"restricted"`
-	MemberCount int64     `json:"member_count"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Restricted bool `json:"restricted"`
+	// CalendarID is the business calendar the group works by, or null: SLAs that count "the assignment group's
+	// calendar" use it for records routed here.
+	CalendarID  *uuid.UUID `json:"calendar_id"`
+	MemberCount int64      `json:"member_count"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
 }
 
 // memberDTO is one person in a group.
@@ -55,7 +58,11 @@ type groupDetailDTO struct {
 }
 
 func toGroup(g dbgen.Group, members int64) groupDTO {
-	return groupDTO{ID: g.ID, Name: g.Name, Description: g.Description, Restricted: g.Restricted, MemberCount: members, CreatedAt: g.CreatedAt.Time, UpdatedAt: g.UpdatedAt.Time}
+	out := groupDTO{ID: g.ID, Name: g.Name, Description: g.Description, Restricted: g.Restricted, MemberCount: members, CreatedAt: g.CreatedAt.Time, UpdatedAt: g.UpdatedAt.Time}
+	if g.CalendarID.Valid {
+		out.CalendarID = &g.CalendarID.UUID
+	}
+	return out
 }
 
 func validGroupName(s string) error {
@@ -90,7 +97,7 @@ func (h *handlers) listGroups(w http.ResponseWriter, r *http.Request) {
 	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
 		rows, err := q.ListGroups(r.Context())
 		for _, g := range rows {
-			out = append(out, toGroup(dbgen.Group{ID: g.ID, Name: g.Name, Description: g.Description, Restricted: g.Restricted, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt}, g.MemberCount))
+			out = append(out, toGroup(dbgen.Group{ID: g.ID, Name: g.Name, Description: g.Description, Restricted: g.Restricted, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt, CalendarID: g.CalendarID}, g.MemberCount))
 		}
 		return err
 	}) {
@@ -155,7 +162,7 @@ func (h *handlers) getGroup(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		out.groupDTO = toGroup(dbgen.Group{ID: g.ID, Name: g.Name, Description: g.Description, Restricted: g.Restricted, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt}, g.MemberCount)
+		out.groupDTO = toGroup(dbgen.Group{ID: g.ID, Name: g.Name, Description: g.Description, Restricted: g.Restricted, CreatedAt: g.CreatedAt, UpdatedAt: g.UpdatedAt, CalendarID: g.CalendarID}, g.MemberCount)
 		if out.Members, err = groupMembers(r, q, id); err != nil {
 			return err
 		}
@@ -179,8 +186,9 @@ func groupMembers(r *http.Request, q *dbgen.Queries, id uuid.UUID) ([]memberDTO,
 	return out, err
 }
 
-// PATCH /groups/{id} (admin) with {"name"?, "description"?, "restricted"?}. Renaming a group breaks any expression that
-// names it. Changing restricted needs roles:manage.
+// PATCH /groups/{id} (admin) with {"name"?, "description"?, "restricted"?, "calendar_id"?}. Renaming a group breaks any
+// expression that names it. Changing restricted needs roles:manage. calendar_id (null for none) is the group's working
+// hours; a change applies to its records' SLA clocks from their next save.
 func (h *handlers) updateGroup(w http.ResponseWriter, r *http.Request) {
 	id, ok := urlUUID(w, r, "id")
 	if !ok {
@@ -191,6 +199,8 @@ func (h *handlers) updateGroup(w http.ResponseWriter, r *http.Request) {
 		Description *string `json:"description"`
 		// Restricted keeps the records routed to the group to its members.
 		Restricted *bool `json:"restricted"`
+		// CalendarID is the business calendar the group works by; null for none.
+		CalendarID nullable[uuid.UUID] `json:"calendar_id"`
 	}
 	if !decode(w, r, &req) {
 		return
@@ -227,8 +237,22 @@ func (h *handlers) updateGroup(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return groupConflict(err)
 		}
+		if req.CalendarID.Set {
+			cal := uuid.NullUUID{}
+			if req.CalendarID.Value != nil {
+				cal = uuid.NullUUID{UUID: *req.CalendarID.Value, Valid: true}
+			}
+			if err := q.SetGroupCalendar(r.Context(), dbgen.SetGroupCalendarParams{ID: id, CalendarID: cal}); err != nil {
+				var pe *pgconn.PgError
+				if errors.As(err, &pe) && pe.Code == "23503" {
+					return invalid("calendar_id is not a business calendar")
+				}
+				return err
+			}
+		}
 		cur, err := q.GetGroup(r.Context(), g.ID)
-		out = toGroup(g, cur.MemberCount)
+		out = toGroup(dbgen.Group{ID: cur.ID, Name: cur.Name, Description: cur.Description, CreatedAt: cur.CreatedAt, UpdatedAt: cur.UpdatedAt,
+			Restricted: cur.Restricted, CalendarID: cur.CalendarID}, cur.MemberCount)
 		return err
 	}) {
 		return

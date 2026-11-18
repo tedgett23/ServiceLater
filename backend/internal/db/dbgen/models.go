@@ -197,6 +197,7 @@ type Group struct {
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 	Restricted  bool               `json:"restricted"`
+	CalendarID  uuid.NullUUID      `json:"calendar_id"`
 }
 
 type GroupMember struct {
@@ -451,6 +452,7 @@ type TaskSla struct {
 	StartedAt    pgtype.Timestamptz `json:"started_at"`
 	StoppedAt    pgtype.Timestamptz `json:"stopped_at"`
 	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+	Calendar     string             `json:"calendar"`
 }
 
 type TaskType struct {

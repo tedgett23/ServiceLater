@@ -3,8 +3,9 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
+	import { calendarChoice } from '$lib/calendars';
 	import { groups } from '$lib/groups.svelte';
-	import { can, P, roleLabel, type GroupDetail, type RoleInfo, type User } from '$lib/types';
+	import { can, P, roleLabel, type BusinessCalendar, type GroupDetail, type RoleInfo, type User } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
 	let group = $state<GroupDetail | null>(null);
@@ -16,8 +17,12 @@
 	let name = $state('');
 	let description = $state('');
 	let restricted = $state(false);
+	/** The calendar the group works by ('' for none). */
+	let calendar = $state('');
+	let calendars = $state<BusinessCalendar[]>([]);
 	const dirty = $derived(
-		!!group && (name.trim() !== group.name || description !== group.description || restricted !== group.restricted)
+		!!group &&
+			(name.trim() !== group.name || description !== group.description || restricted !== group.restricted || calendar !== (group.calendar_id ?? ''))
 	);
 
 	// Finding someone to add.
@@ -38,10 +43,17 @@
 
 	async function load() {
 		try {
-			group = await api<GroupDetail>(`/api/v1/groups/${page.params.id}`);
+			// The calendars first, so the working hours choice has its options when the group's value arrives.
+			const [g, cals] = await Promise.all([
+				api<GroupDetail>(`/api/v1/groups/${page.params.id}`),
+				api<{ items: BusinessCalendar[] }>('/api/v1/business-calendars').catch(() => ({ items: [] as BusinessCalendar[] }))
+			]);
+			calendars = cals.items;
+			group = g;
 			name = group.name;
 			description = group.description;
 			restricted = group.restricted;
+			calendar = group.calendar_id ?? '';
 			loadError = '';
 		} catch (e) {
 			loadError = e instanceof ApiError && e.status === 404 ? 'That group does not exist.' : 'Could not load this group.';
@@ -85,7 +97,7 @@
 		e.preventDefault();
 		if (!dirty) return;
 		void act(
-			() => api(`/api/v1/groups/${page.params.id}`, { method: 'PATCH', body: { name: name.trim(), description, restricted } }),
+			() => api(`/api/v1/groups/${page.params.id}`, { method: 'PATCH', body: { name: name.trim(), description, restricted, calendar_id: calendar || null } }),
 			'Group saved'
 		);
 	}
@@ -246,6 +258,17 @@
 							Changing this needs permission to manage roles.{/if}</small>
 				</span>
 			</label>
+			<label class="field">
+				<span>Working hours</span>
+				<select class="select" bind:value={calendar}>
+					<option value="">None of its own</option>
+					{#each calendars as c (c.id)}<option value={c.id}>{calendarChoice(c)}</option>{/each}
+				</select>
+			</label>
+			<p class="hint">
+				SLAs that count the assignment group's own hours (set under <a href="/admin/slas">SLAs</a>) use these for records routed
+				here, from each record's next change.
+			</p>
 			<div><button class="btn primary" disabled={!dirty || !name.trim() || busy}>Save</button></div>
 		</form>
 
