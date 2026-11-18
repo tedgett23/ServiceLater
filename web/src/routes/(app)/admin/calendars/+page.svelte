@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { api } from '$lib/api';
 	import CalendarForm from '$lib/components/CalendarForm.svelte';
+	import { week } from '$lib/calendars';
 	import type { BusinessCalendar } from '$lib/types';
 	import { ui } from '$lib/ui.svelte';
 
@@ -24,24 +25,6 @@
 		}
 	}
 	onMount(load);
-
-	const dayShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-	/** The working week in a line: "Mon–Fri 09:00–17:00", or each day when they differ. */
-	function week(c: BusinessCalendar) {
-		const byDay = new Map<number, string>();
-		for (const h of [...c.hours].sort((a, b) => a.start.localeCompare(b.start))) {
-			byDay.set(h.day, [byDay.get(h.day), `${h.start}–${h.end}`].filter(Boolean).join(', '));
-		}
-		const order = [1, 2, 3, 4, 5, 6, 0].filter((d) => byDay.has(d));
-		const runs: { from: number; to: number; hours: string }[] = [];
-		for (const d of order) {
-			const last = runs.at(-1);
-			const prev = last ? order[order.indexOf(d) - 1] : -1;
-			if (last && last.hours === byDay.get(d) && (prev + 1) % 7 === d) last.to = d;
-			else runs.push({ from: d, to: d, hours: byDay.get(d)! });
-		}
-		return runs.map((r) => `${dayShort[r.from]}${r.to !== r.from ? `–${dayShort[r.to]}` : ''} ${r.hours}`).join('; ');
-	}
 
 	function saved(c: BusinessCalendar) {
 		ui.announce = `${c.label} saved`;
@@ -66,7 +49,10 @@
 
 <div class="page">
 	<h1>Calendars</h1>
-	<p class="lede">The working hours SLA clocks count. An SLA names its calendar; hours outside it, and holidays, do not count.</p>
+	<p class="lede">
+		The working hours SLA clocks count; hours outside them, and holidays, do not. Each SLA chooses its hours under
+		<a href="/admin/slas">SLAs</a>, and a group can have its own on its page.
+	</p>
 
 	{#if error}
 		<p class="msg" role="alert">{error}</p>

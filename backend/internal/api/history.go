@@ -299,6 +299,13 @@ func (h *handlers) getTicketHistory(w http.ResponseWriter, r *http.Request) {
 				return "Affected item", idText(names.cis, "an item"), "text"
 			case "article":
 				return "Article", idText(names.articles, "an article"), "text"
+			case "sla_calendar":
+				label := "SLA hours"
+				var m struct{ SLA string }
+				if json.Unmarshal(row.New, &m) == nil && m.SLA != "" {
+					label = m.SLA + " hours"
+				}
+				return label, calendarText, "text"
 			case "attachment":
 				return "Attachment", func(v any) string {
 					if m, ok := v.(map[string]any); ok {
@@ -420,4 +427,20 @@ func humanField(name string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// calendarText is an SLA clock's calendar as its history keeps it: the calendar's label then, else its name; none
+// counts every hour.
+func calendarText(v any) string {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return ""
+	}
+	if s, ok := m["label"].(string); ok && s != "" {
+		return s
+	}
+	if s, ok := m["calendar"].(string); ok && s != "" {
+		return s
+	}
+	return "Every hour (24x7)"
 }

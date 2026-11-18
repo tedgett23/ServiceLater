@@ -661,7 +661,7 @@ record_type: incident           # or task, for every type
 # start, pause and stop are conditions on the record (the rule environment: record, old, user, now, event).
 # Left out, they are: start true; pause record.state_category == "waiting"; stop state_category in done/closed.
 target: '=record.priority == 1 ? duration("4h") : record.priority == 2 ? duration("8h") : duration("24h")'
-calendar: business-hours        # a business calendar; left out, every hour counts
+calendar: business-hours        # a business calendar; left out, every hour counts; or rules (below)
 warnings:                       # at most 3, lowest first
   - at: 75                      # percent of the target used
     run:
@@ -702,6 +702,43 @@ lets a save write a clock exactly when its record is visible.
   is not started, one already running keeps its stage and shows the problem, and both are audited (`timing: sla`,
   event `evaluate`).
 
+**Which hours a clock counts can follow the record** (decided with the user 2026-11-18: different teams keep different
+hours, and a P1 counts every hour). `calendar:` is a calendar's name, or a list of rules, the first whose `when` holds
+deciding:
+
+```yaml
+calendar:
+  - when: record.priority == 1
+    use: 24x7                   # every hour
+  - when: 'has(record.assignment_group) && record.assignment_group == "Network"'
+    use: extended-hours
+  - use: group                  # the assignment group's own hours (groups.calendar_id), skipped when it has none
+  - use: business-hours         # no when: always holds
+```
+
+The choice is made when a clock starts and **again on every save** (`SLA.CalendarFor`, in `stepClock`): a clock
+records the calendar it counts by (`task_slas.calendar`, 00056), and switching banks the working time used so far in
+the old calendar and counts on from the save in the new one (`Clock.SwitchCalendar`), so a hand-off to a team with
+other hours is counted fairly. A switch is written to the record's history (field `sla_calendar`, "Resolve hours"),
+and the ticket's SLA panel says which hours are counting (`calendar_label`). The timer, the panel and reports count
+each clock by its own calendar. Nothing matching counts every hour. Admins set the rules in **Admin → SLAs**
+(`slas:manage`; `GET /slas`, `PUT /slas/{app}/{name}/calendar`, `DELETE .../edits`; `internal/api/sla_editor.go`),
+saved as a minimal override of `calendar:` in the app's studio layer (`apps.SLACalendarOverride`); conditions use the
+form editor's builder, with "Assignment group" added. A group's own hours are set on its page
+(`PATCH /groups/{id}` `calendar_id`); a calendar a group uses cannot be deleted. `extended-hours` (Monday to Friday,
+07:00 to 19:00 UTC) ships next to `business-hours`.
+
+**Reports** (`reports:read`: agents and admins; `internal/api/reports.go`, `db/queries/reports.sql`). `GET
+/reports/slas` with `period` (7d, 30d, 90d, 12m), `type`, `sla` (app/name), `group` (id or `none`) and `priority`:
+clocks that ended in the period, met and breached (the share met, and the same for the period before), per SLA with
+median working time used and median target, a trend per day, week or month, breakdowns by assignment group, priority
+and type (with what is running now), running clocks past 75% of their target, and the latest breaches.
+`GET /reports/slas/export` is the clocks behind it as CSV. Everything runs as the reader, so a restricted group's
+records count only for those who may see them, and working time is each clock's own. The web page is `/reports/slas`
+(Reports in the navigation): Svelte-drawn SVG charts with `d3-scale`/`d3-shape`/`d3-array` (`lib/charts`), a table
+view for each chart, filters in the address, refreshed on `ticket.changed` and every minute. A breakdown counts a
+clock under the record's current group, not the one it had when the clock ran.
+
 **Business calendars** are core reference data (`business_calendars`, like freeze windows; open question 11): a name
 (what `calendar:` writes), a label, an IANA time zone, the working week (stretches per weekday, `HH:MM` to `HH:MM`,
 end may be `24:00`) and holiday dates. Everyone signed in reads them; `calendars:manage` (admins) writes them, in
@@ -716,9 +753,8 @@ migration, which operators edit), with warnings at 75% and breach notifications.
 (time left, paused, met, overdue, missed); the queue shows the soonest due time or "SLA breached", and its Due view
 (`GET /tickets?sort=due`) lists breached work first, then by due time. `?breached=true` filters to breached tickets.
 
-Not built yet: SLA reporting (met and missed rates), a reset condition (a new clock when, say, the record is
-reassigned to another team), pause reasons, per-SLA schedules chosen by expression, and SLAs on records other than
-tasks.
+Not built yet: dashboards people build themselves (fixed pages for now), a reset condition (a new clock when, say,
+the record is reassigned to another team), pause reasons, and SLAs on records other than tasks.
 
 ### 6.7 Scripts (built: Starlark)
 

@@ -40,7 +40,7 @@
 				<span class="state">{s.text}</span>
 			</div>
 			<div class="bar" aria-hidden="true"><span style="width: {Math.round(s.share * 100)}%"></span></div>
-			<p class="detail">{s.detail}{c.calendar ? '' : ' · every hour counts'}</p>
+			<p class="detail">{s.detail} · {c.calendar ? `in ${c.calendar_label}` : 'every hour counts'}</p>
 			{#if c.problem}<p class="problem">{c.problem}</p>{/if}
 		</li>
 	{/each}

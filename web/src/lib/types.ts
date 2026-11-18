@@ -210,8 +210,10 @@ export interface SlaClock {
 	target_ms: number;
 	/** Working time used, as of the response. */
 	used_ms: number;
-	/** The business calendar it counts by; empty means every hour. */
+	/** The business calendar it counts by now (an SLA may switch it on a save); empty means every hour. */
 	calendar: string;
+	/** What people call those hours: Business hours, Every hour. */
+	calendar_label: string;
 	due_at: string | null;
 	breached_at: string | null;
 	started_at: string;
@@ -330,7 +332,9 @@ export const P = {
 	workflowsEdit: 'workflows:edit',
 	catalogManage: 'catalog:manage',
 	formsManage: 'forms:manage',
-	scriptsEdit: 'scripts:edit'
+	scriptsEdit: 'scripts:edit',
+	slasManage: 'slas:manage',
+	reportsRead: 'reports:read'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */
@@ -387,6 +391,7 @@ export const canAdmin = (u: User | null | undefined) =>
 	can(u, P.groupsManage) ||
 	can(u, P.rolesManage) ||
 	can(u, P.calendarsManage) ||
+	can(u, P.slasManage) ||
 	can(u, P.settingsManage) ||
 	can(u, P.catalogManage) ||
 	can(u, P.formsManage);
@@ -506,6 +511,8 @@ export interface Group {
 	description: string;
 	/** Records routed to it are seen only by its members (and their requesters, assignees and restricted:read). */
 	restricted: boolean;
+	/** The business calendar the group works by, or null: SLAs that count the group's hours use it. */
+	calendar_id: string | null;
 	member_count: number;
 	created_at: string;
 	updated_at: string;
@@ -817,4 +824,81 @@ export interface HistoryEntry {
 	old_text: string;
 	new_text: string;
 	kind: 'text' | 'time' | 'long';
+}
+
+/** One step of choosing an SLA's hours: when the condition holds (always, when empty), count by use. */
+export interface CalendarRule {
+	when?: string;
+	/** A calendar's name, 24x7 (every hour) or group (the assignment group's own hours, skipped when it has none). */
+	use: string;
+}
+
+/** An SLA and the hours it counts (Admin → SLAs). */
+export interface SlaDef {
+	app: string;
+	name: string;
+	label: string;
+	record_type: string;
+	record_type_label: string;
+	/** The fixed target (8h), else empty and target_rule is the expression working it out from the record. */
+	target: string;
+	target_rule: string;
+	calendar: CalendarRule[];
+	edited: boolean;
+}
+
+/** A row of the SLA report's counts: a bucket's series, a breakdown's group, priority or type. */
+export interface SlaReportBreak {
+	key: string;
+	label: string;
+	ended: number;
+	met: number;
+	breached: number;
+	running: number;
+	met_pct: number | null;
+}
+
+/** A clock in the SLA report's lists: at risk now, or breached lately. */
+export interface SlaReportClock {
+	reference: string;
+	title: string;
+	link: string;
+	sla: string;
+	group: string;
+	used_ms: number;
+	target_ms: number;
+	used_pct: number;
+	due_at?: string;
+	breached_at?: string;
+	over_ms: number;
+	/** The hours it counts by: Business hours, Every hour. */
+	calendar: string;
+}
+
+/** GET /reports/slas: everything the SLA report shows. Working time is each clock's own business hours. */
+export interface SlaReport {
+	period: string;
+	from: string;
+	to: string;
+	bucket: 'day' | 'week' | 'month';
+	summary: {
+		ended: number;
+		met: number;
+		breached: number;
+		met_pct: number | null;
+		prev_met_pct: number | null;
+		running: number;
+		at_risk: number;
+	};
+	slas: { key: string; label: string; ended: number; met: number; met_pct: number | null; median_ms: number | null; median_target_ms: number | null }[];
+	series: { key: string; label: string }[];
+	trend: { start: string; values: { ended: number; met: number; met_pct: number | null }[] }[];
+	groups: SlaReportBreak[];
+	priorities: SlaReportBreak[];
+	types: SlaReportBreak[];
+	at_risk: SlaReportClock[];
+	breaches: SlaReportClock[];
+	options: { slas: { key: string; label: string }[]; types: { key: string; label: string }[]; priorities: { key: string; label: string }[] };
+	/** More clocks are running than one report reads: the running counts are partial. */
+	partial: boolean;
 }

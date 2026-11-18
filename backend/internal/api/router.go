@@ -341,6 +341,13 @@ func NewRouter(d Deps) http.Handler {
 			r.With(auth.RequirePermission(authz.FormsManage)).Put("/forms/{type}/definition", h.putFormDef)
 			r.With(auth.RequirePermission(authz.FormsManage)).Post("/forms/{type}/definition/check", h.checkFormDef)
 			r.With(auth.RequirePermission(authz.FormsManage)).Delete("/forms/{type}/edits", h.resetFormDef)
+			// Reports: reports:read.
+			r.With(auth.RequirePermission(authz.ReportsRead)).Get("/reports/slas", h.slaReport)
+			r.With(auth.RequirePermission(authz.ReportsRead)).Get("/reports/slas/export", h.slaReportExport)
+			// Which hours each SLA counts: slas:manage.
+			r.With(auth.RequirePermission(authz.SLAsManage)).Get("/slas", h.listSLADefs)
+			r.With(auth.RequirePermission(authz.SLAsManage)).Put("/slas/{app}/{name}/calendar", h.putSLACalendar)
+			r.With(auth.RequirePermission(authz.SLAsManage)).Delete("/slas/{app}/{name}/edits", h.resetSLADef)
 			r.Route("/catalog-items", func(r chi.Router) {
 				r.Use(auth.RequirePermission(authz.CatalogManage))
 				r.Get("/", h.listCatalogItems)

@@ -44,6 +44,7 @@
 			{ href: '/catalog', label: 'Request something', icon: 'catalog', show: true },
 			{ href: '/kb', label: 'Knowledge', icon: 'knowledge', show: true },
 			{ href: '/cmdb', label: 'CMDB', icon: 'cmdb', show: can(session.user, P.cmdbRead) },
+			{ href: '/reports/slas', label: 'Reports', icon: 'reports', show: can(session.user, P.reportsRead) },
 			{
 				href: '/workflows',
 				label: 'Workflows',

@@ -11,18 +11,18 @@ SELECT * FROM task_slas WHERE task_id = $1 ORDER BY started_at, sla FOR UPDATE;
 
 -- name: CreateTaskSLA :one
 INSERT INTO task_slas (task_id, app, sla, definition, checksum, stage, target_ms, elapsed_ms, running_since, due_at,
-                       breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at)
+                       breached_at, warnings_sent, next_alert_at, problem, started_at, stopped_at, calendar)
 VALUES (sqlc.arg('task_id'), sqlc.arg('app'), sqlc.arg('sla'), sqlc.arg('definition'), sqlc.arg('checksum'),
         sqlc.arg('stage'), sqlc.arg('target_ms'), sqlc.arg('elapsed_ms'), sqlc.narg('running_since'), sqlc.narg('due_at'),
         sqlc.narg('breached_at'), sqlc.arg('warnings_sent'), sqlc.narg('next_alert_at'), sqlc.arg('problem'),
-        sqlc.arg('started_at'), sqlc.narg('stopped_at'))
+        sqlc.arg('started_at'), sqlc.narg('stopped_at'), sqlc.arg('calendar'))
 RETURNING id;
 
 -- name: UpdateTaskSLA :exec
 UPDATE task_slas SET stage = sqlc.arg('stage'), target_ms = sqlc.arg('target_ms'), elapsed_ms = sqlc.arg('elapsed_ms'),
     running_since = sqlc.narg('running_since'), due_at = sqlc.narg('due_at'), breached_at = sqlc.narg('breached_at'),
     warnings_sent = sqlc.arg('warnings_sent'), next_alert_at = sqlc.narg('next_alert_at'), problem = sqlc.arg('problem'),
-    stopped_at = sqlc.narg('stopped_at'), updated_at = now()
+    stopped_at = sqlc.narg('stopped_at'), calendar = sqlc.arg('calendar'), updated_at = now()
 WHERE id = sqlc.arg('id');
 
 -- name: ClaimDueSLAs :many
@@ -65,4 +65,8 @@ DELETE FROM business_calendars WHERE id = $1;
 
 -- name: CountClocksByCalendar :one
 -- How many clocks still running or paused count by a calendar, so deleting one in use can be refused.
-SELECT count(*)::bigint FROM task_slas WHERE stage IN ('running', 'paused') AND definition ->> 'calendar' = sqlc.arg('name')::text;
+SELECT count(*)::bigint FROM task_slas WHERE stage IN ('running', 'paused') AND calendar = sqlc.arg('name')::text;
+
+-- name: GroupCalendarName :one
+-- The calendar a group works by, or '' when it has none: what an SLA's "the assignment group's calendar" counts.
+SELECT coalesce((SELECT c.name FROM groups g JOIN business_calendars c ON c.id = g.calendar_id WHERE g.id = $1), '')::text AS name;

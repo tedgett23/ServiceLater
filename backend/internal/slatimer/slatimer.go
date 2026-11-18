@@ -93,7 +93,7 @@ func advance(ctx context.Context, q *dbgen.Queries, cals *slaclock.Calendars, c 
 		c.Problem, c.NextAlertAt = err.Error(), time.Time{}
 		return nil
 	}
-	cal, problem, err := cals.Get(ctx, def.Calendar)
+	cal, problem, err := cals.Get(ctx, c.Calendar) // the calendar the clock counts by now
 	if err != nil {
 		return err
 	}

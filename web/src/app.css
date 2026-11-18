@@ -27,6 +27,15 @@
 	--on-chrome: #1b1d29;
 	--shadow: 0 1px 2px rgb(20 22 42 / 0.06);
 	--shadow-pop: 0 8px 28px rgb(20 22 42 / 0.14), 0 1px 3px rgb(20 22 42 / 0.08);
+	/* Charts (checked for colour blindness against --ground): series in fixed order, never by rank; met, breached
+	   and still-running for SLA bars (met is series-1, never green beside red). */
+	--series-1: #3d46e6;
+	--series-2: #eb6834;
+	--series-3: #0a8fb0;
+	--series-4: #8f9a00;
+	--breached: #cf2338;
+	--running: #a6aabb;
+	--grid: #ececf1;
 
 	--font-body: 'Inter Variable', system-ui, sans-serif;
 	--font-display: 'Inter Variable', system-ui, sans-serif;
@@ -59,6 +68,13 @@
 		--on-chrome: #e7e9f0;
 		--shadow: 0 1px 2px rgb(0 0 0 / 0.4);
 		--shadow-pop: 0 10px 32px rgb(0 0 0 / 0.55), 0 1px 3px rgb(0 0 0 / 0.4);
+		--series-1: #6c74f5;
+		--series-2: #d95926;
+		--series-3: #1f97b8;
+		--series-4: #86900a;
+		--breached: #e5485b;
+		--running: #4b4f62;
+		--grid: #22263a;
 		color-scheme: dark;
 	}
 }
@@ -86,6 +102,13 @@
 	--on-chrome: #e7e9f0;
 	--shadow: 0 1px 2px rgb(0 0 0 / 0.4);
 	--shadow-pop: 0 10px 32px rgb(0 0 0 / 0.55), 0 1px 3px rgb(0 0 0 / 0.4);
+	--series-1: #6c74f5;
+	--series-2: #d95926;
+	--series-3: #1f97b8;
+	--series-4: #86900a;
+	--breached: #e5485b;
+	--running: #4b4f62;
+	--grid: #22263a;
 	color-scheme: dark;
 }
 
