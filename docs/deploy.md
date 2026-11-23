@@ -32,10 +32,25 @@ without it.
 - The server waits up to a minute for Postgres at startup, so it does not matter which comes up first. Both
   services restart unless stopped.
 
+## The database
+
+Postgres 17. The user in the connection string owns the database and runs the migrations, which need:
+
+- **`CREATEROLE`**: migration 00017 creates the login role SQL queries run as, `<database>_query` (docs/query.md),
+  and the server sets that role's password whenever it starts serving queries, so the owner keeps needing it (and,
+  on Postgres 16 and later, admin rights on that role, which it has because it created it). The Compose files'
+  Postgres user is a superuser, so they need nothing more. On a managed or shared Postgres: `ALTER ROLE servicelater
+  CREATEROLE` before the first start.
+- The extensions `pg_trgm` and `pgcrypto`, which ship with Postgres and are trusted, so the owner creates them.
+- `pg_hba.conf` must let `<database>_query` sign in by password (SCRAM) from the api servers, as it lets the owner. The
+  server sets that role's password itself, derived from a key in the database, so there is nothing to configure.
+
+`deploy/smoke.sh` runs a query, so `make release-check` fails if any of this is missing.
+
 ## Before a release
 
 `make release-check` builds the image, starts a fresh all-in-one stack from it with throwaway secrets, runs
-`deploy/smoke.sh` (sign-in, filing, SLA clocks, search, problems, an attachment through the volume, an API key, the API
+`deploy/smoke.sh` (sign-in, filing, SLA clocks, search, a SQL query, problems, an attachment through the volume, an API key, the API
 reference) and removes the stack and its volumes. With Podman: `make release-check CONTAINER=podman
 COMPOSE=podman-compose BUILD_FLAGS=--network=host`. `deploy/smoke.sh <url> <admin email> <password>` also runs
 against any test deployment; it creates records, so not against production.

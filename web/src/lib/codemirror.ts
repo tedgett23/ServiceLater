@@ -12,7 +12,8 @@ import { EditorView } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 import { basicSetup } from 'codemirror';
 
-const theme = EditorView.theme({
+/** The editor's look, in our tokens (shared with the SQL editor). */
+export const theme = EditorView.theme({
 	'&': { fontSize: '13px', background: 'var(--raised)', color: 'var(--ink)', border: '1px solid var(--rule)', borderRadius: '8px' },
 	'.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '1.6', minHeight: '9rem', maxHeight: '28rem' },
 	'.cm-content': { caretColor: 'var(--ink)' },
@@ -29,7 +30,8 @@ const theme = EditorView.theme({
 	'.cm-panels': { background: 'var(--surface)', color: 'var(--ink)' }
 });
 
-const highlight = HighlightStyle.define([
+/** Code colours, in our tokens. */
+export const highlight = HighlightStyle.define([
 	{ tag: t.keyword, color: 'var(--blue)', fontWeight: '600' },
 	{ tag: t.string, color: 'var(--green)' },
 	{ tag: t.comment, color: 'var(--ink-2)', fontStyle: 'italic' },

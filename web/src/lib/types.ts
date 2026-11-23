@@ -334,7 +334,8 @@ export const P = {
 	formsManage: 'forms:manage',
 	scriptsEdit: 'scripts:edit',
 	slasManage: 'slas:manage',
-	reportsRead: 'reports:read'
+	reportsRead: 'reports:read',
+	queryRun: 'query:run'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */

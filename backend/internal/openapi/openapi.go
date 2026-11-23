@@ -100,11 +100,18 @@ func (g *gen) document() ([]byte, error) {
 	}
 	paths := map[string]map[string]any{}
 	tags := map[string]bool{}
+	ids := map[string]bool{}
 	for _, rt := range routes {
 		op, err := g.operation(rt)
 		if err != nil {
 			return nil, fmt.Errorf("%s %s: %w", rt.Method, rt.Path, err)
 		}
+		// One handler may serve two methods (QUERY and its POST alias); operation ids must still be unique.
+		if id := op["operationId"].(string); ids[id] {
+			op["operationId"] = id + string(rt.Method[0]) + strings.ToLower(rt.Method[1:])
+			op["summary"] = op["summary"].(string) + " (" + rt.Method + ")"
+		}
+		ids[op["operationId"].(string)] = true
 		if paths[rt.Path] == nil {
 			paths[rt.Path] = map[string]any{}
 		}
@@ -122,7 +129,7 @@ func (g *gen) document() ([]byte, error) {
 		"required":    []string{"error"},
 	}
 	doc := map[string]any{
-		"openapi": "3.1.0",
+		"openapi": "3.2.0",
 		"info": map[string]any{
 			"title":   "ServiceLater API",
 			"version": "v1",
@@ -173,12 +180,9 @@ func (g *gen) Routes() ([]Route, error) {
 			api = append(api, r)
 		}
 	}
-	sort.Slice(api, func(i, j int) bool {
-		if api[i].Path != api[j].Path {
-			return api[i].Path < api[j].Path
-		}
-		return api[i].Method < api[j].Method
-	})
+	// By path, and within a path in the order the routes are registered: when one handler serves two methods, the
+	// first keeps its name as the operation id (QUERY /query is runQuery, its POST alias runQueryPost).
+	sort.SliceStable(api, func(i, j int) bool { return api[i].Path < api[j].Path })
 	return api, nil
 }
 
@@ -221,7 +225,8 @@ func (g *gen) walk(stmts []ast.Stmt, prefix string, sc *scope, cm ast.CommentMap
 	return nil
 }
 
-var methods = map[string]string{"Get": "GET", "Post": "POST", "Put": "PUT", "Patch": "PATCH", "Delete": "DELETE"}
+// Query is RFC 10008's QUERY: a safe, idempotent read with a body (OpenAPI 3.2 has a query operation for it).
+var methods = map[string]string{"Get": "GET", "Query": "QUERY", "Post": "POST", "Put": "PUT", "Patch": "PATCH", "Delete": "DELETE"}
 
 // call reads one router call: r.Route, r.Group, r.Use, or r[.With(...)].Get(...) and the like.
 func (g *gen) call(c *ast.CallExpr, prefix string, sc *scope, cm ast.CommentMap, doc *ast.CommentGroup, out *[]Route) error {
@@ -273,7 +278,7 @@ func (g *gen) call(c *ast.CallExpr, prefix string, sc *scope, cm ast.CommentMap,
 	}
 	method, ok := methods[name]
 	if !ok {
-		return fmt.Errorf("%s: the OpenAPI generator does not understand router.%s; register routes with Get, Post, Put, Patch or Delete",
+		return fmt.Errorf("%s: the OpenAPI generator does not understand router.%s; register routes with Get, Query, Post, Put, Patch or Delete",
 			g.fset.Position(c.Pos()), name)
 	}
 	p, err := g.stringLit(c.Args[0])
@@ -353,7 +358,7 @@ func (g *gen) operation(rt Route) (map[string]any, error) {
 		"summary":     humanize(name),
 		"tags":        []string{tagOf(rt.Path)},
 	}
-	desc := describe(rt.Method, doc)
+	desc := describe(doc)
 	if len(rt.Permissions) > 0 {
 		if desc != "" {
 			desc += "\n\n"
@@ -1069,13 +1074,14 @@ func (g *gen) docAt(pos token.Pos, field bool) string {
 
 // ---- text ----
 
-var routeLine = regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE) /\S*( \((staff|admin)\))?[:.]?\s*`)
+var routeLine = regexp.MustCompile(`^(GET|QUERY|POST|PUT|PATCH|DELETE) /\S*( \((staff|admin)\))?[:.]?\s*`)
 
 // describe turns a handler's doc comment into a description: the leading "GET /path (staff):" restates what the
 // document already shows, so it goes.
-func describe(method string, doc string) string {
+func describe(doc string) string {
 	doc = strings.TrimSpace(doc)
-	if m := routeLine.FindString(doc); m != "" && strings.HasPrefix(m, method) {
+	// The leading "METHOD /path:" is stripped whatever the method: one handler may serve two (QUERY and POST).
+	if m := routeLine.FindString(doc); m != "" {
 		doc = strings.TrimSpace(doc[len(m):])
 	}
 	if doc != "" {

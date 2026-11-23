@@ -16,6 +16,12 @@ ID=$(echo "$INC" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4); REF=$(echo
 check "file an incident" "$([ -n "$ID" ] && echo yes)" yes
 check "an SLA clock started" "$(req $B/api/v1/tickets/$ID | grep -c '"slas":\[{')" 1
 check "search by description" "$(req "$B/api/v1/search?q=concentrator" | grep -c "\"reference\":\"$REF\"")" 1
+# SQL queries run on a login role of their own that the migrations create: this proves the database let them make it
+# and lets the server sign in as it, and that the views see what was just filed. It uses the QUERY method (RFC 10008),
+# so it also proves the deployment passes it through.
+Q=$(req -X QUERY $B/api/v1/query -d "{\"sql\":\"SELECT reference FROM records WHERE id = \$1::uuid\",\"params\":[\"$ID\"]}")
+check "a SQL query finds it" "$(echo "$Q" | grep -c "\"rows\":\[\[\"$REF\"\]\]")" 1
+check "the query views" "$(req $B/api/v1/query/schema | grep -o '"name":"records"' | head -1)" '"name":"records"'
 PRB=$(req -X POST $B/api/v1/tickets -d "{\"type\":\"problem\",\"title\":\"Release smoke problem\",\"incidents\":[\"$ID\"]}" | grep -o '"open_incidents":[0-9]*')
 check "raise a problem linked to it" "$PRB" '"open_incidents":1'
 # An attachment through the server's own upload URLs, into the volume.

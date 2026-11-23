@@ -95,7 +95,7 @@ test('the API reference is public, generated from the server, and links straight
 	const page = await context.newPage();
 	const spec = await context.request.get('/api/v1/openapi.json');
 	expect(spec.ok()).toBeTruthy();
-	expect((await spec.json()).openapi).toBe('3.1.0');
+	expect((await spec.json()).openapi).toBe('3.2.0');
 
 	await page.goto('/docs/api#addGroupMember');
 	const heading = page.getByRole('heading', { name: 'Add group member' });
@@ -103,6 +103,11 @@ test('the API reference is public, generated from the server, and links straight
 	const op = page.locator('article#addGroupMember');
 	await expect(op).toContainText('/api/v1/groups/{id}/members/{userId}');
 	await expect(op).toContainText('Signed in, with the groups:manage permission');
+
+	// QUERY (RFC 10008, OpenAPI 3.2) is listed like any other method, beside its POST alias (regression: the page
+	// knew only GET, POST, PUT, PATCH and DELETE, and would have dropped it without a word).
+	await expect(page.locator('article#runQuery .route')).toHaveText('QUERY /api/v1/query');
+	await expect(page.locator('article#runQueryPost .route')).toHaveText('POST /api/v1/query');
 
 	await page.getByPlaceholder('Filter endpoints').fill('members');
 	await expect(page.locator('article#listGroupMembers')).toBeVisible();

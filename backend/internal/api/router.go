@@ -17,6 +17,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/authz"
 	"github.com/servicelater/servicelater/backend/internal/inbound"
 	"github.com/servicelater/servicelater/backend/internal/notify"
+	"github.com/servicelater/servicelater/backend/internal/query"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/secrets"
@@ -51,6 +52,8 @@ type Deps struct {
 	Teams TeamsPoster
 	// OpenMailbox connects to the incoming mailbox, for the settings' test; inbound.Open when left out.
 	OpenMailbox func(ctx context.Context, cfg settings.Inbound, secret string, tlsConfig *tls.Config) (inbound.Mailbox, error)
+	// Query runs the SQL people write (optional: without it there are no queries).
+	Query *query.Runner
 }
 
 type handlers struct {
@@ -68,6 +71,7 @@ type handlers struct {
 	smsSender   SMSSender
 	teamsPoster TeamsPoster
 	openMailbox func(ctx context.Context, cfg settings.Inbound, secret string, tlsConfig *tls.Config) (inbound.Mailbox, error)
+	query       *query.Runner
 }
 
 // lifecycleFor is the status flow for a ticket type: the type's own, else the `task` default, else the built-in one.
@@ -110,7 +114,7 @@ func NewRouter(d Deps) http.Handler {
 	}
 	h := &handlers{pool: d.Pool, perms: auth.NewPermissionCache(d.Pool), auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool},
 		keys: d.Keys, sender: d.Sender, files: d.Files, signer: d.Signer, sso: d.SSO,
-		smsSender: d.SMS, teamsPoster: d.Teams, openMailbox: d.OpenMailbox}
+		smsSender: d.SMS, teamsPoster: d.Teams, openMailbox: d.OpenMailbox, query: d.Query}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer, finishWrites)
 
@@ -344,6 +348,21 @@ func NewRouter(d Deps) http.Handler {
 			// Reports: reports:read.
 			r.With(auth.RequirePermission(authz.ReportsRead)).Get("/reports/slas", h.slaReport)
 			r.With(auth.RequirePermission(authz.ReportsRead)).Get("/reports/slas/export", h.slaReportExport)
+			// QUERY (RFC 10008) is the way to run one; POST is the same, for networks that do not pass QUERY.
+			r.With(auth.RequirePermission(authz.QueryRun)).Query("/query", h.runQuery)
+			r.With(auth.RequirePermission(authz.QueryRun), stopWithClient).Post("/query", h.runQuery)
+			r.With(auth.RequirePermission(authz.QueryRun)).Get("/query/schema", h.querySchema)
+			r.With(auth.RequirePermission(authz.QueryRun)).Get("/query/runs", h.listQueryRuns)
+			// Saved views: queries saved under a name, read like a table.
+			r.Route("/views", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.QueryRun))
+				r.Get("/", h.listSavedViews)
+				r.Get("/{name}", h.getSavedView)
+				r.Put("/{name}", h.putSavedView)
+				r.Delete("/{name}", h.deleteSavedView)
+				r.Get("/{name}/rows", h.readSavedView)
+				r.Query("/{name}/rows", h.queryViewRows)
+			})
 			// Which hours each SLA counts: slas:manage.
 			r.With(auth.RequirePermission(authz.SLAsManage)).Get("/slas", h.listSLADefs)
 			r.With(auth.RequirePermission(authz.SLAsManage)).Put("/slas/{app}/{name}/calendar", h.putSLACalendar)
@@ -377,17 +396,43 @@ func NewRouter(d Deps) http.Handler {
 // a slow link still sending one is not a client that has gone.
 const writeTimeout = 5 * time.Minute
 
-// finishWrites lets a change finish when the client goes away. A read stops with the client. A change does not: once
-// someone has sent it (a field saved as they leave it, then the tab reloaded or closed), it is carried through or
-// fails on its own within writeTimeout, instead of being cut off half done and silently lost.
+// methodQuery is RFC 10008's QUERY: a read whose input is in the body. net/http has no constant for it yet.
+const methodQuery = "QUERY"
+
+// clientContextKey holds the request's own context (done when the client goes away) under one finishWrites detached.
+type clientContextKey struct{}
+
+// finishWrites lets a change finish when the client goes away. A read (GET, HEAD, OPTIONS, QUERY) stops with the
+// client. A change does not: once someone has sent it (a field saved as they leave it, then the tab reloaded or
+// closed), it is carried through or fails on its own within writeTimeout, instead of being cut off half done and
+// silently lost.
 func finishWrites(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions, methodQuery:
 			next.ServeHTTP(w, r)
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), writeTimeout)
 		defer cancel()
+		ctx = context.WithValue(ctx, clientContextKey{}, r.Context())
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// stopWithClient makes a route that is a read in all but its method (POST /query, for clients that cannot send
+// QUERY) stop when the client goes away, as a read does, keeping everything the middleware before it added.
+func stopWithClient(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client, ok := r.Context().Value(clientContextKey{}).(context.Context)
+		if !ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		stop := context.AfterFunc(client, cancel)
+		defer stop()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

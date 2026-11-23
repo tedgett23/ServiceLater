@@ -295,6 +295,350 @@ type Notification struct {
 	ReadAt     pgtype.Timestamptz `json:"read_at"`
 }
 
+// Knowledge articles you can read: published ones for their audience, drafts and retired ones if you write or publish articles.
+type QueryArticle struct {
+	// The article's id.
+	ID uuid.UUID `json:"id"`
+	// How people name it (KB12).
+	Reference interface{} `json:"reference"`
+	// Its number.
+	Number int64 `json:"number"`
+	// Its title.
+	Title string `json:"title"`
+	// Its text, in Markdown.
+	Body string `json:"body"`
+	// Its category; empty when none.
+	Category string `json:"category"`
+	// Its tags, a text array.
+	Tags []string `json:"tags"`
+	// everyone, or internal (staff only).
+	Audience string `json:"audience"`
+	// draft, review, published or retired.
+	Status string `json:"status"`
+	// How many times its content has been saved.
+	Version int32 `json:"version"`
+	// Who wrote it (people.id).
+	AuthorID uuid.NullUUID `json:"author_id"`
+	// When it was started.
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	// When it last changed.
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+	// When it was first published; null if never.
+	PublishedAt pgtype.Timestamptz `json:"published_at"`
+}
+
+// Files attached to the records you can see (finished uploads only; the files themselves are not here).
+type QueryAttachment struct {
+	// The attachment's id.
+	ID uuid.UUID `json:"id"`
+	// The record it is on (records.id).
+	RecordID uuid.UUID `json:"record_id"`
+	// The file's name.
+	Filename string `json:"filename"`
+	// Its media type, as uploaded.
+	ContentType string `json:"content_type"`
+	// Its size in bytes.
+	Size int64 `json:"size"`
+	// Who attached it (people.id).
+	CreatedBy uuid.UUID `json:"created_by"`
+	// When it was attached.
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// What changes have beyond every record's columns. Join records on records.id = changes.record_id.
+type QueryChange struct {
+	// The change (records.id).
+	RecordID uuid.UUID `json:"record_id"`
+	// standard, normal or emergency.
+	ChangeType string `json:"change_type"`
+	// low, medium or high; empty until assessed.
+	Risk string `json:"risk"`
+	// low, medium or high; empty until assessed.
+	Impact string `json:"impact"`
+	// When the work is planned to start.
+	PlannedStart pgtype.Timestamptz `json:"planned_start"`
+	// When the work is planned to end.
+	PlannedEnd pgtype.Timestamptz `json:"planned_end"`
+	// How it is done.
+	ImplementationPlan string `json:"implementation_plan"`
+	// How it is undone.
+	BackoutPlan string `json:"backout_plan"`
+	// How it is tested.
+	TestPlan string `json:"test_plan"`
+	// The problem it fixes (records.id); null when none.
+	ProblemID uuid.NullUUID `json:"problem_id"`
+}
+
+// Configuration items in the CMDB, if you may read it.
+type QueryCi struct {
+	// The item's id.
+	ID uuid.UUID `json:"id"`
+	// Its class (server, application...), defined by an app.
+	Class string `json:"class"`
+	// Its name, unique within its class.
+	Name string `json:"name"`
+	// planned, active, maintenance or retired.
+	Status string `json:"status"`
+	// What it is.
+	Description string `json:"description"`
+	// The group that owns it (groups.id).
+	OwnerGroupID uuid.NullUUID `json:"owner_group_id"`
+	// The group that supports it, where its records are routed (groups.id).
+	SupportGroupID uuid.NullUUID `json:"support_group_id"`
+	// Its class's fields, as a JSON object.
+	Fields []byte `json:"fields"`
+	// When it was added.
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	// When it last changed.
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+// How items relate, read forwards: from_ci <type> to_ci ("payroll depends on postgres-01").
+type QueryCiRelationship struct {
+	// The relationship's id.
+	ID uuid.UUID `json:"id"`
+	// The item it starts from (cis.id).
+	FromCi uuid.UUID `json:"from_ci"`
+	// The item it points to (cis.id).
+	ToCi uuid.UUID `json:"to_ci"`
+	// The relationship type (depends_on, runs_on...), defined by an app.
+	Type string `json:"type"`
+	// When it was added.
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// Comments on the records you can see. Internal notes only if you may read them.
+type QueryComment struct {
+	// The comment's id.
+	ID uuid.UUID `json:"id"`
+	// The record it is on (records.id).
+	RecordID uuid.UUID `json:"record_id"`
+	// Who wrote it (people.id), or the app that did.
+	AuthorID uuid.UUID `json:"author_id"`
+	// When an app wrote it, the person it acted for; else null.
+	OnBehalfOf uuid.NullUUID `json:"on_behalf_of"`
+	// What it says.
+	Body string `json:"body"`
+	// Whether it is an internal note, hidden from the requester.
+	Internal bool `json:"internal"`
+	// When it was written.
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// Groups (teams) records are routed to.
+type QueryGroup struct {
+	// The group's id.
+	ID uuid.UUID `json:"id"`
+	// Its name.
+	Name string `json:"name"`
+	// What it does.
+	Description string `json:"description"`
+	// Whether records routed to it are kept to its members.
+	Restricted bool `json:"restricted"`
+	// When it was made.
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// Who is in which group.
+type QueryGroupMember struct {
+	// The group (groups.id).
+	GroupID uuid.UUID `json:"group_id"`
+	// The member (people.id).
+	UserID uuid.UUID `json:"user_id"`
+	// When they joined it.
+	AddedAt pgtype.Timestamptz `json:"added_at"`
+}
+
+// What changed, field by field: on the records you can see (subject task), on items if you may read the CMDB (ci), and on the history settings if you manage settings (setting).
+type QueryHistory struct {
+	// The entry's id; later entries have larger ids.
+	ID int64 `json:"id"`
+	// What changed: task (a record), ci (an item) or setting.
+	Subject string `json:"subject"`
+	// Its id: records.id or cis.id.
+	SubjectID uuid.UUID `json:"subject_id"`
+	// When.
+	At pgtype.Timestamptz `json:"at"`
+	// Who did it (people.id), or the app that did; null for the system.
+	ActorID uuid.NullUUID `json:"actor_id"`
+	// When an app did it, the person it acted for.
+	OnBehalfOf uuid.NullUUID `json:"on_behalf_of"`
+	// created, changed, linked, unlinked or deleted.
+	Action string `json:"action"`
+	// What changed: a column (status, priority), an extra field (fields.category) or what was linked (ci, article, attachment...).
+	Field string `json:"field"`
+	// The value before, as JSON; null when there was none.
+	Old []byte `json:"old"`
+	// The value after, as JSON; null when there is none.
+	New []byte `json:"new"`
+}
+
+// What incidents have beyond every record's columns. Join records on records.id = incidents.record_id.
+type QueryIncident struct {
+	// The incident (records.id).
+	RecordID uuid.UUID `json:"record_id"`
+	// How it was resolved; empty until it is.
+	Resolution string `json:"resolution"`
+	// The problem behind it (records.id); null when none.
+	ProblemID uuid.NullUUID `json:"problem_id"`
+}
+
+type QueryKey struct {
+	ID        int32              `json:"id"`
+	Key       []byte             `json:"key"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// People: everyone if you may read the directory, otherwise only you. Records name them by id (requester_id, assignee_id...).
+type QueryPerson struct {
+	// Their id.
+	ID uuid.UUID `json:"id"`
+	// Their name.
+	Name string `json:"name"`
+	// Their email address.
+	Email string `json:"email"`
+	// Their base role: admin, agent or end_user. Roles granted on top are not shown.
+	Role string `json:"role"`
+	// Their manager (people.id); null when none is set.
+	ManagerID uuid.NullUUID `json:"manager_id"`
+	// When they were deactivated; null while active.
+	DeactivatedAt pgtype.Timestamptz `json:"deactivated_at"`
+	// Whether this is a service account (signs in with API keys only).
+	ServiceAccount bool `json:"service_account"`
+	// When they were added.
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// Records of every type that you can see: incidents, changes, requests, problems, tasks and app types. Join incidents, changes or requests on record_id for their own columns.
+type QueryRecord struct {
+	// The record's id; other views name it record_id.
+	ID uuid.UUID `json:"id"`
+	// How people name it: the type's prefix and the number (INC42).
+	Reference interface{} `json:"reference"`
+	// Its record type (see record_types).
+	Type string `json:"type"`
+	// Its number within its type.
+	Number int64 `json:"number"`
+	// Its title.
+	Title string `json:"title"`
+	// Its description.
+	Description string `json:"description"`
+	// Its status, a name from its type's lifecycle (new, in_progress, resolved...).
+	Status string `json:"status"`
+	// What the status means: open, waiting, done or closed. Open work is open or waiting.
+	StateCategory string `json:"state_category"`
+	// Priority, 1 (critical) to 4 (low).
+	Priority int16 `json:"priority"`
+	// Who it is for (people.id).
+	RequesterID uuid.UUID `json:"requester_id"`
+	// Who is working it (people.id); null when nobody is.
+	AssigneeID uuid.NullUUID `json:"assignee_id"`
+	// The team it is routed to (groups.id); null when none.
+	AssignmentGroupID uuid.NullUUID `json:"assignment_group_id"`
+	// For a task, the request it is part of (records.id).
+	ParentID uuid.NullUUID `json:"parent_id"`
+	// The extra fields its form declares, as a JSON object: fields->>'category'.
+	Fields []byte `json:"fields"`
+	// When it was filed.
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	// When it last changed.
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
+// Which articles answer which records, where you can see both.
+type QueryRecordArticle struct {
+	// The record (records.id).
+	RecordID uuid.UUID `json:"record_id"`
+	// The article (articles.id).
+	ArticleID uuid.UUID `json:"article_id"`
+	// When they were linked.
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// Which items records affect, for the records you can see, if you may read the CMDB.
+type QueryRecordCi struct {
+	// The record (records.id).
+	RecordID uuid.UUID `json:"record_id"`
+	// The item (cis.id).
+	CiID uuid.UUID `json:"ci_id"`
+	// When it was linked.
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// Every record type: incidents, changes, requests, problems, tasks and the types apps define. A retired type's records can still be queried.
+type QueryRecordType struct {
+	// The type's name, as records.type has it (incident, change...).
+	Type string `json:"type"`
+	// What its references start with (INC, CHG...).
+	Prefix string `json:"prefix"`
+	// Its name for people, singular.
+	Label string `json:"label"`
+	// Its name for people, plural.
+	Plural string `json:"plural"`
+	// What it is for.
+	Description string `json:"description"`
+	// The app that defines it; null for the built-in types.
+	OwnerApp pgtype.Text `json:"owner_app"`
+	// When its app was removed; null while it is in use.
+	RetiredAt pgtype.Timestamptz `json:"retired_at"`
+}
+
+// What requests have beyond every record's columns. Their tasks are records whose parent_id is the request.
+type QueryRequest struct {
+	// The request (records.id).
+	RecordID uuid.UUID `json:"record_id"`
+	// The catalog item it was ordered from; empty when staff filed it by hand.
+	CatalogItem string `json:"catalog_item"`
+}
+
+type QueryRun struct {
+	ID         uuid.UUID          `json:"id"`
+	UserID     uuid.UUID          `json:"user_id"`
+	ApiKeyID   uuid.NullUUID      `json:"api_key_id"`
+	Sql        string             `json:"sql"`
+	Params     []byte             `json:"params"`
+	Outcome    string             `json:"outcome"`
+	Error      string             `json:"error"`
+	RowCount   int32              `json:"row_count"`
+	Truncated  bool               `json:"truncated"`
+	DurationMs int32              `json:"duration_ms"`
+	StartedAt  pgtype.Timestamptz `json:"started_at"`
+}
+
+// SLA clocks on the records you can see: one per record and SLA. A clock is breached when breached_at is set.
+type QuerySla struct {
+	// The clock's id.
+	ID uuid.UUID `json:"id"`
+	// The record it times (records.id).
+	RecordID uuid.UUID `json:"record_id"`
+	// The app that defines the SLA.
+	App string `json:"app"`
+	// The SLA's name within its app (respond, resolve...).
+	Sla string `json:"sla"`
+	// The SLA's name for people, as it was when the clock started.
+	Label string `json:"label"`
+	// running, paused, stopped or cancelled.
+	Stage string `json:"stage"`
+	// How much working time it allows, in milliseconds.
+	TargetMs int64 `json:"target_ms"`
+	// Working time used before running_since, in milliseconds. While running, the time used is this plus the working time since running_since.
+	ElapsedMs int64 `json:"elapsed_ms"`
+	// When it last started running; null unless running.
+	RunningSince pgtype.Timestamptz `json:"running_since"`
+	// When the target runs out at the current rate; null unless running.
+	DueAt pgtype.Timestamptz `json:"due_at"`
+	// When it ran past its target; null if it has not.
+	BreachedAt pgtype.Timestamptz `json:"breached_at"`
+	// The business calendar it counts by; empty counts every hour.
+	Calendar string `json:"calendar"`
+	// Why the clock could not be worked out on the last save; empty when all is well.
+	Problem string `json:"problem"`
+	// When the clock started.
+	StartedAt pgtype.Timestamptz `json:"started_at"`
+	// When it stopped; null while running or paused.
+	StoppedAt pgtype.Timestamptz `json:"stopped_at"`
+}
+
 type RateLimit struct {
 	Key         string             `json:"key"`
 	Count       int32              `json:"count"`
@@ -337,6 +681,18 @@ type RoleGrant struct {
 	GroupID   uuid.NullUUID      `json:"group_id"`
 	GrantedBy uuid.NullUUID      `json:"granted_by"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+type SavedView struct {
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Sql         string             `json:"sql"`
+	Shared      bool               `json:"shared"`
+	Columns     []byte             `json:"columns"`
+	DependsOn   []string           `json:"depends_on"`
+	OwnerID     uuid.UUID          `json:"owner_id"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
 }
 
 type Secret struct {

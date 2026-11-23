@@ -23,12 +23,9 @@ func TestDescribeDropsTheRouteLine(t *testing.T) {
 		"POST /groups (admin) with {\"name\": \"...\"}.":           "With {\"name\": \"...\"}.",
 		"Something else entirely.":                                 "Something else entirely.",
 		"POST /x: does a thing,\nover two lines.\n\nAnd a second.": "Does a thing, over two lines.\n\nAnd a second.",
+		"QUERY /query (admin): runs a query.":                      "Runs a query.",
 	} {
-		method := "GET"
-		if len(in) > 4 && in[:4] == "POST" {
-			method = "POST"
-		}
-		if got := describe(method, in); got != want {
+		if got := describe(in); got != want {
 			t.Errorf("describe(%q) = %q, want %q", in, got, want)
 		}
 	}

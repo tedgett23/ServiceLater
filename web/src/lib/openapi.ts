@@ -44,7 +44,7 @@ export interface Endpoint {
 	op: Operation;
 }
 
-const order = ['get', 'post', 'put', 'patch', 'delete'];
+const order = ['get', 'query', 'post', 'put', 'patch', 'delete'];
 
 /** Endpoints grouped by their tag, in path order. */
 export function byTag(doc: Document): [string, Endpoint[]][] {

@@ -15,6 +15,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/dbtest"
+	"github.com/servicelater/servicelater/backend/internal/query"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
 )
 
@@ -51,7 +52,9 @@ func build(t *testing.T, accessTTL time.Duration, hub *realtime.Hub) (http.Handl
 	if _, err := svc.Bootstrap(context.Background(), "admin@example.com", "Admin", "hunter2hunter2"); err != nil {
 		t.Fatal(err)
 	}
-	return api.NewRouter(api.Deps{Pool: pool, Auth: svc, Tokens: tk, Hub: hub, Apps: reg}), pool, tk, reg
+	q := query.NewRunner(pool)
+	t.Cleanup(q.Close)
+	return api.NewRouter(api.Deps{Pool: pool, Auth: svc, Tokens: tk, Hub: hub, Apps: reg, Query: q}), pool, tk, reg
 }
 
 func do(h http.Handler, method, path, body string, cookies []*http.Cookie, hdr ...string) *httptest.ResponseRecorder {

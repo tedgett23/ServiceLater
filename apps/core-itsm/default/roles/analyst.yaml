@@ -1,0 +1,10 @@
+kind: role
+name: analyst
+label: Analyst
+description: "Reads every record, the reports and the people directory, and runs read-only SQL queries over what they see. Changes nothing."
+permissions:
+  - records:read:*
+  - reports:read
+  - query:run
+  - cmdb:read
+  - users:read

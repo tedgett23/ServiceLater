@@ -2131,6 +2131,21 @@
         ],
         "type": "object"
       },
+      "Column": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ],
+        "type": "object"
+      },
       "Comment": {
         "properties": {
           "author_id": {
@@ -4043,6 +4058,98 @@
         ],
         "type": "object"
       },
+      "PutSavedViewRequest": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "shared": {
+            "description": "Makes it readable by everyone who may run queries (each still sees only their own rows).",
+            "type": "boolean"
+          },
+          "sql": {
+            "description": "One SELECT over the query views and other saved views, with no parameters ($1...).",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "QueryRun": {
+        "description": "One query the caller ran, or tried to.",
+        "properties": {
+          "duration_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "Ok, refused, failed or timeout; Error says why when it is not ok.",
+            "type": "string"
+          },
+          "params": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "row_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sql": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "duration_ms",
+          "error",
+          "id",
+          "outcome",
+          "params",
+          "row_count",
+          "sql",
+          "started_at",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "QuerySchema": {
+        "description": "Everything a query can read.",
+        "properties": {
+          "saved_views": {
+            "description": "The saved views the caller may read, read by name like the built-in ones.",
+            "items": {
+              "$ref": "#/components/schemas/SavedView"
+            },
+            "type": "array"
+          },
+          "views": {
+            "description": "The built-in views, with what each column holds.",
+            "items": {
+              "$ref": "#/components/schemas/View"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "saved_views",
+          "views"
+        ],
+        "type": "object"
+      },
       "QueueCounts": {
         "description": "How many records each view of the queue holds for the caller.",
         "properties": {
@@ -4218,6 +4325,37 @@
           "label",
           "name",
           "reverse"
+        ],
+        "type": "object"
+      },
+      "Result": {
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/Column"
+            },
+            "type": "array"
+          },
+          "duration_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "items": {},
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "columns",
+          "duration_ms",
+          "rows",
+          "truncated"
         ],
         "type": "object"
       },
@@ -4430,6 +4568,22 @@
         ],
         "type": "object"
       },
+      "RunQueryRequest": {
+        "properties": {
+          "params": {
+            "description": "The values of $1, $2, ... in order, as text; Postgres converts them to the types the query needs.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sql": {
+            "description": "One SELECT over the query views.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "SLAClock": {
         "properties": {
           "app": {
@@ -4506,6 +4660,67 @@
           "stopped_at",
           "target_ms",
           "used_ms"
+        ],
+        "type": "object"
+      },
+      "SavedView": {
+        "description": "A saved view.",
+        "properties": {
+          "columns": {
+            "description": "What it gives, worked out when it was saved.",
+            "items": {
+              "$ref": "#/components/schemas/Column"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "mine": {
+            "description": "True when the caller owns it, and so may change it.",
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_name": {
+            "type": "string"
+          },
+          "shared": {
+            "description": "Views can be read by everyone who may run queries; the rest only by their owner.",
+            "type": "boolean"
+          },
+          "sql": {
+            "description": "Its query: one SELECT over the query views and other saved views, with no parameters.",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "uses": {
+            "description": "The saved views it reads directly.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "columns",
+          "created_at",
+          "description",
+          "mine",
+          "name",
+          "owner_name",
+          "shared",
+          "sql",
+          "updated_at",
+          "uses"
         ],
         "type": "object"
       },
@@ -6284,6 +6499,125 @@
         },
         "type": "object"
       },
+      "View": {
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ViewColumn"
+            },
+            "type": "array"
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "columns",
+          "description",
+          "name"
+        ],
+        "type": "object"
+      },
+      "ViewColumn": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "name",
+          "type"
+        ],
+        "type": "object"
+      },
+      "ViewQueryRequest": {
+        "properties": {
+          "columns": {
+            "description": "The columns to return, in order; none means all.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "description": "1 to 5,000 (default 100).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "description": "How many matching rows to skip.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "order": {
+            "description": "The columns to sort by, in turn, each {\"\u003ccolumn\u003e\": \"asc\" | \"desc\"}.",
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "where": {
+            "description": "Keeps the rows it matches: {\"and\": [...]}, {\"or\": [...]}, {\"not\": {...}}, or {\"\u003ccolumn\u003e\": {\"\u003cop\u003e\": value}} with op one of eq, ne, lt, lte, gt, gte, in and not_in (a list), between (two values), like and ilike (text columns), is_null (true or false) and contains (a JSON value, for jsonb columns). Several operators on one column are ANDed. Values are converted to the column's type. Up to 10 deep, 200 conditions, 1,000 values."
+          }
+        },
+        "type": "object"
+      },
+      "ViewRows": {
+        "description": "A page of a saved view's rows.",
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/Column"
+            },
+            "type": "array"
+          },
+          "duration_ms": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "limit": {
+            "description": "And Offset are the page given; ask for the next with offset + limit while truncated is true.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "offset": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "items": {},
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "columns",
+          "duration_ms",
+          "limit",
+          "offset",
+          "rows",
+          "truncated"
+        ],
+        "type": "object"
+      },
       "Workflow": {
         "properties": {
           "app": {
@@ -6557,7 +6891,7 @@
     "title": "ServiceLater API",
     "version": "v1"
   },
-  "openapi": "3.1.0",
+  "openapi": "3.2.0",
   "paths": {
     "/api/v1/account": {
       "get": {
@@ -16249,6 +16583,511 @@
         ]
       }
     },
+    "/api/v1/query": {
+      "post": {
+        "description": "(query:run): runs a read-only SQL query over the query views as the caller. QUERY is the HTTP method for a read with a body (RFC 10008); POST does exactly the same, for clients and networks that do not pass QUERY. At most 5,000 rows come back (truncated says there were more) and a query may take 30 seconds; it stops if the client goes away. A query that is not allowed, or fails, is a 422 saying why and where; too many at once or in an hour is a 429.\n\nRequires the `query:run` permission.",
+        "operationId": "runQueryPost",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Result"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Run query (POST)",
+        "tags": [
+          "query"
+        ],
+        "x-permissions": [
+          "query:run"
+        ]
+      },
+      "query": {
+        "description": "(query:run): runs a read-only SQL query over the query views as the caller. QUERY is the HTTP method for a read with a body (RFC 10008); POST does exactly the same, for clients and networks that do not pass QUERY. At most 5,000 rows come back (truncated says there were more) and a query may take 30 seconds; it stops if the client goes away. A query that is not allowed, or fails, is a 422 saying why and where; too many at once or in an hour is a 429.\n\nRequires the `query:run` permission.",
+        "operationId": "runQuery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Result"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Run query",
+        "tags": [
+          "query"
+        ],
+        "x-permissions": [
+          "query:run"
+        ]
+      }
+    },
+    "/api/v1/query/runs": {
+      "get": {
+        "description": "(query:run): the caller's 50 most recent queries, newest first.\n\nRequires the `query:run` permission.",
+        "operationId": "listQueryRuns",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/QueryRun"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List query runs",
+        "tags": [
+          "query"
+        ],
+        "x-permissions": [
+          "query:run"
+        ]
+      }
+    },
+    "/api/v1/query/schema": {
+      "get": {
+        "description": "(query:run): the views queries can read, with their columns and what each holds, and the saved views the caller may read.\n\nRequires the `query:run` permission.",
+        "operationId": "querySchema",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuerySchema"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Query schema",
+        "tags": [
+          "query"
+        ],
+        "x-permissions": [
+          "query:run"
+        ]
+      }
+    },
     "/api/v1/record-types": {
       "get": {
         "description": "The record types in use, and which of them the caller may file, for the New ticket dialog.",
@@ -24743,6 +25582,783 @@
         ]
       }
     },
+    "/api/v1/views": {
+      "get": {
+        "description": "(query:run): the saved views the caller may read, their own and the shared ones, by name.\n\nRequires the `query:run` permission.",
+        "operationId": "listSavedViews",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/SavedView"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List saved views",
+        "tags": [
+          "views"
+        ],
+        "x-permissions": [
+          "query:run"
+        ]
+      }
+    },
+    "/api/v1/views/{name}": {
+      "delete": {
+        "description": "(query:run): removes a view, the caller's own (anyone's with settings:manage). One that other views read cannot be removed (409).\n\nRequires the `query:run` permission.",
+        "operationId": "deleteSavedView",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Delete saved view",
+        "tags": [
+          "views"
+        ],
+        "x-permissions": [
+          "query:run"
+        ]
+      },
+      "get": {
+        "description": "(query:run): one saved view, with its SQL.\n\nRequires the `query:run` permission.",
+        "operationId": "getSavedView",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get saved view",
+        "tags": [
+          "views"
+        ],
+        "x-permissions": [
+          "query:run"
+        ]
+      },
+      "put": {
+        "description": "(query:run): saves a view, new (201) or the caller's own changed (200). The SQL is checked and run once with no rows, as the caller, to learn its columns; a problem is a 422 saying why and where, as for a query. A name someone else has is a 409. A view other views read may not change its columns or, while a shared view reads it, become private (409, naming those the caller can see).\n\nRequires the `query:run` permission.",
+        "operationId": "putSavedView",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutSavedViewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedView"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Put saved view",
+        "tags": [
+          "views"
+        ],
+        "x-permissions": [
+          "query:run"
+        ]
+      }
+    },
+    "/api/v1/views/{name}/rows": {
+      "get": {
+        "description": "(query:run): a saved view's rows, as the caller sees them, read like a table. Any other parameter named after one of its columns keeps the rows where that column equals the value (several are ANDed; Postgres converts the value to the column's type). order is a column, or -column for descending. limit is 1 to 5,000 (default 100); truncated says there are more. A column named limit, offset or order cannot be filtered on here (use QUERY). The read is a query like any other: limited and recorded.\n\nRequires the `query:run` permission.",
+        "operationId": "readSavedView",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewRows"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Read saved view",
+        "tags": [
+          "views"
+        ],
+        "x-permissions": [
+          "query:run"
+        ]
+      },
+      "query": {
+        "description": "(query:run): a saved view's rows, as the caller sees them, filtered, sorted and paged as the body says (see its fields). Like the GET form, but with every operator, and and/or/not. A filter that cannot be read is a 422 saying where in it (where.and[1].title: ...); truncated says there are more rows.\n\nRequires the `query:run` permission.",
+        "operationId": "queryViewRows",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ViewQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ViewRows"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Query view rows",
+        "tags": [
+          "views"
+        ],
+        "x-permissions": [
+          "query:run"
+        ]
+      }
+    },
     "/api/v1/workflow-runs": {
       "get": {
         "description": "Requires the `workflows:read_all` permission.",
@@ -25934,6 +27550,9 @@
       "name": "permissions"
     },
     {
+      "name": "query"
+    },
+    {
       "name": "record-types"
     },
     {
@@ -25965,6 +27584,9 @@
     },
     {
       "name": "users"
+    },
+    {
+      "name": "views"
     },
     {
       "name": "workflow-runs"
