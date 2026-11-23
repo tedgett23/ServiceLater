@@ -18,9 +18,11 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/johannesboyne/gofakes3 v1.2.0
 	github.com/minio/minio-go/v7 v7.3.0
+	github.com/pganalyze/pg_query_go/v6 v6.2.5
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/servicelater/servicelater/apps v0.0.0-00010101000000-000000000000
+	github.com/wasilibs/go-pgquery v0.0.0-20261027025405-3048dd293555
 	github.com/wneessen/go-mail v0.8.1
 	go.starlark.net v0.0.0-20261021141710-4f4267fb140d
 	golang.org/x/oauth2 v0.30.0
@@ -49,7 +51,9 @@ require (
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/ryszard/goskiplist v0.0.0-20150312221310-2dfbae5fcf46 // indirect
 	github.com/sethvargo/go-retry v0.4.0 // indirect
+	github.com/tetratelabs/wazero v1.12.0 // indirect
 	github.com/tinylib/msgp v1.6.4 // indirect
+	github.com/wasilibs/wazero-helpers v0.0.0-20250123031827-cd30c44769bb // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.shabbyrobe.org/gocovmerge v0.0.0-20230507111327-fa4f82cfbf4d // indirect
 	go.uber.org/multierr v1.11.0 // indirect

@@ -153,6 +153,9 @@ func FreshDatabase(t testing.TB) string {
 		}
 		defer func() { _ = c.Close(context.Background()) }()
 		_, _ = c.Exec(context.Background(), "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)")
+		// Roles belong to the cluster, not the database: the query role a migration made (app_query_role) stays
+		// behind unless it is dropped too.
+		_, _ = c.Exec(context.Background(), "DROP ROLE IF EXISTS "+pgx.Identifier{name + "_query"}.Sanitize())
 	})
 
 	u, err := url.Parse(dsn)

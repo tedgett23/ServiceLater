@@ -24,6 +24,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/inbound"
 	"github.com/servicelater/servicelater/backend/internal/jobs"
 	"github.com/servicelater/servicelater/backend/internal/notify"
+	"github.com/servicelater/servicelater/backend/internal/query"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/ruleruns"
@@ -110,6 +111,8 @@ func Run(ctx context.Context, cfg config.Config) error {
 			deps.Hub.Audience = realtime.AudienceFrom(pool)
 			deps.Apps.OnChange(deps.Hub.DefinitionsChanged)
 			go deps.Hub.Run(ctx, cfg.DatabaseURL)
+			deps.Query = query.NewRunner(pool)
+			defer deps.Query.Close()
 		}
 		if cfg.Has(config.RoleWorker) {
 			// The worker has a small pool of its own, so a burst of background jobs can never take the connections
