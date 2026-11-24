@@ -177,6 +177,7 @@
 		{#if history}
 			<label class="check"><input type="checkbox" checked={field.history !== false} onchange={(e) => (field.history = e.currentTarget.checked ? undefined : false)} /> Record changes to it in the history</label>
 		{/if}
+		<label class="check"><input type="checkbox" checked={!!field.mask} onchange={(e) => (field.mask = e.currentTarget.checked || undefined)} /> Personal data: left out of clones that mask form fields</label>
 	{/if}
 </div>
 

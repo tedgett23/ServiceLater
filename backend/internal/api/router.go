@@ -131,7 +131,7 @@ func NewRouter(d Deps) http.Handler {
 	}
 	d.Instance = instanceWatcher(d)
 	if d.Backups == nil {
-		d.Backups = &backup.Service{Pool: d.Pool, Keys: d.Keys, Files: d.Files, Dir: filepath.Join(os.TempDir(), "servicelater-snapshots")}
+		d.Backups = &backup.Service{Pool: d.Pool, Keys: d.Keys, Files: d.Files, Dir: filepath.Join(os.TempDir(), "servicelater-snapshots"), Registry: d.Apps}
 	}
 	if d.SSO == nil {
 		d.SSO = &sso.Manager{Pool: d.Pool, Keys: d.Keys, StateKey: []byte(rand.Text())}
@@ -326,6 +326,17 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/{id}/file", h.downloadSnapshot)
 				r.Delete("/{id}", h.deleteSnapshot)
 				r.Post("/{id}/restore", h.restoreSnapshot)
+			})
+			r.Route("/clones", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.InstanceClone))
+				r.Get("/", h.getClones)
+				r.Post("/profiles", h.createCloneProfile)
+				r.Put("/profiles/{name}", h.updateCloneProfile)
+				r.Delete("/profiles/{name}", h.deleteCloneProfile)
+				r.Post("/preview", h.previewClone)
+				r.Post("/packages", h.makeClonePackage)
+				r.Get("/packages/{id}/file", h.downloadClonePackage)
+				r.Delete("/packages/{id}", h.deleteClonePackage)
 			})
 			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/limits", h.getLimits)
 			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/limits", h.putLimits)

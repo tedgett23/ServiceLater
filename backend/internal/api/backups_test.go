@@ -39,7 +39,7 @@ func setupBackups(t *testing.T) (http.Handler, *pgxpool.Pool, *backup.Service, *
 	if _, err := svc.Bootstrap(context.Background(), "admin@example.com", "Admin", "hunter2hunter2"); err != nil {
 		t.Fatal(err)
 	}
-	backups := &backup.Service{Pool: pool, Keys: keys, Dir: t.TempDir(), Binary: "test"}
+	backups := &backup.Service{Pool: pool, Keys: keys, Dir: t.TempDir(), Binary: "test", Registry: reg}
 	watcher := instance.NewWatcher(pool)
 	h := api.NewRouter(api.Deps{Pool: pool, Auth: svc, Tokens: tk, Apps: reg, Keys: keys, Backups: backups, Instance: watcher})
 	return h, pool, backups, watcher

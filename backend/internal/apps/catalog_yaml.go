@@ -226,6 +226,9 @@ func fieldNode(fd FormField) (*yaml.Node, error) {
 	if fd.History != nil {
 		m.Content = append(m.Content, scalar("history"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: strconv.FormatBool(*fd.History)})
 	}
+	if fd.Mask {
+		m.Content = append(m.Content, scalar("mask"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
+	}
 	return m, nil
 }
 

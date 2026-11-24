@@ -70,7 +70,7 @@ func (q *Queries) ClaimRestore(ctx context.Context) (SnapshotRestore, error) {
 const claimSnapshot = `-- name: ClaimSnapshot :one
 UPDATE snapshots SET status = 'running', heartbeat_at = now()
 WHERE id = (SELECT id FROM snapshots WHERE status = 'pending' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
-RETURNING id, kind, status, error, destination, key, size, include_attachments, taken_at, schema_version, key_id, instance, rows, attachment_files, requested_by, requested_by_name, created_at, finished_at, heartbeat_at
+RETURNING id, kind, status, error, destination, key, size, include_attachments, taken_at, schema_version, key_id, instance, rows, attachment_files, requested_by, requested_by_name, created_at, finished_at, heartbeat_at, scheduled_for
 `
 
 // The oldest snapshot waiting to be taken, for one worker.
@@ -97,6 +97,7 @@ func (q *Queries) ClaimSnapshot(ctx context.Context) (Snapshot, error) {
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.HeartbeatAt,
+		&i.ScheduledFor,
 	)
 	return i, err
 }
@@ -206,7 +207,7 @@ func (q *Queries) FinishSnapshot(ctx context.Context, arg FinishSnapshotParams) 
 }
 
 const getSnapshot = `-- name: GetSnapshot :one
-SELECT id, kind, status, error, destination, key, size, include_attachments, taken_at, schema_version, key_id, instance, rows, attachment_files, requested_by, requested_by_name, created_at, finished_at, heartbeat_at FROM snapshots WHERE id = $1
+SELECT id, kind, status, error, destination, key, size, include_attachments, taken_at, schema_version, key_id, instance, rows, attachment_files, requested_by, requested_by_name, created_at, finished_at, heartbeat_at, scheduled_for FROM snapshots WHERE id = $1
 `
 
 func (q *Queries) GetSnapshot(ctx context.Context, id uuid.UUID) (Snapshot, error) {
@@ -232,6 +233,7 @@ func (q *Queries) GetSnapshot(ctx context.Context, id uuid.UUID) (Snapshot, erro
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.HeartbeatAt,
+		&i.ScheduledFor,
 	)
 	return i, err
 }
@@ -293,17 +295,18 @@ func (q *Queries) InsertRestore(ctx context.Context, arg InsertRestoreParams) (S
 
 const insertSnapshot = `-- name: InsertSnapshot :one
 
-INSERT INTO snapshots (kind, destination, include_attachments, requested_by, requested_by_name)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, kind, status, error, destination, key, size, include_attachments, taken_at, schema_version, key_id, instance, rows, attachment_files, requested_by, requested_by_name, created_at, finished_at, heartbeat_at
+INSERT INTO snapshots (kind, destination, include_attachments, scheduled_for, requested_by, requested_by_name)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, kind, status, error, destination, key, size, include_attachments, taken_at, schema_version, key_id, instance, rows, attachment_files, requested_by, requested_by_name, created_at, finished_at, heartbeat_at, scheduled_for
 `
 
 type InsertSnapshotParams struct {
-	Kind               string        `json:"kind"`
-	Destination        string        `json:"destination"`
-	IncludeAttachments bool          `json:"include_attachments"`
-	RequestedBy        uuid.NullUUID `json:"requested_by"`
-	RequestedByName    string        `json:"requested_by_name"`
+	Kind               string             `json:"kind"`
+	Destination        string             `json:"destination"`
+	IncludeAttachments bool               `json:"include_attachments"`
+	ScheduledFor       pgtype.Timestamptz `json:"scheduled_for"`
+	RequestedBy        uuid.NullUUID      `json:"requested_by"`
+	RequestedByName    string             `json:"requested_by_name"`
 }
 
 // Snapshots and restores (00021_backups, internal/backup). Written as the system; read by instance:backup holders.
@@ -312,6 +315,7 @@ func (q *Queries) InsertSnapshot(ctx context.Context, arg InsertSnapshotParams) 
 		arg.Kind,
 		arg.Destination,
 		arg.IncludeAttachments,
+		arg.ScheduledFor,
 		arg.RequestedBy,
 		arg.RequestedByName,
 	)
@@ -336,6 +340,7 @@ func (q *Queries) InsertSnapshot(ctx context.Context, arg InsertSnapshotParams) 
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.HeartbeatAt,
+		&i.ScheduledFor,
 	)
 	return i, err
 }
@@ -344,7 +349,7 @@ const insertUploadedSnapshot = `-- name: InsertUploadedSnapshot :one
 INSERT INTO snapshots (kind, status, destination, key, size, include_attachments, taken_at, schema_version, key_id, instance,
                        rows, attachment_files, requested_by, requested_by_name, finished_at)
 VALUES ('uploaded', 'ready', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
-RETURNING id, kind, status, error, destination, key, size, include_attachments, taken_at, schema_version, key_id, instance, rows, attachment_files, requested_by, requested_by_name, created_at, finished_at, heartbeat_at
+RETURNING id, kind, status, error, destination, key, size, include_attachments, taken_at, schema_version, key_id, instance, rows, attachment_files, requested_by, requested_by_name, created_at, finished_at, heartbeat_at, scheduled_for
 `
 
 type InsertUploadedSnapshotParams struct {
@@ -399,14 +404,16 @@ func (q *Queries) InsertUploadedSnapshot(ctx context.Context, arg InsertUploaded
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.HeartbeatAt,
+		&i.ScheduledFor,
 	)
 	return i, err
 }
 
 const lastScheduledSnapshot = `-- name: LastScheduledSnapshot :one
-SELECT coalesce(max(created_at), '-infinity'::timestamptz)::timestamptz AS at FROM snapshots WHERE kind = 'scheduled'
+SELECT coalesce(max(scheduled_for), '-infinity'::timestamptz)::timestamptz AS at FROM snapshots WHERE kind = 'scheduled'
 `
 
+// The latest due time the schedule queued a snapshot for (by the worker's clock, as the due time is worked out).
 func (q *Queries) LastScheduledSnapshot(ctx context.Context) (pgtype.Timestamptz, error) {
 	row := q.db.QueryRow(ctx, lastScheduledSnapshot)
 	var at pgtype.Timestamptz
@@ -468,7 +475,7 @@ func (q *Queries) ListRestores(ctx context.Context) ([]ListRestoresRow, error) {
 }
 
 const listSnapshots = `-- name: ListSnapshots :many
-SELECT id, kind, status, error, destination, key, size, include_attachments, taken_at, schema_version, key_id, instance, rows, attachment_files, requested_by, requested_by_name, created_at, finished_at, heartbeat_at FROM snapshots ORDER BY created_at DESC LIMIT 200
+SELECT id, kind, status, error, destination, key, size, include_attachments, taken_at, schema_version, key_id, instance, rows, attachment_files, requested_by, requested_by_name, created_at, finished_at, heartbeat_at, scheduled_for FROM snapshots ORDER BY created_at DESC LIMIT 200
 `
 
 func (q *Queries) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
@@ -500,6 +507,7 @@ func (q *Queries) ListSnapshots(ctx context.Context) ([]Snapshot, error) {
 			&i.CreatedAt,
 			&i.FinishedAt,
 			&i.HeartbeatAt,
+			&i.ScheduledFor,
 		); err != nil {
 			return nil, err
 		}

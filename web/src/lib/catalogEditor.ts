@@ -27,6 +27,8 @@ export interface DefField {
 	min?: number;
 	max?: number;
 	history?: boolean;
+	/** Personal data: a clone that masks form fields leaves its values out. */
+	mask?: boolean;
 }
 
 export interface DefForm {

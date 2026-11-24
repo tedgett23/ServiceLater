@@ -95,6 +95,9 @@ type FormField struct {
 	// History false leaves the field's changes out of the record's history (a noisy or sensitive field). The basics
 	// (status, assignee, assignment group) are always recorded and are not form fields.
 	History *bool `json:"history,omitempty"`
+	// Mask marks a field holding personal data: a clone made with masking on leaves its values out
+	// (docs/backup-and-clone.md §2).
+	Mask bool `json:"mask,omitempty"`
 
 	core                        bool
 	required, visible, readOnly *expr.Program
@@ -310,6 +313,7 @@ type formFieldFile struct {
 	Min          *int64   `yaml:"min"`
 	Max          *int64   `yaml:"max"`
 	History      *bool    `yaml:"history"`
+	Mask         bool     `yaml:"mask"`
 }
 
 // orderedFields reads the fields map keeping the author's order.
@@ -327,7 +331,7 @@ func (o *orderedFields) UnmarshalYAML(n *yaml.Node) error {
 		}
 		*o = append(*o, FormField{Name: key.Value, Type: f.Type, Label: f.Label, Help: f.Help, Options: f.Options,
 			Required: f.Required, RequiredWhen: f.RequiredWhen, VisibleWhen: f.VisibleWhen, ReadOnlyWhen: f.ReadOnlyWhen,
-			Default: f.Default, MaxLength: f.MaxLength, Min: f.Min, Max: f.Max, History: f.History})
+			Default: f.Default, MaxLength: f.MaxLength, Min: f.Min, Max: f.Max, History: f.History, Mask: f.Mask})
 	}
 	return nil
 }
@@ -416,6 +420,9 @@ func (f *Form) validateStructure(file string, p *Problems) {
 			fd.core = true
 			if fd.Type != "" || len(fd.Options) > 0 || fd.Default != nil || fd.MaxLength != 0 || fd.Min != nil || fd.Max != nil {
 				p.add(file, "%s is a %s's own field: a form can change its label, help and when it is required, shown or read-only, not its type, options, default or limits", at, recordTypeWord(f.RecordType))
+			}
+			if fd.Mask {
+				p.add(file, "%s is a %s's own field: mask is for extra fields (a clone's masking covers descriptions and comments itself)", at, recordTypeWord(f.RecordType))
 			}
 			if c.Name == "title" && (fd.VisibleWhen != "" || fd.ReadOnlyWhen != "") {
 				p.add(file, "%s: every record has a summary, so it is always shown and can always be written", at)

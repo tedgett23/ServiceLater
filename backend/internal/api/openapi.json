@@ -2262,6 +2262,249 @@
         ],
         "type": "object"
       },
+      "Cleared": {
+        "properties": {
+          "link": {
+            "type": "string"
+          },
+          "record": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "link",
+          "record",
+          "to"
+        ],
+        "type": "object"
+      },
+      "ClonePackage": {
+        "description": "One clone package.",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/Profile"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "description": "The file's name.",
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Report"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What it holds and what it left out, once ready."
+          },
+          "requested_by_name": {
+            "type": "string"
+          },
+          "rows": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "size": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Pending, running, ready or failed (Error says why).",
+            "type": "string"
+          },
+          "taken_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "config",
+          "created_at",
+          "destination",
+          "error",
+          "id",
+          "name",
+          "profile",
+          "report",
+          "requested_by_name",
+          "rows",
+          "size",
+          "status",
+          "taken_at"
+        ],
+        "type": "object"
+      },
+      "ClonePackageRequest": {
+        "description": "Asks for a package.",
+        "properties": {
+          "destination": {
+            "description": "Folder or s3 (the bucket of Admin → Storage, under clones/).",
+            "type": "string"
+          },
+          "passphrase": {
+            "description": "Encrypts the package (at least 12 characters): the target asks for it when the package is loaded. It is kept, sealed under the secrets key, only until the package is made.",
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ClonePreviewRequest": {
+        "description": "A profile's settings to preview.",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/Profile"
+          }
+        },
+        "type": "object"
+      },
+      "CloneProfile": {
+        "description": "One clone profile.",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/Profile"
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "description": "Short (uat, dev-small): lowercase letters, digits and dashes.",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "config",
+          "description",
+          "name",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "CloneProfileRequest": {
+        "description": "Creates or changes a profile.",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/Profile"
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "description": "Given when creating one.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "CloneType": {
+        "description": "A record type a profile can choose.",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "type"
+        ],
+        "type": "object"
+      },
+      "Clones": {
+        "description": "Admin → Clones.",
+        "properties": {
+          "default": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Profile"
+              }
+            ],
+            "description": "A new profile's settings."
+          },
+          "folder": {
+            "description": "Where packages kept in a folder are.",
+            "type": "string"
+          },
+          "key_configured": {
+            "description": "Says whether this server has a secrets key, which holds a package's passphrase until it is made.",
+            "type": "boolean"
+          },
+          "masked_fields": {
+            "description": "The form fields marked mask: true, which masking fields leaves out.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "packages": {
+            "items": {
+              "$ref": "#/components/schemas/ClonePackage"
+            },
+            "type": "array"
+          },
+          "profiles": {
+            "items": {
+              "$ref": "#/components/schemas/CloneProfile"
+            },
+            "type": "array"
+          },
+          "record_types": {
+            "description": "The types a profile can take.",
+            "items": {
+              "$ref": "#/components/schemas/CloneType"
+            },
+            "type": "array"
+          },
+          "s3_configured": {
+            "description": "Says whether Admin → Storage has an S3 bucket, which the s3 destination needs.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "default",
+          "folder",
+          "key_configured",
+          "masked_fields",
+          "packages",
+          "profiles",
+          "record_types",
+          "s3_configured"
+        ],
+        "type": "object"
+      },
       "CmdbModel": {
         "description": "What configuration items can be: the installed classes, how items can relate, and the statuses every item has. All of it comes from apps except the statuses.",
         "properties": {
@@ -2686,6 +2929,21 @@
         ],
         "type": "object"
       },
+      "Exclusion": {
+        "properties": {
+          "record_type": {
+            "type": "string"
+          },
+          "when": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_type",
+          "when"
+        ],
+        "type": "object"
+      },
       "FieldState": {
         "properties": {
           "hidden": {
@@ -2914,6 +3172,9 @@
           },
           "label": {
             "type": "string"
+          },
+          "mask": {
+            "type": "boolean"
           },
           "max": {
             "format": "int64",
@@ -3985,6 +4246,33 @@
         ],
         "type": "object"
       },
+      "Mask": {
+        "properties": {
+          "emails": {
+            "type": "boolean"
+          },
+          "fields": {
+            "type": "boolean"
+          },
+          "names": {
+            "type": "boolean"
+          },
+          "phones": {
+            "type": "boolean"
+          },
+          "text": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "emails",
+          "fields",
+          "names",
+          "phones",
+          "text"
+        ],
+        "type": "object"
+      },
       "Member": {
         "description": "One person in a group.",
         "properties": {
@@ -4319,6 +4607,74 @@
         ],
         "type": "object"
       },
+      "Profile": {
+        "properties": {
+          "attachment_max_mb": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "attachments": {
+            "type": "string"
+          },
+          "exclude": {
+            "items": {
+              "$ref": "#/components/schemas/Exclusion"
+            },
+            "type": "array"
+          },
+          "history": {
+            "type": "string"
+          },
+          "history_days": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "internal_notes": {
+            "type": "boolean"
+          },
+          "logs": {
+            "type": "boolean"
+          },
+          "mask": {
+            "$ref": "#/components/schemas/Mask"
+          },
+          "passwords": {
+            "type": "boolean"
+          },
+          "people": {
+            "type": "string"
+          },
+          "recent_days": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "record_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "records": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attachment_max_mb",
+          "attachments",
+          "exclude",
+          "history",
+          "history_days",
+          "internal_notes",
+          "logs",
+          "mask",
+          "passwords",
+          "people",
+          "recent_days",
+          "record_types",
+          "records"
+        ],
+        "type": "object"
+      },
       "PutSavedViewRequest": {
         "properties": {
           "chart": {
@@ -4597,6 +4953,62 @@
           "label",
           "name",
           "reverse"
+        ],
+        "type": "object"
+      },
+      "Report": {
+        "properties": {
+          "attachment_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "attachments": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "cleared": {
+            "items": {
+              "$ref": "#/components/schemas/Cleared"
+            },
+            "type": "array"
+          },
+          "cleared_total": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "excluded": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "missing_files": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "people": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "people_total": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/TypeCount"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "attachment_bytes",
+          "attachments",
+          "cleared",
+          "cleared_total",
+          "excluded",
+          "missing_files",
+          "people",
+          "people_total",
+          "records"
         ],
         "type": "object"
       },
@@ -6842,6 +7254,31 @@
           "title",
           "type",
           "updated_at"
+        ],
+        "type": "object"
+      },
+      "TypeCount": {
+        "properties": {
+          "kept": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "total": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kept",
+          "label",
+          "total",
+          "type"
         ],
         "type": "object"
       },
@@ -12920,6 +13357,867 @@
         ],
         "x-permissions": [
           "cmdb:manage"
+        ]
+      }
+    },
+    "/api/v1/clones": {
+      "get": {
+        "description": "(instance:clone): the clone profiles and the packages made from them.\n\nRequires the `instance:clone` permission.",
+        "operationId": "getClones",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Clones"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get clones",
+        "tags": [
+          "clones"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clones/packages": {
+      "post": {
+        "description": "(instance:clone) with {\"profile\", \"passphrase\", \"destination\"}: make a clone package of a profile. It is queued for the worker; GET /clones shows it, and GET /clones/packages/{id}/file downloads it.\n\nRequires the `instance:clone` permission.",
+        "operationId": "makeClonePackage",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClonePackageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClonePackage"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Make clone package",
+        "tags": [
+          "clones"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clones/packages/{id}": {
+      "delete": {
+        "description": "(instance:clone): delete a clone package and its file.\n\nRequires the `instance:clone` permission.",
+        "operationId": "deleteClonePackage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Delete clone package",
+        "tags": [
+          "clones"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clones/packages/{id}/file": {
+      "get": {
+        "description": "(instance:clone): download a clone package. It opens only with its passphrase.\n\nRequires the `instance:clone` permission.",
+        "operationId": "downloadClonePackage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "206": {
+            "description": "Partial Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Download clone package",
+        "tags": [
+          "clones"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clones/preview": {
+      "post": {
+        "description": "(instance:clone) with {\"config\"}: what a package made with these settings would hold now (records kept of each type, people, attachments, links it would clear), without making one.\n\nRequires the `instance:clone` permission.",
+        "operationId": "previewClone",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClonePreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/Report"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Preview clone",
+        "tags": [
+          "clones"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clones/profiles": {
+      "post": {
+        "description": "(instance:clone) with {\"name\", \"description\", \"config\"}: add a clone profile. Settings left out of config keep their defaults (everything, as it is, nothing masked). config says which records come (record_types, records all|open|recent with recent_days, exclude: record_type + when), what comes with them (internal_notes, attachments none|kept with attachment_max_mb, history none|recent|all with history_days, logs), people all|referenced, passwords, and mask (names, emails, phones, text, fields).\n\nRequires the `instance:clone` permission.",
+        "operationId": "createCloneProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloneProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloneProfile"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Create clone profile",
+        "tags": [
+          "clones"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clones/profiles/{name}": {
+      "delete": {
+        "description": "(instance:clone): remove a clone profile. Packages made from it stay.\n\nRequires the `instance:clone` permission.",
+        "operationId": "deleteCloneProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Delete clone profile",
+        "tags": [
+          "clones"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      },
+      "put": {
+        "description": "(instance:clone) with {\"description\", \"config\"}: change a clone profile. Packages already made keep the settings they were made with.\n\nRequires the `instance:clone` permission.",
+        "operationId": "updateCloneProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloneProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloneProfile"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Update clone profile",
+        "tags": [
+          "clones"
+        ],
+        "x-permissions": [
+          "instance:clone"
         ]
       }
     },
@@ -29755,6 +31053,9 @@
     },
     {
       "name": "cis"
+    },
+    {
+      "name": "clones"
     },
     {
       "name": "cmdb"
