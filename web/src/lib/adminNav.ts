@@ -41,6 +41,8 @@ export function adminGroups(user: User | null | undefined): { label: string; pag
 				can(user, P.settingsManage) && { href: '/admin/storage', label: 'Storage' },
 				can(user, P.settingsManage) && { href: '/admin/history', label: 'History' },
 				can(user, P.settingsManage) && { href: '/admin/limits', label: 'Rate limits' },
+				can(user, P.settingsManage) && { href: '/admin/instance', label: 'Instance' },
+				can(user, P.instanceBackup) && { href: '/admin/backups', label: 'Backups' },
 				{ href: '/docs/api', label: 'API reference' }
 			]
 		}

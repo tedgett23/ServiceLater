@@ -736,6 +736,42 @@ type Setting struct {
 	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
 }
 
+type Snapshot struct {
+	ID                 uuid.UUID          `json:"id"`
+	Kind               string             `json:"kind"`
+	Status             string             `json:"status"`
+	Error              string             `json:"error"`
+	Destination        string             `json:"destination"`
+	Key                string             `json:"key"`
+	Size               int64              `json:"size"`
+	IncludeAttachments bool               `json:"include_attachments"`
+	TakenAt            pgtype.Timestamptz `json:"taken_at"`
+	SchemaVersion      pgtype.Int8        `json:"schema_version"`
+	KeyID              string             `json:"key_id"`
+	Instance           string             `json:"instance"`
+	Rows               int64              `json:"rows"`
+	AttachmentFiles    int32              `json:"attachment_files"`
+	RequestedBy        uuid.NullUUID      `json:"requested_by"`
+	RequestedByName    string             `json:"requested_by_name"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	FinishedAt         pgtype.Timestamptz `json:"finished_at"`
+	HeartbeatAt        pgtype.Timestamptz `json:"heartbeat_at"`
+}
+
+type SnapshotRestore struct {
+	ID              uuid.UUID          `json:"id"`
+	SnapshotID      uuid.UUID          `json:"snapshot_id"`
+	Status          string             `json:"status"`
+	Error           string             `json:"error"`
+	ChangeSchema    bool               `json:"change_schema"`
+	RequestedBy     uuid.NullUUID      `json:"requested_by"`
+	RequestedByName string             `json:"requested_by_name"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
+	HeartbeatAt     pgtype.Timestamptz `json:"heartbeat_at"`
+}
+
 type SsoGroupMap struct {
 	ProviderID string    `json:"provider_id"`
 	ClaimValue string    `json:"claim_value"`

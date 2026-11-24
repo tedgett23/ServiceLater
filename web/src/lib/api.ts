@@ -12,7 +12,7 @@ export class ApiError extends Error {
 }
 
 /** Set by the session module: called when the session cannot be recovered. */
-export const hooks = { onSessionExpired: () => {} };
+export const hooks = { onSessionExpired: () => {}, onMaintenance: () => {} };
 
 const NO_REFRESH = ['/api/v1/auth/login', '/api/v1/auth/refresh', '/api/v1/auth/logout'];
 
@@ -83,6 +83,8 @@ export async function api<T = void>(path: string, opts: { method?: string; body?
 		} catch {
 			/* not JSON */
 		}
+		// A restore is waiting or running: the layout shows the maintenance screen until it is over.
+		if (res.status === 503 && (body as { maintenance?: boolean } | undefined)?.maintenance) hooks.onMaintenance();
 		throw new ApiError(res.status, message, body);
 	}
 	return res.status === 204 ? (undefined as T) : ((await res.json()) as T);

@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -15,7 +17,9 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/authz"
+	"github.com/servicelater/servicelater/backend/internal/backup"
 	"github.com/servicelater/servicelater/backend/internal/inbound"
+	"github.com/servicelater/servicelater/backend/internal/instance"
 	"github.com/servicelater/servicelater/backend/internal/notify"
 	"github.com/servicelater/servicelater/backend/internal/query"
 	"github.com/servicelater/servicelater/backend/internal/ratelimit"
@@ -58,6 +62,11 @@ type Deps struct {
 	// Limits counts API requests per caller (optional: without it each router counts on its own, with the default
 	// limits, which is enough for tests).
 	Limits *ratelimit.Limiter
+	// Instance is what this instance is and whether it is in maintenance (optional: tests get one that syncs on
+	// GET /instance).
+	Instance *instance.Watcher
+	// Backups takes, keeps and restores snapshots (optional: tests get one keeping them in a temporary folder).
+	Backups *backup.Service
 }
 
 type handlers struct {
@@ -77,6 +86,9 @@ type handlers struct {
 	openMailbox func(ctx context.Context, cfg settings.Inbound, secret string, tlsConfig *tls.Config) (inbound.Mailbox, error)
 	query       *query.Runner
 	limits      *ratelimit.Limiter
+	instance    *instance.Watcher
+	tokens      *auth.Tokens
+	backups     *backup.Service
 }
 
 // lifecycleFor is the status flow for a ticket type: the type's own, else the `task` default, else the built-in one.
@@ -117,17 +129,22 @@ func NewRouter(d Deps) http.Handler {
 	if d.Limits == nil {
 		d.Limits = ratelimit.New(d.Pool)
 	}
+	d.Instance = instanceWatcher(d)
+	if d.Backups == nil {
+		d.Backups = &backup.Service{Pool: d.Pool, Keys: d.Keys, Files: d.Files, Dir: filepath.Join(os.TempDir(), "servicelater-snapshots")}
+	}
 	if d.SSO == nil {
 		d.SSO = &sso.Manager{Pool: d.Pool, Keys: d.Keys, StateKey: []byte(rand.Text())}
 	}
 	h := &handlers{pool: d.Pool, perms: auth.NewPermissionCache(d.Pool), auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool},
 		keys: d.Keys, sender: d.Sender, files: d.Files, signer: d.Signer, sso: d.SSO,
-		smsSender: d.SMS, teamsPoster: d.Teams, openMailbox: d.OpenMailbox, query: d.Query, limits: d.Limits}
+		smsSender: d.SMS, teamsPoster: d.Teams, openMailbox: d.OpenMailbox, query: d.Query, limits: d.Limits, instance: d.Instance, backups: d.Backups, tokens: d.Tokens}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer, finishWrites)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(sameOrigin)
+		r.Use(sameOrigin, h.maintenance)
+		r.Get("/instance", h.getInstance)
 		r.Get("/openapi.json", h.getOpenAPI)
 		// Links handed out by /attachments/{id}/parts and /download: they carry a signed token, not a session.
 		r.Put("/attachments/{id}/parts/{n}", h.putAttachmentPart)
@@ -298,6 +315,18 @@ func NewRouter(d Deps) http.Handler {
 			})
 			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/history", h.getHistorySettings)
 			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/history", h.putHistorySettings)
+			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/instance", h.getInstanceSettings)
+			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/instance", h.putInstanceSettings)
+			r.Route("/backups", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.InstanceBackup))
+				r.Get("/", h.getBackups)
+				r.Post("/", h.takeSnapshot)
+				r.Put("/settings", h.putBackupSettings)
+				r.Post("/upload", h.uploadSnapshot)
+				r.Get("/{id}/file", h.downloadSnapshot)
+				r.Delete("/{id}", h.deleteSnapshot)
+				r.Post("/{id}/restore", h.restoreSnapshot)
+			})
 			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/limits", h.getLimits)
 			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/limits", h.putLimits)
 			r.Route("/settings/storage", func(r chi.Router) {

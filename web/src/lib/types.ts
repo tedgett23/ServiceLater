@@ -335,7 +335,8 @@ export const P = {
 	scriptsEdit: 'scripts:edit',
 	slasManage: 'slas:manage',
 	reportsRead: 'reports:read',
-	queryRun: 'query:run'
+	queryRun: 'query:run',
+	instanceBackup: 'instance:backup'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */
@@ -395,7 +396,8 @@ export const canAdmin = (u: User | null | undefined) =>
 	can(u, P.slasManage) ||
 	can(u, P.settingsManage) ||
 	can(u, P.catalogManage) ||
-	can(u, P.formsManage);
+	can(u, P.formsManage) ||
+	can(u, P.instanceBackup);
 
 export interface LifecycleState {
 	id: string;

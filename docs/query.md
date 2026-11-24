@@ -87,8 +87,10 @@ Something linked to a record joins `query.records`, so the record rule is writte
 
 A gotcha found writing them: planning a query inlines the SQL functions in the table's index expressions as the
 person running it, so an index function that names `public.` breaks every query on that table for the query role
-(which may not use `public`). `00015_search` gives `app_record_words` a `SET search_path` so it is never inlined.
-`TestEveryQueryViewCanBeRead` finds the next one.
+(which may not use `public`). Index functions therefore live in the `searchfn` schema, which holds only pure
+functions and which every role may use (`00020_search_functions`). The first fix, a `SET search_path` on
+`app_record_words`, stopped the inlining but made the function about twice as slow on every ticket save, so it was
+replaced. `TestEveryQueryViewCanBeRead` finds the next one.
 
 ## The workbench
 

@@ -20,7 +20,7 @@ COPY --from=web /src/backend/internal/webui/dist ./internal/webui/dist
 ARG COMMIT=""
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-X main.commit=${COMMIT}" -o /out/servicelater ./cmd/servicelater
 # The folders volumes are mounted on, owned by the user the server runs as, so a new named volume starts writable.
-RUN mkdir -p /out/data/attachments /out/data/apps-local /out/data/certs
+RUN mkdir -p /out/data/attachments /out/data/apps-local /out/data/certs /out/data/snapshots
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/servicelater /servicelater

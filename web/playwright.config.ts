@@ -16,6 +16,7 @@ export const AUTH_DIR = path.join(runDir, 'auth');
 export const APPS_LOCAL_DIR = path.join(runDir, 'local-apps');
 // Where this run keeps attachments (removed with the scratch database).
 export const ATTACHMENTS_DIR = path.join(runDir, '.attachments');
+export const SNAPSHOTS_DIR = path.join(runDir, '.snapshots');
 // The fake OpenID Connect provider single sign-on is tested against (backend/cmd/fakeidp; e2e/sso.spec.ts).
 export const IDP_PORT = Number(process.env.E2E_IDP_PORT ?? 18256);
 export const IDP_ISSUER = `http://127.0.0.1:${IDP_PORT}`;
@@ -56,6 +57,7 @@ export default defineConfig({
 				SL_E2E_DB_NAME: name,
 				SL_APPS_LOCAL_DIR: APPS_LOCAL_DIR,
 				SL_ATTACHMENTS_DIR: ATTACHMENTS_DIR,
+				SL_SNAPSHOTS_DIR: SNAPSHOTS_DIR,
 				// Encrypts the mail server password (e2e/email.spec.ts). Any 32 bytes, base64; never a real key.
 				SL_MAIL_POLL: '1s',
 				SL_SECRETS_KEY: 'ZTJlLW9ubHktc2VjcmV0cy1rZXktMzItYnl0ZXMhISE='

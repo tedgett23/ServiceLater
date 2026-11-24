@@ -30,6 +30,7 @@ const (
 	SLAsManage       = "slas:manage"       // choose which hours each SLA counts
 	ReportsRead      = "reports:read"      // read reports (the SLA report)
 	QueryRun         = "query:run"         // run read-only SQL queries over the query views
+	InstanceBackup   = "instance:backup"   // take, download and restore snapshots of the instance
 	UsersRead        = "users:read"        // the people directory and pickers
 	UsersManage      = "users:manage"      // add, edit, deactivate and delete people, and set passwords
 	GroupsManage     = "groups:manage"     // create and change groups and who is in them
@@ -128,6 +129,7 @@ var Catalog = []Permission{
 	{SLAsManage, "Choose which hours each SLA counts, by priority, team or any condition"},
 	{ReportsRead, "Read reports: how records met their SLAs"},
 	{QueryRun, "Run read-only SQL queries over what they may see, and keep a history of them"},
+	{InstanceBackup, "Take, download and restore snapshots of the whole instance (a restore replaces everything)"},
 	{UsersRead, "Look people up in the directory and pickers"},
 	{UsersManage, "Add, edit, deactivate and delete people, and set their passwords"},
 	{GroupsManage, "Create and change groups and their members"},

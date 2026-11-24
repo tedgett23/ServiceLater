@@ -12,6 +12,7 @@ package secrets
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -32,6 +33,8 @@ var ErrNoKey = errors.New("no secrets key is configured: set SL_SECRETS_KEY or S
 type Keyring struct {
 	current string // key id
 	keys    map[string]cipher.AEAD
+	// derive holds, per key id, a key for deriving others from (Derive), never the key itself.
+	derive map[string][]byte
 }
 
 // Sealed is an encrypted value as it is stored.
@@ -50,7 +53,7 @@ func KeyID(key []byte) string {
 // NewKeyring makes a keyring from the current key and any older ones. A nil current key gives an empty keyring,
 // which can only report ErrNoKey.
 func NewKeyring(current []byte, old ...[]byte) (*Keyring, error) {
-	k := &Keyring{keys: map[string]cipher.AEAD{}}
+	k := &Keyring{keys: map[string]cipher.AEAD{}, derive: map[string][]byte{}}
 	if current == nil {
 		if len(old) > 0 {
 			return nil, errors.New("old secrets keys are set but the current one is not")
@@ -74,8 +77,40 @@ func NewKeyring(current []byte, old ...[]byte) (*Keyring, error) {
 			k.current = id
 		}
 		k.keys[id] = aead
+		prk, err := hkdf.Extract(sha256.New, key, []byte("servicelater/derive"))
+		if err != nil {
+			return nil, err
+		}
+		k.derive[id] = prk
 	}
 	return k, nil
+}
+
+// Derive gives a 32-byte key for one purpose (such as "snapshot"), from the key with this id: the same purpose and
+// key always give the same bytes, different purposes unrelated ones, and none of them reveals the key or the
+// secrets it seals. Older keys still derive, so what was made with them can still be read.
+func (k *Keyring) Derive(keyID, purpose string) ([]byte, error) {
+	if k == nil || k.derive[keyID] == nil {
+		if !k.Configured() {
+			return nil, ErrNoKey
+		}
+		return nil, fmt.Errorf("the secrets key %s is not in this server's keyring", keyID)
+	}
+	return hkdf.Expand(sha256.New, k.derive[keyID], "servicelater/"+purpose, KeySize)
+}
+
+// KeyIDs are the ids of every key in the keyring, the current one first.
+func (k *Keyring) KeyIDs() []string {
+	if !k.Configured() {
+		return nil
+	}
+	out := []string{k.current}
+	for id := range k.keys {
+		if id != k.current {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 // Configured reports whether there is a key to encrypt with.

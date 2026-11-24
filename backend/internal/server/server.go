@@ -20,9 +20,11 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/api"
 	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/auth"
+	"github.com/servicelater/servicelater/backend/internal/backup"
 	"github.com/servicelater/servicelater/backend/internal/config"
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/inbound"
+	"github.com/servicelater/servicelater/backend/internal/instance"
 	"github.com/servicelater/servicelater/backend/internal/jobs"
 	"github.com/servicelater/servicelater/backend/internal/notify"
 	"github.com/servicelater/servicelater/backend/internal/query"
@@ -112,6 +114,10 @@ func Run(ctx context.Context, cfg config.Config) error {
 			deps.Limits = ratelimit.New(pool)
 			go deps.Limits.Run(ctx, time.Second)
 			deps.Hub.Limit = func() int { return deps.Limits.Limits().LiveConnections }
+			deps.Instance = instance.NewWatcher(pool)
+			go deps.Instance.Run(ctx, time.Second)
+			deps.Backups = &backup.Service{Pool: pool, Keys: keys, Files: deps.Files, Dir: cfg.SnapshotsDir,
+				AttachmentsDir: cfg.AttachmentsDir, Binary: "servicelater " + apps.PlatformVersion}
 			if os.Getenv("SL_MAX_LIVE_CONNS") != "" {
 				slog.Warn("SL_MAX_LIVE_CONNS is no longer read: set live connections under Admin → Rate limits")
 			}
@@ -129,7 +135,9 @@ func Run(ctx context.Context, cfg config.Config) error {
 			if err != nil {
 				return err
 			}
-			worker := jobs.NewWorker(workerPool, jobs.Options{Concurrency: cfg.WorkerConcurrency, DSN: cfg.DatabaseURL})
+			// While a restore waits or runs, the worker takes no jobs (the queue is about to be emptied).
+			workerInstance := instance.NewWatcher(workerPool)
+			worker := jobs.NewWorker(workerPool, jobs.Options{Concurrency: cfg.WorkerConcurrency, DSN: cfg.DatabaseURL, Paused: workerInstance.InMaintenance})
 			// The worker keeps its own copy of the installed definitions, refreshed by NOTIFY like the api's, so the
 			// roles never depend on sharing a process (a worker started alone still knows every rule).
 			workerApps := apps.NewRegistry(workerPool)
@@ -148,6 +156,8 @@ func Run(ctx context.Context, cfg config.Config) error {
 			worker.Register(notify.SMSKind, (&notify.Texter{Pool: workerPool, Apps: workerApps, Keys: keys, Sender: notify.Twilio{}}).Handler())
 			worker.Register(notify.TeamsKind, (&notify.Poster{Pool: workerPool, Apps: workerApps, Keys: keys, Teams: notify.TeamsPoster{}}).Handler())
 			workerFiles := &storage.Manager{Pool: workerPool, Keys: keys, LocalDir: cfg.AttachmentsDir}
+			backups := &backup.Service{Pool: workerPool, Keys: keys, Files: workerFiles, Dir: cfg.SnapshotsDir,
+				AttachmentsDir: cfg.AttachmentsDir, Binary: "servicelater " + apps.PlatformVersion}
 			worker.Register(storage.PurgeKind, workerFiles.PurgeHandler())
 			worker.Register(storage.ExpireKind, workerFiles.ExpireHandler())
 			// Incoming mail: replies become comments, new mail (when allowed) incidents.
@@ -157,7 +167,9 @@ func Run(ctx context.Context, cfg config.Config) error {
 			go func() {
 				defer background.Done()
 				var timer sync.WaitGroup
-				timer.Add(4)
+				timer.Add(6)
+				go func() { defer timer.Done(); workerInstance.Run(ctx, time.Second) }()
+				go func() { defer timer.Done(); backups.Run(ctx, 5*time.Second) }()
 				go func() { defer timer.Done(); engine.RunTimer(ctx, time.Second) }()
 				go func() { defer timer.Done(); slatimer.Run(ctx, workerPool, time.Second) }()
 				go func() { defer timer.Done(); inbound.RunTimer(ctx, workerPool, cfg.MailPoll) }()

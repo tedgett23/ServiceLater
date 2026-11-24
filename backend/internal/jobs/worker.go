@@ -39,6 +39,10 @@ type Options struct {
 
 	// DSN, when set, is used to LISTEN for new jobs so they start within milliseconds. Without it the worker polls.
 	DSN string
+
+	// Paused, when set and true, stops the worker taking new jobs (a restore is waiting or running: the job queue is
+	// about to be emptied, and every table locked).
+	Paused func() bool
 }
 
 func (o Options) withDefaults() Options {
@@ -156,6 +160,9 @@ func (w *Worker) executor(ctx, jobCtx context.Context, lockerID string) {
 }
 
 func (w *Worker) claim(ctx context.Context, lockerID string) (Job, bool) {
+	if w.opt.Paused != nil && w.opt.Paused() {
+		return Job{}, false
+	}
 	var row dbgen.Job
 	err := db.WithSystem(ctx, w.pool, func(tx pgx.Tx) error {
 		var err error
