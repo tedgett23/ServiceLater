@@ -25,7 +25,7 @@ func (q *Queries) DeleteSavedView(ctx context.Context, name string) (int64, erro
 }
 
 const getSavedView = `-- name: GetSavedView :one
-SELECT v.name, v.description, v.sql, v.shared, v.columns, v.depends_on, v.owner_id, u.name AS owner_name,
+SELECT v.name, v.description, v.sql, v.shared, v.columns, v.depends_on, v.chart, v.owner_id, u.name AS owner_name,
        v.created_at, v.updated_at
 FROM saved_views v
 JOIN users u ON u.id = v.owner_id
@@ -39,6 +39,7 @@ type GetSavedViewRow struct {
 	Shared      bool               `json:"shared"`
 	Columns     []byte             `json:"columns"`
 	DependsOn   []string           `json:"depends_on"`
+	Chart       []byte             `json:"chart"`
 	OwnerID     uuid.UUID          `json:"owner_id"`
 	OwnerName   string             `json:"owner_name"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
@@ -55,6 +56,7 @@ func (q *Queries) GetSavedView(ctx context.Context, name string) (GetSavedViewRo
 		&i.Shared,
 		&i.Columns,
 		&i.DependsOn,
+		&i.Chart,
 		&i.OwnerID,
 		&i.OwnerName,
 		&i.CreatedAt,
@@ -64,8 +66,8 @@ func (q *Queries) GetSavedView(ctx context.Context, name string) (GetSavedViewRo
 }
 
 const insertSavedView = `-- name: InsertSavedView :exec
-INSERT INTO saved_views (name, description, sql, shared, columns, depends_on, owner_id)
-VALUES ($1, $2, $3, $4, $5, $6, app_current_user_id())
+INSERT INTO saved_views (name, description, sql, shared, columns, depends_on, chart, owner_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, app_current_user_id())
 `
 
 type InsertSavedViewParams struct {
@@ -75,6 +77,7 @@ type InsertSavedViewParams struct {
 	Shared      bool     `json:"shared"`
 	Columns     []byte   `json:"columns"`
 	DependsOn   []string `json:"depends_on"`
+	Chart       []byte   `json:"chart"`
 }
 
 func (q *Queries) InsertSavedView(ctx context.Context, arg InsertSavedViewParams) error {
@@ -85,6 +88,7 @@ func (q *Queries) InsertSavedView(ctx context.Context, arg InsertSavedViewParams
 		arg.Shared,
 		arg.Columns,
 		arg.DependsOn,
+		arg.Chart,
 	)
 	return err
 }
@@ -141,7 +145,7 @@ func (q *Queries) ListMyQueryRuns(ctx context.Context) ([]ListMyQueryRunsRow, er
 }
 
 const listSavedViews = `-- name: ListSavedViews :many
-SELECT v.name, v.description, v.sql, v.shared, v.columns, v.depends_on, v.owner_id, u.name AS owner_name,
+SELECT v.name, v.description, v.sql, v.shared, v.columns, v.depends_on, v.chart, v.owner_id, u.name AS owner_name,
        v.created_at, v.updated_at
 FROM saved_views v
 JOIN users u ON u.id = v.owner_id
@@ -155,6 +159,7 @@ type ListSavedViewsRow struct {
 	Shared      bool               `json:"shared"`
 	Columns     []byte             `json:"columns"`
 	DependsOn   []string           `json:"depends_on"`
+	Chart       []byte             `json:"chart"`
 	OwnerID     uuid.UUID          `json:"owner_id"`
 	OwnerName   string             `json:"owner_name"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
@@ -178,6 +183,7 @@ func (q *Queries) ListSavedViews(ctx context.Context) ([]ListSavedViewsRow, erro
 			&i.Shared,
 			&i.Columns,
 			&i.DependsOn,
+			&i.Chart,
 			&i.OwnerID,
 			&i.OwnerName,
 			&i.CreatedAt,
@@ -235,7 +241,7 @@ func (q *Queries) SavedViewDependents(ctx context.Context, name string) ([]Saved
 }
 
 const updateSavedView = `-- name: UpdateSavedView :execrows
-UPDATE saved_views SET description = $2, sql = $3, shared = $4, columns = $5, depends_on = $6, updated_at = now()
+UPDATE saved_views SET description = $2, sql = $3, shared = $4, columns = $5, depends_on = $6, chart = $7, updated_at = now()
 WHERE name = $1
 `
 
@@ -246,6 +252,7 @@ type UpdateSavedViewParams struct {
 	Shared      bool     `json:"shared"`
 	Columns     []byte   `json:"columns"`
 	DependsOn   []string `json:"depends_on"`
+	Chart       []byte   `json:"chart"`
 }
 
 func (q *Queries) UpdateSavedView(ctx context.Context, arg UpdateSavedViewParams) (int64, error) {
@@ -256,6 +263,7 @@ func (q *Queries) UpdateSavedView(ctx context.Context, arg UpdateSavedViewParams
 		arg.Shared,
 		arg.Columns,
 		arg.DependsOn,
+		arg.Chart,
 	)
 	if err != nil {
 		return 0, err

@@ -8,14 +8,14 @@ LIMIT 50;
 
 -- name: ListSavedViews :many
 -- The saved views the caller may read (their own and the shared ones), by name.
-SELECT v.name, v.description, v.sql, v.shared, v.columns, v.depends_on, v.owner_id, u.name AS owner_name,
+SELECT v.name, v.description, v.sql, v.shared, v.columns, v.depends_on, v.chart, v.owner_id, u.name AS owner_name,
        v.created_at, v.updated_at
 FROM saved_views v
 JOIN users u ON u.id = v.owner_id
 ORDER BY v.name;
 
 -- name: GetSavedView :one
-SELECT v.name, v.description, v.sql, v.shared, v.columns, v.depends_on, v.owner_id, u.name AS owner_name,
+SELECT v.name, v.description, v.sql, v.shared, v.columns, v.depends_on, v.chart, v.owner_id, u.name AS owner_name,
        v.created_at, v.updated_at
 FROM saved_views v
 JOIN users u ON u.id = v.owner_id
@@ -26,11 +26,11 @@ WHERE v.name = $1;
 SELECT pg_advisory_xact_lock(hashtext('saved_views'));
 
 -- name: InsertSavedView :exec
-INSERT INTO saved_views (name, description, sql, shared, columns, depends_on, owner_id)
-VALUES ($1, $2, $3, $4, $5, $6, app_current_user_id());
+INSERT INTO saved_views (name, description, sql, shared, columns, depends_on, chart, owner_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, app_current_user_id());
 
 -- name: UpdateSavedView :execrows
-UPDATE saved_views SET description = $2, sql = $3, shared = $4, columns = $5, depends_on = $6, updated_at = now()
+UPDATE saved_views SET description = $2, sql = $3, shared = $4, columns = $5, depends_on = $6, chart = $7, updated_at = now()
 WHERE name = $1;
 
 -- name: DeleteSavedView :execrows

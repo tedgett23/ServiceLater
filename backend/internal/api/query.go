@@ -100,7 +100,7 @@ func (h *handlers) querySchema(w http.ResponseWriter, r *http.Request) {
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		rows, err := q.ListSavedViews(r.Context())
 		for _, v := range rows {
-			saved = append(saved, toSavedView(p, v.Name, v.Description, v.Sql, v.Shared, v.Columns, v.DependsOn, v.OwnerID,
+			saved = append(saved, toSavedView(p, v.Name, v.Description, v.Sql, v.Shared, v.Columns, v.DependsOn, v.Chart, v.OwnerID,
 				v.OwnerName, v.CreatedAt.Time, v.UpdatedAt.Time))
 		}
 		return err

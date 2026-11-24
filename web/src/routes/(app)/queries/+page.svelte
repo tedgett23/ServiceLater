@@ -20,6 +20,8 @@
 		type SavedView
 	} from '$lib/queries';
 	import type { SchemaView, SqlView } from '$lib/sqlEditor';
+	import ResultChart from '$lib/charts/ResultChart.svelte';
+	import { fits, guessChart, isNumeric, MAX_SERIES, type ChartSpec, type ChartType } from '$lib/charts/resultChart';
 
 	/**
 	 * The SQL workbench (docs/query.md): the tables at the left (built-in views and saved views, with their columns and
@@ -41,7 +43,12 @@
 	let result = $state<QueryResult | null>(null);
 	let problem = $state<QueryProblem | null>(null);
 	let running = $state(false);
-	let tab = $state<'results' | 'history'>('results');
+	let tab = $state<'results' | 'chart' | 'history'>('results');
+	/** How the result is drawn on the Chart tab: picked to fit the columns, changed by hand, kept with a saved view. */
+	let chart = $state<ChartSpec | null>(null);
+	/** The columns of the last result, so a chart is kept while they stay (re-running, a new WHERE) and picked afresh
+	 * when they change; null after opening a view, whose chart its first run keeps. */
+	let lastShape: string | null = null;
 	let runs = $state<QueryRun[]>([]);
 	let loadError = $state('');
 	/** The saved view being edited, when one was opened: Save then changes it. */
@@ -50,7 +57,7 @@
 	let host: HTMLDivElement;
 	let editor: SqlView | null = null;
 	let dialog: HTMLDialogElement;
-	let form = $state({ name: '', description: '', shared: false });
+	let form = $state({ name: '', description: '', shared: false, keepChart: false });
 	let saveProblem = $state('');
 	let saving = $state(false);
 	let notice = $state('');
@@ -129,9 +136,13 @@
 		running = true;
 		problem = null;
 		editor?.setProblem(null);
-		tab = 'results';
+		if (tab === 'history') tab = 'results';
 		try {
 			result = await runQuery(text, params);
+			const shape = result.columns.map((c) => `${c.name}:${c.type}`).join(',');
+			const changed = lastShape !== null && lastShape !== shape;
+			if (!chart || changed || !fits(chart, result.columns)) chart = guessChart(result.columns, result.rows.length);
+			lastShape = shape;
 		} catch (e) {
 			result = null;
 			problem = problemOf(e);
@@ -139,7 +150,7 @@
 		} finally {
 			running = false;
 		}
-		if (tab === 'results') void loadRuns().then((r) => (runs = r)).catch(() => {});
+		void loadRuns().then((r) => (runs = r)).catch(() => {});
 	}
 
 	async function showHistory() {
@@ -160,14 +171,18 @@
 	function openView(v: SavedView) {
 		editing = v.mine ? v : null;
 		useText(v.sql);
-		form = { name: v.mine ? v.name : '', description: v.description, shared: v.shared };
+		chart = v.chart ? { ...v.chart, y: [...v.chart.y] } : null;
+		lastShape = null;
+		tab = v.chart ? 'chart' : 'results';
+		result = null;
+		form = { name: v.mine ? v.name : '', description: v.description, shared: v.shared, keepChart: !!v.chart };
 		void goto(v.mine ? `?view=${encodeURIComponent(v.name)}` : '?', { replaceState: true, keepFocus: true, noScroll: true });
 		notice = v.mine ? '' : `${v.name} is ${v.owner_name}'s view: save a change under a name of your own.`;
 	}
 
 	function newQuery() {
 		editing = null;
-		form = { name: '', description: '', shared: false };
+		form = { name: '', description: '', shared: false, keepChart: false };
 		notice = '';
 		void goto('?', { replaceState: true, keepFocus: true, noScroll: true });
 		editor?.focus();
@@ -175,7 +190,7 @@
 
 	async function openSave() {
 		saveProblem = '';
-		if (!editing) form = { name: form.name, description: form.description, shared: form.shared };
+		form.keepChart = !!chart && (tab === 'chart' || !!editing?.chart);
 		dialog.showModal();
 		await tick();
 		dialog.querySelector<HTMLInputElement>(editing ? '#sv-description' : '#sv-name')?.focus();
@@ -186,7 +201,12 @@
 		saving = true;
 		saveProblem = '';
 		try {
-			const v = await saveView(form.name.trim(), { sql: text, description: form.description, shared: form.shared });
+			const v = await saveView(form.name.trim(), {
+				sql: text,
+				description: form.description,
+				shared: form.shared,
+				chart: form.keepChart && chart ? chart : null
+			});
 			dialog.close();
 			await refreshSchema();
 			editing = saved.find((x) => x.name === v.name) ?? v;
@@ -242,6 +262,29 @@
 		if (/^KB\d+$/.test(v)) return `/kb/${v}`;
 		return /^[A-Z]{2,5}\d+$/.test(v) ? `/tickets/${v}` : null;
 	}
+	const chartTypes: { id: ChartType; label: string }[] = [
+		{ id: 'line', label: 'Line' },
+		{ id: 'bars', label: 'Bars' },
+		{ id: 'stacked', label: 'Stacked' },
+		{ id: 'figure', label: 'Figure' }
+	];
+	const numericColumns = $derived(result ? result.columns.filter(isNumeric) : []);
+	function setType(t: ChartType) {
+		if (!result || !chart) return;
+		const y = t === 'figure' ? chart.y.slice(0, 1) : chart.y;
+		const x = t === 'figure' ? undefined : chart.x && result.columns.some((c) => c.name === chart!.x) ? chart.x : result.columns.find((c) => !isNumeric(c))?.name ?? result.columns[0]?.name;
+		chart = { type: t, x, y: y.length ? y : numericColumns.slice(0, 1).map((c) => c.name) };
+	}
+	function toggleY(name: string, on: boolean) {
+		if (!chart) return;
+		const order = numericColumns.map((c) => c.name);
+		const y = on ? [...chart.y, name] : chart.y.filter((n) => n !== name);
+		// Columns keep the result's order, so a column keeps its colour as others come and go.
+		chart = { ...chart, y: order.filter((n) => y.includes(n)) };
+	}
+	const chartLabel = $derived(
+		chart ? (chart.type === 'figure' ? chart.y[0] : `${chart.y.join(', ')} by ${chart.x}`) : ''
+	);
 	const numeric = (type: string) => /^(int[248]|float[48]|numeric)$/.test(type);
 	const outcomeLabel = { ok: 'OK', refused: 'Refused', failed: 'Failed', timeout: 'Timed out' } as const;
 </script>
@@ -361,9 +404,10 @@
 		<div class="tools">
 			<div class="segmented" role="group" aria-label="Show">
 				<button type="button" aria-pressed={tab === 'results'} onclick={() => (tab = 'results')}>Results</button>
+				<button type="button" aria-pressed={tab === 'chart'} onclick={() => (tab = 'chart')}>Chart</button>
 				<button type="button" aria-pressed={tab === 'history'} onclick={showHistory}>History</button>
 			</div>
-			{#if tab === 'results' && result}
+			{#if tab !== 'history' && result}
 				<span class="status">
 					{result.rows.length.toLocaleString()} {result.rows.length === 1 ? 'row' : 'rows'}{result.truncated ? ' (more not shown)' : ''} · {result.duration_ms} ms
 				</span>
@@ -405,6 +449,56 @@
 			{:else if !problem}
 				<p class="hint">Write a query over the tables at the left and run it (Ctrl or ⌘ + Enter). You see only what you may see in ServiceLater, and nothing you run changes anything.</p>
 			{/if}
+		{:else if tab === 'chart'}
+			{#if result && chart}
+				<div class="chartctl" role="group" aria-label="Chart">
+					<div class="segmented" role="group" aria-label="Chart type">
+						{#each chartTypes as t (t.id)}
+							<button type="button" aria-pressed={chart.type === t.id} onclick={() => setType(t.id)}>{t.label}</button>
+						{/each}
+					</div>
+					{#if chart.type !== 'figure'}
+						<label class="pick">
+							<span>{chart.type === 'line' ? 'Along the bottom' : 'One bar per'}</span>
+							<select class="select" value={chart.x} onchange={(e) => (chart = { ...chart!, x: e.currentTarget.value })}>
+								{#each result.columns as c (c.name)}<option value={c.name}>{c.name}</option>{/each}
+							</select>
+						</label>
+						<fieldset class="ys">
+							<legend>Measure</legend>
+							{#each numericColumns as c (c.name)}
+								<label>
+									<input
+										type="checkbox"
+										checked={chart.y.includes(c.name)}
+										disabled={!chart.y.includes(c.name) && chart.y.length >= MAX_SERIES}
+										onchange={(e) => toggleY(c.name, e.currentTarget.checked)}
+									/>
+									{c.name}
+								</label>
+							{/each}
+						</fieldset>
+					{:else}
+						<label class="pick">
+							<span>Show</span>
+							<select class="select" value={chart.y[0]} onchange={(e) => (chart = { ...chart!, y: [e.currentTarget.value] })}>
+								{#each numericColumns as c (c.name)}<option value={c.name}>{c.name}</option>{/each}
+							</select>
+						</label>
+					{/if}
+				</div>
+				{#if chart.y.length}
+					<div class="chartbox">
+						<ResultChart columns={result.columns} rows={result.rows} spec={chart} label={chartLabel} />
+					</div>
+				{:else}
+					<p class="hint">Pick at least one column to measure.</p>
+				{/if}
+			{:else if result}
+				<p class="hint">Nothing here to chart: a chart measures a number, and this result has no number column.</p>
+			{:else if !problem}
+				<p class="hint">Run the query to draw it{chart ? `: it is kept as ${chart.type === 'figure' ? 'a figure' : `a ${chart.type === 'line' ? 'line' : chart.type === 'bars' ? 'bar' : 'stacked bar'} chart`}` : ''}.</p>
+			{/if}
 		{:else}
 			<ul class="runs" aria-label="Your recent queries">
 				{#each runs as q (q.id)}
@@ -445,6 +539,12 @@
 			<input type="checkbox" bind:checked={form.shared} />
 			<span>Share with everyone who runs queries</span>
 		</label>
+		{#if chart}
+			<label class="check">
+				<input type="checkbox" bind:checked={form.keepChart} />
+				<span>Keep the chart with it ({chartTypes.find((t) => t.id === chart?.type)?.label.toLowerCase()} of {chart.y.join(', ')})</span>
+			</label>
+		{/if}
 		{#if saveProblem}<p class="error" role="alert">{saveProblem}</p>{/if}
 		<div class="actions">
 			<button type="button" class="btn" onclick={() => dialog.close()}>Cancel</button>
@@ -774,6 +874,51 @@
 		font-size: 0.875rem;
 	}
 
+	.chartctl {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 0.75rem 1.25rem;
+	}
+	.pick {
+		display: grid;
+		gap: 0.3rem;
+		font-size: 0.75rem;
+		color: var(--ink-2);
+	}
+	.pick .select {
+		min-width: 10rem;
+		color: var(--ink);
+		font-size: 0.875rem;
+	}
+	.ys {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.35rem 0.9rem;
+		margin: 0;
+		padding: 0;
+		border: 0;
+		font-size: 0.875rem;
+	}
+	.ys legend {
+		float: left;
+		width: 100%;
+		margin-bottom: 0.3rem;
+		font-size: 0.75rem;
+		color: var(--ink-2);
+	}
+	.ys label {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-family: var(--font-mono);
+		font-size: 0.8125rem;
+	}
+	.chartbox {
+		padding: 1rem 1.25rem;
+		border: 1px solid var(--rule);
+		border-radius: var(--radius);
+	}
 	.save {
 		width: min(32rem, calc(100vw - 2rem));
 		padding: 0;

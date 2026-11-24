@@ -89,3 +89,65 @@ test('the workbench fits a phone screen', async ({ browser }) => {
 	const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
 	expect(overflow).toBeLessThanOrEqual(0);
 });
+
+test('a result is drawn as the chart that fits it, and a view keeps its chart', async ({ browser }) => {
+	const { page, context } = await as(browser, 'admin');
+	const id = uid();
+	const view = `chart_${id}`;
+	for (const [n, priority] of [[1, 1], [2, 2], [3, 2], [4, 3], [5, 3], [6, 3]] as const)
+		await context.request.post('/api/v1/tickets', { data: { title: `Chart ${id} ${n}`, priority } });
+	try {
+		await page.goto('/queries');
+		const editor = page.getByRole('textbox', { name: 'SQL query' });
+		const type = async (sql: string) => {
+			await editor.click();
+			await page.keyboard.press('ControlOrMeta+a');
+			await page.keyboard.insertText(sql);
+			await page.keyboard.press('ControlOrMeta+Enter');
+		};
+		await type(`SELECT 'P' || priority AS priority, count(*) AS n\nFROM records WHERE title LIKE 'Chart ${id} %'\nGROUP BY 1 ORDER BY 1`);
+		await expect(page.getByText(/^3 rows/)).toBeVisible();
+		await page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Chart' }).click();
+
+		// Text and a number: bars, one per row, each readable on hover.
+		const kinds = page.getByRole('group', { name: 'Chart type' });
+		await expect(kinds.getByRole('button', { name: 'Bars' })).toHaveAttribute('aria-pressed', 'true');
+		const bars = page.getByRole('group', { name: /^n by priority/ });
+		await expect(bars.locator('.brow:not(.axis)')).toHaveCount(3);
+		await bars.getByText('P3', { exact: true }).hover();
+		await expect(bars.getByRole('status')).toContainText('3 n');
+
+		// A single figure instead.
+		await kinds.getByRole('button', { name: 'Figure' }).click();
+		await expect(page.getByRole('figure', { name: 'n: 1' })).toBeVisible();
+		await expect(page.getByText('From the first of 3 rows')).toBeVisible();
+
+		// A time and a number: a line, read with the keyboard.
+		await type(`SELECT date_trunc('day', created_at) AS day, count(*) AS n\nFROM records WHERE title LIKE 'Chart ${id} %'\nGROUP BY 1`);
+		await expect(kinds.getByRole('button', { name: 'Line' })).toHaveAttribute('aria-pressed', 'true');
+		const plot = page.getByRole('group', { name: /^n by day/ });
+		await plot.focus();
+		await page.keyboard.press('End');
+		await expect(plot.getByRole('status')).toContainText('6 n');
+
+		// Saved with its chart, and opened again on it.
+		await page.getByRole('button', { name: 'Save as view' }).click();
+		const dialog = page.getByRole('dialog', { name: 'Save as view' });
+		await dialog.getByLabel('Name').fill(view);
+		const keep = dialog.getByRole('checkbox', { name: /Keep the chart with it/ });
+		await expect(keep).toBeChecked();
+		await expect(dialog).toContainText('line of n');
+		await dialog.getByRole('button', { name: 'Save' }).click();
+		await expect(dialog).toBeHidden();
+		const saved = await (await context.request.get(`/api/v1/views/${view}`)).json();
+		expect(saved.chart).toEqual({ type: 'line', x: 'day', y: ['n'] });
+
+		await page.goto(`/queries?view=${view}`);
+		await expect(page.getByText(`Editing view ${view}`)).toBeVisible();
+		await expect(page.getByRole('group', { name: 'Show' }).getByRole('button', { name: 'Chart' })).toHaveAttribute('aria-pressed', 'true');
+		await page.getByRole('button', { name: /^Run/ }).click();
+		await expect(page.getByRole('group', { name: /^n by day/ })).toBeVisible();
+	} finally {
+		await context.request.delete(`/api/v1/views/${view}`);
+	}
+});

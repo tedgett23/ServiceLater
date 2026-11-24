@@ -35,6 +35,8 @@ type savedViewDTO struct {
 	Columns []query.Column `json:"columns"`
 	// Uses are the saved views it reads directly.
 	Uses []string `json:"uses"`
+	// Chart is how the workbench draws it; null shows a table.
+	Chart *query.Chart `json:"chart"`
 	// Mine is true when the caller owns it, and so may change it.
 	Mine      bool      `json:"mine"`
 	OwnerName string    `json:"owner_name"`
@@ -42,11 +44,17 @@ type savedViewDTO struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-func toSavedView(p auth.Principal, name, description, sql string, shared bool, columns []byte, uses []string,
+func toSavedView(p auth.Principal, name, description, sql string, shared bool, columns []byte, uses []string, chart []byte,
 	owner uuid.UUID, ownerName string, created, updated time.Time) savedViewDTO {
 	d := savedViewDTO{Name: name, Description: description, SQL: sql, Shared: shared, Columns: []query.Column{}, Uses: uses,
 		Mine: owner == p.UserID, OwnerName: ownerName, CreatedAt: created, UpdatedAt: updated}
 	_ = json.Unmarshal(columns, &d.Columns)
+	if len(chart) > 0 {
+		var c query.Chart
+		if json.Unmarshal(chart, &c) == nil {
+			d.Chart = &c
+		}
+	}
 	if d.Uses == nil {
 		d.Uses = []string{}
 	}
@@ -59,7 +67,7 @@ func (h *handlers) listSavedViews(w http.ResponseWriter, r *http.Request) {
 	if !h.tx(w, r, func(q *dbgen.Queries, p auth.Principal) error {
 		rows, err := q.ListSavedViews(r.Context())
 		for _, v := range rows {
-			out = append(out, toSavedView(p, v.Name, v.Description, v.Sql, v.Shared, v.Columns, v.DependsOn, v.OwnerID,
+			out = append(out, toSavedView(p, v.Name, v.Description, v.Sql, v.Shared, v.Columns, v.DependsOn, v.Chart, v.OwnerID,
 				v.OwnerName, v.CreatedAt.Time, v.UpdatedAt.Time))
 		}
 		return err
@@ -77,7 +85,7 @@ func (h *handlers) getSavedView(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		out = toSavedView(p, v.Name, v.Description, v.Sql, v.Shared, v.Columns, v.DependsOn, v.OwnerID, v.OwnerName,
+		out = toSavedView(p, v.Name, v.Description, v.Sql, v.Shared, v.Columns, v.DependsOn, v.Chart, v.OwnerID, v.OwnerName,
 			v.CreatedAt.Time, v.UpdatedAt.Time)
 		return nil
 	}) {
@@ -92,11 +100,13 @@ type putSavedViewRequest struct {
 	Description string `json:"description"`
 	// Shared makes it readable by everyone who may run queries (each still sees only their own rows).
 	Shared bool `json:"shared"`
+	// Chart is how the workbench draws it (line, bars, stacked or figure, over its columns); null or absent: a table.
+	Chart *query.Chart `json:"chart"`
 }
 
 // PUT /api/v1/views/{name} (query:run): saves a view, new (201) or the caller's own changed (200). The SQL is checked
 // and run once with no rows, as the caller, to learn its columns; a problem is a 422 saying why and where, as for a
-// query. A name someone else has is a 409. A view other views read may not change its columns or, while a shared
+// query. A chart must draw columns the view has, numeric ones measured (422 otherwise). A name someone else has is a 409. A view other views read may not change its columns or, while a shared
 // view reads it, become private (409, naming those the caller can see).
 func (h *handlers) putSavedView(w http.ResponseWriter, r *http.Request) {
 	p, _ := auth.PrincipalFrom(r.Context())
@@ -123,6 +133,17 @@ func (h *handlers) putSavedView(w http.ResponseWriter, r *http.Request) {
 		writeDBError(w, err)
 		return
 	}
+	var chart []byte
+	if req.Chart != nil {
+		if err := req.Chart.Check(checked.Columns); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		if chart, err = json.Marshal(req.Chart); err != nil {
+			writeDBError(w, err)
+			return
+		}
+	}
 	uses := checked.Uses
 	if uses == nil {
 		uses = []string{}
@@ -138,7 +159,7 @@ func (h *handlers) putSavedView(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, pgx.ErrNoRows):
 			created = true
 			err = q.InsertSavedView(r.Context(), dbgen.InsertSavedViewParams{Name: name, Description: req.Description,
-				Sql: checked.SQL, Shared: req.Shared, Columns: columns, DependsOn: uses})
+				Sql: checked.SQL, Shared: req.Shared, Columns: columns, DependsOn: uses, Chart: chart})
 			var pe *pgconn.PgError
 			if errors.As(err, &pe) && pe.Code == "23505" {
 				return &apiError{http.StatusConflict, fmt.Sprintf("someone already has a view named %s: choose another name", name)}
@@ -156,7 +177,7 @@ func (h *handlers) putSavedView(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			if _, err := q.UpdateSavedView(r.Context(), dbgen.UpdateSavedViewParams{Name: name, Description: req.Description,
-				Sql: checked.SQL, Shared: req.Shared, Columns: columns, DependsOn: uses}); err != nil {
+				Sql: checked.SQL, Shared: req.Shared, Columns: columns, DependsOn: uses, Chart: chart}); err != nil {
 				return err
 			}
 		}
@@ -164,7 +185,7 @@ func (h *handlers) putSavedView(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		out = toSavedView(p, v.Name, v.Description, v.Sql, v.Shared, v.Columns, v.DependsOn, v.OwnerID, v.OwnerName,
+		out = toSavedView(p, v.Name, v.Description, v.Sql, v.Shared, v.Columns, v.DependsOn, v.Chart, v.OwnerID, v.OwnerName,
 			v.CreatedAt.Time, v.UpdatedAt.Time)
 		return nil
 	}) {

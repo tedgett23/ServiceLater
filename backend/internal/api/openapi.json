@@ -1708,6 +1708,27 @@
         ],
         "type": "object"
       },
+      "Chart": {
+        "properties": {
+          "type": {
+            "type": "string"
+          },
+          "x": {
+            "type": "string"
+          },
+          "y": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "type",
+          "y"
+        ],
+        "type": "object"
+      },
       "ChildRun": {
         "description": "A run a subflow or foreach step started.",
         "properties": {
@@ -4060,6 +4081,17 @@
       },
       "PutSavedViewRequest": {
         "properties": {
+          "chart": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Chart"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the workbench draws it (line, bars, stacked or figure, over its columns); null or absent: a table."
+          },
           "description": {
             "type": "string"
           },
@@ -4666,6 +4698,17 @@
       "SavedView": {
         "description": "A saved view.",
         "properties": {
+          "chart": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Chart"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How the workbench draws it; null shows a table."
+          },
           "columns": {
             "description": "What it gives, worked out when it was saved.",
             "items": {
@@ -4711,6 +4754,7 @@
           }
         },
         "required": [
+          "chart",
           "columns",
           "created_at",
           "description",
@@ -25913,7 +25957,7 @@
         ]
       },
       "put": {
-        "description": "(query:run): saves a view, new (201) or the caller's own changed (200). The SQL is checked and run once with no rows, as the caller, to learn its columns; a problem is a 422 saying why and where, as for a query. A name someone else has is a 409. A view other views read may not change its columns or, while a shared view reads it, become private (409, naming those the caller can see).\n\nRequires the `query:run` permission.",
+        "description": "(query:run): saves a view, new (201) or the caller's own changed (200). The SQL is checked and run once with no rows, as the caller, to learn its columns; a problem is a 422 saying why and where, as for a query. A chart must draw columns the view has, numeric ones measured (422 otherwise). A name someone else has is a 409. A view other views read may not change its columns or, while a shared view reads it, become private (409, naming those the caller can see).\n\nRequires the `query:run` permission.",
         "operationId": "putSavedView",
         "parameters": [
           {

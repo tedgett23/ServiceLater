@@ -27,6 +27,8 @@ export interface BuiltinView {
 	columns: { name: string; type: string; description: string }[];
 }
 
+import type { ChartSpec } from './charts/resultChart';
+
 export interface SavedView {
 	name: string;
 	description: string;
@@ -34,6 +36,8 @@ export interface SavedView {
 	shared: boolean;
 	columns: QueryColumn[];
 	uses: string[];
+	/** How the workbench draws it; null: a table. */
+	chart: ChartSpec | null;
 	mine: boolean;
 	owner_name: string;
 	created_at: string;
@@ -68,7 +72,7 @@ export const loadSchema = () => api<{ views: BuiltinView[]; saved_views: SavedVi
 
 export const loadRuns = () => api<{ items: QueryRun[] }>('/api/v1/query/runs').then((r) => r.items);
 
-export const saveView = (name: string, body: { sql: string; description: string; shared: boolean }) =>
+export const saveView = (name: string, body: { sql: string; description: string; shared: boolean; chart: ChartSpec | null }) =>
 	api<SavedView>(`/api/v1/views/${encodeURIComponent(name)}`, { method: 'PUT', body });
 
 export const removeView = (name: string) => api(`/api/v1/views/${encodeURIComponent(name)}`, { method: 'DELETE' });
