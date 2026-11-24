@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { approvals } from '$lib/approvals.svelte';
+	import { environmentLabel, instance } from '$lib/instance.svelte';
 	import { cmdb } from '$lib/cmdb.svelte';
 	import { age } from '$lib/format';
 	import { forms } from '$lib/forms.svelte';
@@ -79,6 +80,7 @@
 		// has the sections bar.
 		void approvals.ensureLoaded();
 		void notifications.ensureLoaded();
+		void instance.load();
 		// The theme is kept on the account; this device's copy may be stale (chosen elsewhere, or storage cleared).
 		api<Account>('/api/v1/account').then(
 			(a) => theme.apply(a.theme),
@@ -222,6 +224,12 @@
 	</aside>
 
 	<div class="main">
+		{#if instance.environment !== 'production'}
+			<!-- Every page of an instance that is not production says so, so nobody mistakes it for the real one. -->
+			<div class="env env-{instance.environment}" role="note">
+				<strong>{environmentLabel[instance.environment]}</strong>{instance.name ? ` · ${instance.name}` : ''}
+			</div>
+		{/if}
 		<!-- On a phone the sections get a bar of their own under the app bar. -->
 		<nav class="narrow" aria-label="Sections">
 			{@render links(false)}
@@ -234,6 +242,7 @@
 
 	<div class="sr-only" aria-live="polite">{ui.announce}</div>
 </div>
+
 
 <NewTicket />
 <GlobalSearch />
@@ -265,6 +274,21 @@
 	.content {
 		flex: 1;
 		min-height: 0;
+	}
+	.env {
+		flex: none;
+		padding: 0.3rem 1rem;
+		font-size: 0.8125rem;
+		border-bottom: 1px solid var(--rule);
+		background: var(--hover);
+		color: var(--ink);
+	}
+	.env-uat {
+		background: var(--marker-soft);
+		color: var(--marker-ink);
+	}
+	.env-development {
+		background: color-mix(in srgb, var(--blue) 14%, var(--surface));
 	}
 
 	.brand {

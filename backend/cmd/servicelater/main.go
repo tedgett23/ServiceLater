@@ -28,6 +28,7 @@ Usage:
   servicelater jobs ...        the background job queue
   servicelater secrets ...     make and rotate the key that encrypts stored secrets
   servicelater storage ...     check the attachments folder
+  servicelater snapshot ...    take, check and restore snapshots of this instance
 
 Configuration is environment variables (SL_DATABASE_URL, SL_JWT_SECRET, ...): see .env.example.
 `
@@ -49,7 +50,7 @@ func main() {
 		case "help", "--help", "-help", "-h":
 			fmt.Print(usage)
 			return
-		case "app", "jobs", "group", "secrets", "storage", "user":
+		case "app", "jobs", "group", "secrets", "snapshot", "storage", "user":
 		default:
 			fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", os.Args[1], usage)
 			os.Exit(2)
@@ -78,6 +79,13 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "secrets" {
 		if err := runSecrets(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "snapshot" {
+		if err := runSnapshot(context.Background(), os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

@@ -60,8 +60,8 @@ against any test deployment; it creates records, so not against production.
 Pull or build the new image and `up -d` again with the same volumes. On startup the server applies the new
 migrations (under an advisory lock, so replicas take turns) and upgrades the bundled apps; an operator's own changes
 in apps-local are kept. Upgrading a split deployment: start the new api and worker; old replicas keep serving until
-replaced. **Back up the database first** (`pg_dump`); migrations can be rolled back (`goose down`) but a backup is
-the plan.
+replaced. **Take a snapshot first** (Admin → Backups, or `servicelater snapshot create`); migrations can be rolled back
+(`goose down`) but a backup is the plan.
 
 ## Rate limits
 
@@ -77,7 +77,66 @@ read (the server warns if it is set).
 
 ## Backups
 
-The database (`pg_dump -Fc`), the attachments volume (unless they are in S3), apps-local, and the secrets key.
+Three layers, for different things (design: docs/backup-and-clone.md). Use the first for everyday snapshots and
+restores, and one of the other two for disaster recovery in production.
+
+**Whatever you use, keep the secrets key (`SL_SECRETS_KEY`) somewhere safe and apart from the backups.** Stored
+passwords and tokens, and ServiceLater snapshots, cannot be read without it. Keep `apps-local` too.
+
+### ServiceLater snapshots (built in)
+
+Admin → Backups (`instance:backup`, admins): take a snapshot now, on a schedule (cron and time zone), keep the
+newest few plus one a day and one a week, download one, upload one from another instance, restore one. A snapshot is
+every table from one consistent moment, compressed and encrypted under the secrets key, optionally with the
+attachment files kept in a folder. Taking one blocks nobody; restoring one replaces everything in one transaction
+(the instance shows a maintenance screen meanwhile, a restore that fails changes nothing, and everyone signs in
+again). A snapshot from an older version is migrated up after loading; one from a newer version is refused.
+
+- **Where they go**: the snapshots folder (`SL_SNAPSHOTS_DIR`, default `/data/snapshots`, the `snapshots` volume in
+  the Compose files) or the S3 bucket of Admin → Storage, under `<prefix>snapshots/`. On a cluster, the worker takes
+  and restores them and the api serves downloads, so a folder must be shared by both (the split Compose file mounts
+  the same volume on each), or use S3. Copy folder snapshots off the host as well.
+- **Command line**, for scripts and for an instance whose web UI cannot start: `servicelater snapshot create
+  [-o file] [-attachments]`, `servicelater snapshot verify <file>`, `servicelater snapshot restore -yes
+  [-change-schema] [-attachments] <file>`. It needs the same `SL_DATABASE_URL` and `SL_SECRETS_KEY` as the server.
+  Restoring from the command line while servers run makes their requests wait for the restore's locks; stop them
+  first if it will take long.
+- **Size and speed**, measured: 200,000 tickets and 400,000 comments (a 244 MB database) made a 16 MB snapshot in
+  half a second and restored in about 15 seconds.
+- **Not to the second**: a snapshot is the moment it was taken. For recovery to any point, add one of the layers
+  below.
+
+### The database host's backups (managed Postgres)
+
+On RDS, Cloud SQL or Azure Database for PostgreSQL, turn on automated backups with point-in-time recovery (PITR) and
+set the retention you need. Restoring makes a new database server: point `SL_DATABASE_URL` at it and restart. Nothing
+in ServiceLater needs to change; the attachments bucket (if S3) has its own versioning and lifecycle rules.
+
+### Continuous archiving with pgBackRest (self-hosted Postgres)
+
+For a self-hosted database, pgBackRest keeps full and incremental backups plus the write-ahead log, to a folder or
+S3, so you can restore to any second. In outline, for the Compose stack's `db` service:
+
+1. Use a Postgres image with pgBackRest installed (the official `postgres:17` image plus the `pgbackrest` package),
+   and a volume or bucket for its repository.
+2. In `postgresql.conf`: `archive_mode = on`, `archive_command = 'pgbackrest --stanza=servicelater archive-push %p'`,
+   `wal_level = replica`.
+3. `/etc/pgbackrest/pgbackrest.conf`:
+
+   ```ini
+   [global]
+   repo1-path=/var/lib/pgbackrest
+   repo1-retention-full=4
+   # or repo1-type=s3 with repo1-s3-bucket, repo1-s3-endpoint, repo1-s3-region and credentials
+   [servicelater]
+   pg1-path=/var/lib/postgresql/data
+   ```
+4. Once: `pgbackrest --stanza=servicelater stanza-create`. Then schedule `pgbackrest --stanza=servicelater
+   --type=full backup` weekly and `--type=incr` daily (cron on the host, or a sidecar).
+5. To restore: stop the servers and Postgres, then `pgbackrest --stanza=servicelater --delta restore` (add
+   `--type=time --target="2026-11-24 09:15:00+00"` for a moment), start Postgres, then the servers.
+
+pgBackRest's own documentation covers encryption, retention and S3 in full. Test a restore before you need one.
 
 ## Verified (2026-11-17, Podman 5.4 and podman-compose 1.3 on Debian 13)
 

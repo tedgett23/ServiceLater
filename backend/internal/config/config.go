@@ -42,6 +42,11 @@ type Config struct {
 	// worker server.
 	AttachmentsDir string
 
+	// SnapshotsDir is the folder snapshots are kept in when Admin → Backups says folder, and where every snapshot waits
+	// while it is written or uploaded (SL_SNAPSHOTS_DIR, default /data/snapshots). On a cluster the api servers (which
+	// serve downloads) and the workers (which take and restore them) must share it, or snapshots go to S3.
+	SnapshotsDir string
+
 	// WorkerConcurrency is how many background jobs the worker role runs at once (SL_WORKER_CONCURRENCY, default 4).
 	WorkerConcurrency int
 
@@ -83,6 +88,7 @@ func Load() (Config, error) {
 		BundledApps:       os.Getenv("SL_BUNDLED_APPS"),
 		AppsLocalDir:      os.Getenv("SL_APPS_LOCAL_DIR"),
 		AttachmentsDir:    getenv("SL_ATTACHMENTS_DIR", "/data/attachments"),
+		SnapshotsDir:      getenv("SL_SNAPSHOTS_DIR", "/data/snapshots"),
 		BootstrapEmail:    os.Getenv("SL_BOOTSTRAP_ADMIN_EMAIL"),
 		BootstrapName:     getenv("SL_BOOTSTRAP_ADMIN_NAME", "Administrator"),
 		BootstrapPassword: os.Getenv("SL_BOOTSTRAP_ADMIN_PASSWORD"),

@@ -39,4 +39,10 @@ SA=$(req -X POST $B/api/v1/service-accounts -d '{"name":"Release smoke","role":"
 KEY=$(req -X POST $B/api/v1/users/$SA/api-keys -d '{"name":"smoke"}' | grep -o '"key":"[^"]*"' | cut -d'"' -f4)
 check "an API key works" "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $KEY" $B/api/v1/tickets)" 200
 check "the API reference" "$(curl -s -o /dev/null -w '%{http_code}' $B/api/v1/openapi.json)" 200
+# A snapshot: the worker takes it into the snapshots volume (which must be writable by the server's user), and the
+# api serves it back. It needs SL_SECRETS_KEY, which the release check sets.
+SNAP=$(req -X POST $B/api/v1/backups | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+for _ in $(seq 1 30); do req $B/api/v1/backups | grep -q "\"id\":\"$SNAP\",\"kind\":\"manual\",\"status\":\"ready\"" && break; sleep 1; done
+check "take a snapshot" "$(req $B/api/v1/backups | grep -c "\"id\":\"$SNAP\",\"kind\":\"manual\",\"status\":\"ready\"")" 1
+check "download the snapshot" "$(req $B/api/v1/backups/$SNAP/file | head -c 7)" SLSNAP1
 exit $fail

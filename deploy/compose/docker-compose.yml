@@ -43,6 +43,8 @@ services:
       - attachments:/data/attachments
       - apps-local:/data/apps-local
       - certs:/data/certs
+      # Snapshots (Admin → Backups) when they are kept in a folder rather than S3. Copy them off this host too.
+      - snapshots:/data/snapshots
     depends_on:
       db: { condition: service_healthy }
 
@@ -51,3 +53,4 @@ volumes:
   attachments:
   apps-local:
   certs:
+  snapshots:

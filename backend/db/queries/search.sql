@@ -33,19 +33,19 @@ SELECT t.id, t.type, tt.label AS type_label, (tt.prefix || t.number::text)::text
        t.description, t.fields, r.catalog_item,
        (CASE WHEN t.title ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\' THEN 0
              WHEN sqlc.arg('q')::text <% t.title THEN 1
-             WHEN app_fields_text(t.fields) ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\'
-               OR sqlc.arg('q')::text <% app_fields_text(t.fields) THEN 2
+             WHEN searchfn.app_fields_text(t.fields) ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\'
+               OR sqlc.arg('q')::text <% searchfn.app_fields_text(t.fields) THEN 2
              ELSE 3 END)::int AS tier
 FROM tasks t
 JOIN task_types tt ON tt.type = t.type
 LEFT JOIN requests r ON r.task_id = t.id
 WHERE tt.retired_at IS NULL
   AND (t.title ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\' OR sqlc.arg('q')::text <% t.title
-       OR app_fields_text(t.fields) ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\'
-       OR sqlc.arg('q')::text <% app_fields_text(t.fields)
-       OR app_record_words(t.description, t.fields) @@ websearch_to_tsquery('english', sqlc.arg('q')::text))
+       OR searchfn.app_fields_text(t.fields) ILIKE '%' || sqlc.arg('contains')::text || '%' ESCAPE '\'
+       OR sqlc.arg('q')::text <% searchfn.app_fields_text(t.fields)
+       OR searchfn.app_record_words(t.description, t.fields) @@ websearch_to_tsquery('english', sqlc.arg('q')::text))
 ORDER BY tier, word_similarity(sqlc.arg('q')::text, t.title) DESC,
-         ts_rank(app_record_words(t.description, t.fields), websearch_to_tsquery('english', sqlc.arg('q')::text)) DESC,
+         ts_rank(searchfn.app_record_words(t.description, t.fields), websearch_to_tsquery('english', sqlc.arg('q')::text)) DESC,
          t.updated_at DESC, t.id
 LIMIT sqlc.arg('limit');
 

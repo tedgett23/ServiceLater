@@ -451,6 +451,28 @@
         ],
         "type": "object"
       },
+      "AppsState": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "renamed_from": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "category",
+          "id",
+          "label"
+        ],
+        "type": "object"
+      },
       "AppsStep": {
         "properties": {
           "approvers": {
@@ -1083,6 +1105,100 @@
             "type": "array"
           }
         },
+        "type": "object"
+      },
+      "Backup": {
+        "properties": {
+          "attachments": {
+            "type": "boolean"
+          },
+          "cron": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "keep_days": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "keep_last": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "keep_weeks": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attachments",
+          "cron",
+          "destination",
+          "enabled",
+          "keep_days",
+          "keep_last",
+          "keep_weeks",
+          "timezone"
+        ],
+        "type": "object"
+      },
+      "Backups": {
+        "description": "Admin → Backups.",
+        "properties": {
+          "folder": {
+            "description": "Where snapshots kept in a folder are, on the worker and api servers.",
+            "type": "string"
+          },
+          "key_configured": {
+            "description": "Says whether this server has a secrets key: without one no snapshot can be taken or read.",
+            "type": "boolean"
+          },
+          "key_id": {
+            "description": "The key snapshots are encrypted under now; a snapshot under another key needs that key to restore.",
+            "type": "string"
+          },
+          "restores": {
+            "items": {
+              "$ref": "#/components/schemas/Restore"
+            },
+            "type": "array"
+          },
+          "s3_configured": {
+            "description": "Says whether Admin → Storage has an S3 bucket, which the s3 destination needs.",
+            "type": "boolean"
+          },
+          "schema_version": {
+            "description": "This server's, to compare a snapshot's with.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/Backup"
+          },
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/Snapshot"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "folder",
+          "key_configured",
+          "key_id",
+          "restores",
+          "s3_configured",
+          "schema_version",
+          "settings",
+          "snapshots"
+        ],
         "type": "object"
       },
       "Calendar": {
@@ -3738,6 +3854,21 @@
         ],
         "type": "object"
       },
+      "Instance": {
+        "properties": {
+          "environment": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "environment",
+          "name"
+        ],
+        "type": "object"
+      },
       "Lifecycle": {
         "properties": {
           "app": {
@@ -3751,7 +3882,7 @@
           },
           "states": {
             "items": {
-              "$ref": "#/components/schemas/State"
+              "$ref": "#/components/schemas/AppsState"
             },
             "type": "array"
           },
@@ -3827,6 +3958,30 @@
           "sign_in_window_minutes",
           "sms_codes_per_hour",
           "webhook_per_minute"
+        ],
+        "type": "object"
+      },
+      "Maintenance": {
+        "properties": {
+          "by": {
+            "type": "string"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "by",
+          "operation",
+          "since",
+          "status"
         ],
         "type": "object"
       },
@@ -4443,6 +4598,72 @@
           "name",
           "reverse"
         ],
+        "type": "object"
+      },
+      "Restore": {
+        "description": "One restore, asked for or done.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "requested_by_name": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "snapshot_taken_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "Pending, running, done or failed (Error says why; a failed restore changed nothing).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "error",
+          "finished_at",
+          "id",
+          "requested_by_name",
+          "snapshot_id",
+          "snapshot_taken_at",
+          "status"
+        ],
+        "type": "object"
+      },
+      "RestoreRequest": {
+        "description": "Confirms a restore.",
+        "properties": {
+          "change_schema": {
+            "description": "Allows a snapshot from an older version: the database is migrated to it, loaded and migrated up.",
+            "type": "boolean"
+          },
+          "confirm": {
+            "description": "Must be the instance's name (or \"restore\" when it has none): a restore replaces everything.",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "Result": {
@@ -5789,6 +6010,95 @@
         ],
         "type": "object"
       },
+      "Snapshot": {
+        "description": "One snapshot.",
+        "properties": {
+          "attachment_files": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "include_attachments": {
+            "type": "boolean"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "kind": {
+            "description": "Scheduled, manual or uploaded.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The file's name.",
+            "type": "string"
+          },
+          "requested_by_name": {
+            "type": "string"
+          },
+          "rows": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "schema_version": {
+            "description": "The migration version it was taken at; restoring one older than this server's needs change_schema.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "size": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Pending, running, ready or failed (Error says why).",
+            "type": "string"
+          },
+          "taken_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "attachment_files",
+          "created_at",
+          "destination",
+          "error",
+          "id",
+          "include_attachments",
+          "instance",
+          "key_id",
+          "kind",
+          "name",
+          "requested_by_name",
+          "rows",
+          "schema_version",
+          "size",
+          "status",
+          "taken_at"
+        ],
+        "type": "object"
+      },
       "SsoButton": {
         "properties": {
           "id": {
@@ -5890,23 +6200,27 @@
       },
       "State": {
         "properties": {
-          "category": {
+          "environment": {
             "type": "string"
           },
-          "id": {
-            "type": "string"
+          "maintenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Maintenance"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
-          "label": {
-            "type": "string"
-          },
-          "renamed_from": {
+          "name": {
             "type": "string"
           }
         },
         "required": [
-          "category",
-          "id",
-          "label"
+          "environment",
+          "maintenance",
+          "name"
         ],
         "type": "object"
       },
@@ -9124,6 +9438,764 @@
         "summary": "Sso start",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/backups": {
+      "get": {
+        "description": "(instance:backup): the snapshot settings, the snapshots and the latest restores.\n\nRequires the `instance:backup` permission.",
+        "operationId": "getBackups",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Backups"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get backups",
+        "tags": [
+          "backups"
+        ],
+        "x-permissions": [
+          "instance:backup"
+        ]
+      },
+      "post": {
+        "description": "(instance:backup): take a snapshot now. It is queued for the worker; GET /backups shows it.\n\nRequires the `instance:backup` permission.",
+        "operationId": "takeSnapshot",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Take snapshot",
+        "tags": [
+          "backups"
+        ],
+        "x-permissions": [
+          "instance:backup"
+        ]
+      }
+    },
+    "/api/v1/backups/settings": {
+      "put": {
+        "description": "(instance:backup) with the snapshot settings: on a schedule or not (enabled, cron, timezone), where to (folder or s3), with the attachment files kept in a folder or not, and how many to keep (keep_last, plus one a day for keep_days days and one a week for keep_weeks weeks). Snapshots taken by hand or uploaded are kept until deleted.\n\nRequires the `instance:backup` permission.",
+        "operationId": "putBackupSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Backup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Backups"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Put backup settings",
+        "tags": [
+          "backups"
+        ],
+        "x-permissions": [
+          "instance:backup"
+        ]
+      }
+    },
+    "/api/v1/backups/upload": {
+      "post": {
+        "description": "(instance:backup) with a snapshot file as the body: keep a snapshot made elsewhere (another instance, or `servicelater snapshot create`), to restore it here. It must open with this server's secrets key and match its own totals.\n\nRequires the `instance:backup` permission.",
+        "operationId": "uploadSnapshot",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Snapshot"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Upload snapshot",
+        "tags": [
+          "backups"
+        ],
+        "x-permissions": [
+          "instance:backup"
+        ]
+      }
+    },
+    "/api/v1/backups/{id}": {
+      "delete": {
+        "description": "(instance:backup): delete a snapshot and its file.\n\nRequires the `instance:backup` permission.",
+        "operationId": "deleteSnapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Delete snapshot",
+        "tags": [
+          "backups"
+        ],
+        "x-permissions": [
+          "instance:backup"
+        ]
+      }
+    },
+    "/api/v1/backups/{id}/file": {
+      "get": {
+        "description": "(instance:backup): download a snapshot. It is encrypted under the secrets key it names.\n\nRequires the `instance:backup` permission.",
+        "operationId": "downloadSnapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "206": {
+            "description": "Partial Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Download snapshot",
+        "tags": [
+          "backups"
+        ],
+        "x-permissions": [
+          "instance:backup"
+        ]
+      }
+    },
+    "/api/v1/backups/{id}/restore": {
+      "post": {
+        "description": "(instance:backup) with {\"confirm\", \"change_schema\"}: replace everything in the instance with the snapshot. The worker does it; until it ends the instance is in maintenance (every request but GET /instance gets 503), and afterwards everyone signs in again. A restore that fails changes nothing.\n\nRequires the `instance:backup` permission.",
+        "operationId": "restoreSnapshot",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Restore"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Restore snapshot",
+        "tags": [
+          "backups"
+        ],
+        "x-permissions": [
+          "instance:backup"
         ]
       }
     },
@@ -15304,6 +16376,29 @@
         ]
       }
     },
+    "/api/v1/instance": {
+      "get": {
+        "description": "(no sign-in needed): whether the instance is in maintenance (a restore is waiting or running: every other request gets 503 until it ends), so any page, the sign-in page included, can say so. Someone signed in also learns what this instance is called and which environment it is (the web shows a banner on every page of one that is not production), and who started the restore.",
+        "operationId": "getInstance",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/State"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "security": [],
+        "summary": "Get instance",
+        "tags": [
+          "instance"
+        ]
+      }
+    },
     "/api/v1/kb/articles": {
       "get": {
         "description": "Knowledge articles the caller may read, best match first when q (words, \"a phrase\", -word) is given, latest changed otherwise. status is published unless the caller writes articles, who may ask for draft, review, retired or all. more says there are more after this page.",
@@ -20395,6 +21490,220 @@
           }
         ],
         "summary": "Test inbound",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      }
+    },
+    "/api/v1/settings/instance": {
+      "get": {
+        "description": "(settings:manage): the instance's name and environment.\n\nRequires the `settings:manage` permission.",
+        "operationId": "getInstanceSettings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Instance"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get instance settings",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      },
+      "put": {
+        "description": "(settings:manage) with {\"name\", \"environment\"}: name this instance and say which environment it is (production, uat, development or other).\n\nRequires the `settings:manage` permission.",
+        "operationId": "putInstanceSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Instance"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Instance"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Put instance settings",
         "tags": [
           "settings"
         ],
@@ -28430,6 +29739,9 @@
       "name": "auth"
     },
     {
+      "name": "backups"
+    },
+    {
       "name": "business-calendars"
     },
     {
@@ -28461,6 +29773,9 @@
     },
     {
       "name": "hooks"
+    },
+    {
+      "name": "instance"
     },
     {
       "name": "kb"
