@@ -30,8 +30,10 @@
 	};
 	type Load = {
 		id: string;
-		status: 'uploaded' | 'pending' | 'running' | 'done' | 'failed';
+		status: 'pulling' | 'uploaded' | 'pending' | 'running' | 'done' | 'failed';
 		error: string;
+		origin: 'upload' | 'pull';
+		scheduled_for: string | null;
 		source: Header;
 		size: number;
 		keep_studio: boolean;
@@ -52,6 +54,18 @@
 		problems: string[];
 	};
 	type Settings = { allow_into_production: boolean; hold_http: boolean; hold_schedules: boolean; hold_webhooks: boolean };
+	type Source = {
+		url: string;
+		enabled: boolean;
+		cron: string;
+		timezone: string;
+		keep_people: boolean;
+		keep_studio: boolean;
+		confirmed_by: string;
+		confirmed_by_name: string;
+		key_set: boolean;
+	};
+	type Tested = { instance: string; environment: string; binary: string; schema: number; profile: string; warnings: string[] };
 	type CloneIn = {
 		loads: Load[];
 		keep: { user_id: string; name: string; email: string }[];
@@ -61,6 +75,7 @@
 		instance: string;
 		key_configured: boolean;
 		schema_version: number;
+		source: Source;
 	};
 
 	let data = $state<CloneIn | null>(null);
@@ -77,14 +92,22 @@
 	let confirmText = $state('');
 	let deleting = $state<string | null>(null);
 
+	// The source, as being edited.
+	let src = $state<Source | null>(null);
+	let pullKey = $state('');
+	let srcConfirm = $state('');
+	let tested = $state<Tested | null>(null);
+	let testError = $state('');
+
 	async function load() {
 		try {
 			data = await api<CloneIn>('/api/v1/clone-in');
+			if (!src) src = { ...data.source };
 		} catch (e) {
 			error = e instanceof Error ? e.message : 'Could not load Clone in';
 		}
 		if (timer) clearTimeout(timer);
-		if (data?.loads.some((l) => l.status === 'pending' || l.status === 'running')) timer = setTimeout(load, 3000);
+		if (data?.loads.some((l) => l.status === 'pulling' || l.status === 'pending' || l.status === 'running')) timer = setTimeout(load, 3000);
 	}
 	onMount(load);
 	onDestroy(() => timer && clearTimeout(timer));
@@ -156,6 +179,45 @@
 		}
 	}
 
+	// Turning the schedule on, or moving it while it is on, needs the instance's name typed: every scheduled pull
+	// replaces this instance's records without asking again.
+	const needsConfirm = $derived(!!data && !!src && src.enabled && (!data.source.enabled || src.url.trim().replace(/\/+$/, '') !== data.source.url));
+
+	async function saveSource() {
+		if (!src) return;
+		const { key_set: _set, ...settings } = src;
+		const body = { ...settings, key: pullKey.trim(), confirm: srcConfirm };
+		const ok = await run(async () => {
+			src = { ...(await api<Source>('/api/v1/clone-in/source', { method: 'PUT', body })) };
+		}, 'Source saved');
+		if (ok) {
+			pullKey = '';
+			srcConfirm = '';
+		}
+	}
+
+	async function forgetKey() {
+		if (!src) return;
+		await run(async () => {
+			const { key_set: _set, ...settings } = src!;
+			src = { ...(await api<Source>('/api/v1/clone-in/source', { method: 'PUT', body: { ...settings, enabled: false, clear_key: true } })) };
+		}, 'Pull key forgotten');
+	}
+
+	async function testSource() {
+		if (!src) return;
+		busy = true;
+		tested = null;
+		testError = '';
+		try {
+			tested = await api<Tested>('/api/v1/clone-in/source/test', { method: 'POST', body: { url: src.url, key: pullKey.trim() } });
+		} catch (e) {
+			testError = e instanceof Error ? e.message : 'The source did not answer';
+		} finally {
+			busy = false;
+		}
+	}
+
 	async function saveSettings(next: Partial<Settings>, done: string) {
 		if (!data) return;
 		const body = { ...data.settings, ...next };
@@ -166,9 +228,10 @@
 	const held = $derived(!!data && (data.settings.hold_http || data.settings.hold_schedules || data.settings.hold_webhooks));
 	const size = (n: number) => (n < 1024 ** 2 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 ** 2).toFixed(1)} MB`);
 	const envLabel: Record<string, string> = { production: 'Production', uat: 'UAT', development: 'Development', other: 'Test' };
-	const statusLabel = { uploaded: 'Not applied', pending: 'Waiting for the worker', running: 'Loading', done: 'Loaded', failed: 'Failed' } as const;
+	const statusLabel = { pulling: 'Fetching from the source', uploaded: 'Not applied', pending: 'Waiting for the worker', running: 'Loading', done: 'Loaded', failed: 'Failed' } as const;
 	const outcomeLabel = { matched: 'production’s, with this instance’s password, roles, groups and keys', added: 'added as they are', not_kept: 'not kept' } as const;
-	const from = (h: Header) => [h.instance || 'an unnamed instance', h.environment ? envLabel[h.environment] ?? h.environment : ''].filter(Boolean).join(', ');
+	const from = (l: Load) => (l.status === 'pulling' && !l.source.profile ? 'the source' : fromHeader(l.source));
+	const fromHeader = (h: Header) => [h.instance || 'an unnamed instance', h.environment ? envLabel[h.environment] ?? h.environment : ''].filter(Boolean).join(', ');
 </script>
 
 {#snippet people(list: Kept[])}
@@ -269,6 +332,80 @@
 			</div>
 		</section>
 
+		{#if src}
+			<section aria-labelledby="source-h">
+				<h2 id="source-h">Source</h2>
+				<p class="hint">
+					Pull a fresh package from production instead of uploading one: make a pull key for a profile there (Admin → Clones → the
+					profile → Pull keys) and enter it here. This instance must reach production’s address.
+				</p>
+				<form class="source" onsubmit={(e) => (e.preventDefault(), saveSource())} aria-label="Source">
+					<div class="grid">
+						<div class="field">
+							<label for="src-url">Production’s address</label>
+							<input id="src-url" type="url" placeholder="https://servicelater.example.com" bind:value={src.url} autocomplete="off" />
+						</div>
+						<div class="field">
+							<label for="src-key">Pull key</label>
+							<input id="src-key" type="password" placeholder={src.key_set ? 'Set: type a new one to replace it' : 'slp_…'} bind:value={pullKey} autocomplete="off" />
+						</div>
+					</div>
+					<div class="row-actions">
+						<button class="btn" type="button" disabled={busy || !src.url || (!src.key_set && !pullKey)} onclick={testSource}>Test the connection</button>
+						{#if src.key_set}<button class="btn quiet-btn" type="button" disabled={busy} onclick={forgetKey}>Forget the key</button>{/if}
+					</div>
+					{#if testError}<p class="err" role="alert">{testError}</p>{/if}
+					{#if tested}
+						<div class="report" role="status" aria-label="The source">
+							<p>
+								Reached <strong>{tested.instance || 'an unnamed instance'}</strong>{tested.environment ? ` (${envLabel[tested.environment] ?? tested.environment})` : ''},
+								{tested.binary}. The key pulls the profile <span class="mono">{tested.profile}</span>.
+							</p>
+							{#if tested.warnings.length}<ul class="plain err">{#each tested.warnings as w, i (i)}<li>{w}</li>{/each}</ul>{/if}
+						</div>
+					{/if}
+					<label class="check"><input type="checkbox" bind:checked={src.enabled} /> Pull and apply a fresh package on a schedule</label>
+					{#if src.enabled}
+						<div class="grid">
+							<div class="field">
+								<label for="src-cron">When (minute hour day month weekday)</label>
+								<input id="src-cron" class="mono" bind:value={src.cron} autocomplete="off" />
+							</div>
+							<div class="field">
+								<label for="src-tz">Time zone</label>
+								<input id="src-tz" bind:value={src.timezone} autocomplete="off" />
+							</div>
+						</div>
+						<label class="check"><input type="checkbox" bind:checked={src.keep_people} /> Keep the people listed above</label>
+						<label class="check"><input type="checkbox" bind:checked={src.keep_studio} /> Keep this instance’s studio edits over production’s</label>
+						{#if data.source.enabled && data.source.confirmed_by_name && !needsConfirm}
+							<p class="hint">Each scheduled clone is applied as {data.source.confirmed_by_name}, who turned the schedule on and is always kept.</p>
+						{/if}
+						{#if needsConfirm && data.environment === 'production' && !data.settings.allow_into_production}
+							<p class="err">This instance is marked production, so it refuses clones and the schedule cannot be turned on (see above).</p>
+						{:else if needsConfirm}
+							<div class="danger">
+								<p>
+									<strong>Every scheduled pull replaces every record in {data.instance || 'this instance'}</strong>, without asking again.
+									Each is applied as you, so you are always kept.
+								</p>
+								<div class="field">
+									<label for="src-confirm">Type <strong>{confirmWord}</strong> to confirm</label>
+									<input id="src-confirm" bind:value={srcConfirm} autocomplete="off" />
+								</div>
+							</div>
+						{/if}
+					{/if}
+					<div class="row-actions">
+						<button class="btn primary" disabled={busy || (needsConfirm && srcConfirm.trim() !== confirmWord)}>Save</button>
+						<button class="btn" type="button" disabled={busy || !data.source.url || !data.source.key_set || !data.key_configured}
+							onclick={() => run(() => api('/api/v1/clone-in/pull', { method: 'POST' }), 'Fetching a package from the source')}>Pull now</button>
+					</div>
+					<p class="hint">Pull now fetches a package to preview and apply below; it changes nothing until you apply it.</p>
+				</form>
+			</section>
+		{/if}
+
 		<section aria-labelledby="packages-h">
 			<div class="head">
 				<h2 id="packages-h">Packages</h2>
@@ -287,14 +424,14 @@
 					{#each data.loads as l (l.id)}
 						<li class:failed={l.status === 'failed'}>
 							<div class="what">
-								<strong>From {from(l.source)}</strong>
-								<span class="tag mono">{l.source.profile}</span>
-								<span class="tag" class:busy={l.status === 'pending' || l.status === 'running'} class:bad={l.status === 'failed'}>{statusLabel[l.status]}</span>
+								<strong>From {from(l)}</strong>
+								{#if l.source.profile}<span class="tag mono">{l.source.profile}</span>{/if}
+								<span class="tag" class:busy={l.status === 'pulling' || l.status === 'pending' || l.status === 'running'} class:bad={l.status === 'failed'}>{statusLabel[l.status]}</span>
 							</div>
 							<div class="meta">
-								<span>taken {when(l.source.taken_at)}</span>
-								<span>{size(l.size)}</span>
-								<span>uploaded {when(l.created_at)} by {l.requested_by_name}</span>
+								{#if l.source.taken_at}<span>taken {when(l.source.taken_at)}</span>{/if}
+								{#if l.size}<span>{size(l.size)}</span>{/if}
+								<span>{l.origin === 'pull' ? (l.scheduled_for ? 'pulled on the schedule' : 'pulled') : 'uploaded'} {when(l.created_at)} by {l.requested_by_name}</span>
 							</div>
 							{#if l.error}<p class="err">{l.error}</p>{/if}
 							{#if l.report}
@@ -321,11 +458,13 @@
 									</div>
 								</details>
 							{/if}
-							{#if l.status !== 'pending' && l.status !== 'running'}
+							{#if l.status !== 'pending' && l.status !== 'running' && l.status !== 'pulling'}
 								<div class="row-actions">
-									<button class="btn" type="button" aria-label="Preview and apply the package from {from(l.source)}" onclick={() => start(l)}>
-										{l.status === 'uploaded' ? 'Preview and apply' : 'Apply again'}
-									</button>
+									{#if l.size}
+										<button class="btn" type="button" aria-label="Preview and apply the package from {from(l)}" onclick={() => start(l)}>
+											{l.status === 'uploaded' ? 'Preview and apply' : 'Apply again'}
+										</button>
+									{/if}
 									{#if deleting === l.id}
 										<button class="btn reject" type="button" disabled={busy} onclick={() => run(() => api(`/api/v1/clone-in/${l.id}`, { method: 'DELETE' }), 'Package deleted')}>Delete it</button>
 										<button class="btn" type="button" onclick={() => (deleting = null)}>Keep it</button>
@@ -336,16 +475,18 @@
 							{/if}
 							{#if open === l.id}
 								<form class="inset" onsubmit={(e) => (e.preventDefault(), runPreview(l))} aria-label="Apply this package">
-									<div class="grid">
-										<div class="field">
-											<label for="ci-pass">Passphrase</label>
-											<input id="ci-pass" type="password" bind:value={passphrase} autocomplete="off" />
+									{#if l.origin === 'upload'}
+										<div class="grid">
+											<div class="field">
+												<label for="ci-pass">Passphrase</label>
+												<input id="ci-pass" type="password" bind:value={passphrase} autocomplete="off" />
+											</div>
 										</div>
-									</div>
+									{/if}
 									<label class="check"><input type="checkbox" bind:checked={keepPeople} /> Keep the people listed above</label>
 									<label class="check"><input type="checkbox" bind:checked={keepStudio} /> Keep this instance’s studio edits (workflows, forms, catalog) over production’s</label>
 									<div class="row-actions">
-										<button class="btn" disabled={busy || !passphrase}>{busy && !preview ? 'Reading it…' : 'Preview'}</button>
+										<button class="btn" disabled={busy || (l.origin === 'upload' && !passphrase)}>{busy && !preview ? 'Reading it…' : 'Preview'}</button>
 										<button class="btn" type="button" onclick={() => (open = null)}>Cancel</button>
 									</div>
 									{#if preview}
@@ -482,6 +623,10 @@
 	}
 	.picker {
 		max-width: 24rem;
+	}
+	.source {
+		display: grid;
+		gap: 0.75rem;
 	}
 	.rows > li {
 		display: grid;

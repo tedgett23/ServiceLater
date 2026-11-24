@@ -2,7 +2,7 @@
 
 Design agreed with the user on 2026-11-24. Status: step 1 (snapshots, Admin → Backups, maintenance mode, the
 instance name, environment and banner), step 2 (clone profiles and packages on the source, Admin → Clones) and step 3
-(loading a package on the target, Admin → Clone in) built; step 4 (scheduled pull) designed.
+(loading a package on the target, Admin → Clone in) and step 4 (the scheduled pull, Admin → Clone in → Source) built.
 
 Three things are covered here: keeping a copy of an instance (backups and snapshots), copying production down to
 UAT or development (clones), and keeping identities straight when the two have drifted apart.
@@ -94,7 +94,7 @@ Filtering happens on the source, so data a profile leaves out never leaves produ
   leave it; the target still matches its own people by address because the package carries a salted SHA-256 of each
   masked person's lowercased address (`identities.json`, a fresh salt per package). Service accounts and apps'
   principals are never masked.
-- **Who may pull it**: the service accounts allowed to request this profile (see scheduled pull).
+- **Who may pull it**: the profile's pull keys (see scheduled pull).
 
 **Closure** is worked out, never left to the admin: a skipped record takes its comments, attachments, SLA clocks,
 history, links and approvals with it; a kept record's link to a skipped one (its problem, its parent request, a linked
@@ -112,14 +112,24 @@ All three ways are built from the start:
 2. **Shared S3 bucket**: the source writes the package to a bucket and prefix; the target reads it from there.
 3. **Scheduled pull** ("refresh UAT every Sunday at 02:00"): the target calls the source's API and streams the
    package down, on a schedule or on demand.
-   - Trust is an **API key**: on the source, a service account whose key is narrowed to `instance:export` and which
-     the profile allows. The target keeps the source URL, the key (a secret) and the profile name in settings
-     `clone.*` (Admin → Clone in → Source).
-   - `GET /api/v1/instance/clone-package?profile=uat` streams the package over TLS (no passphrase: it is encrypted
-     on the target's disk with an ephemeral key while it is applied).
-   - The source refuses a profile the key's account is not allowed, and audits every pull. The pull runs as the
-     worker role on the target (`clone.pull` job), then applies like an upload.
-   - The target must reach the source's API; firewall rules are the operator's.
+   - Trust is a **pull key** (`slp_…`): made on the source for one profile (Admin → Clones → the profile → Pull
+     keys), shown once, kept only as a hash, revocable at once. It answers only the two endpoints below and signs
+     nobody in. (Built this way rather than as an API key narrowed to `instance:export`: an API key can only be
+     narrowed to what its service account holds, so that would have meant an admin service account per target.)
+     The target keeps the source's address in settings `clone.pull.*` and the key as the secret `clone.pull.key`
+     (Admin → Clone in → Source).
+   - `GET /api/v1/instance/clone-source` says who the source is and which profile the key pulls (Test the
+     connection). `GET /api/v1/instance/clone-package` streams a package made while it is sent, encrypted with the
+     passphrase the target sends in the `Clone-Passphrase` header: the target derives it from its secrets key for
+     that one load, so it is never stored or typed, and the package is encrypted on the target's disk too.
+   - The source allows one pull of a profile at a time (429 otherwise) and records every pull (Admin → Clones →
+     Pulls). The target's worker fetches it (a `clone_loads` row in status `pulling`), verifies the whole package,
+     keeps it like an upload, and then it waits to be previewed and applied, or, for a scheduled pull, is applied at
+     once as whoever turned the schedule on (they typed the instance's name to do it, and are always kept). A
+     scheduled pull that cannot be applied (production guard, a newer version, another clone waiting) stays as a
+     package saying why.
+   - The address must be https (http only to this machine: the key travels with every request). The target must
+     reach the source's API; firewall rules are the operator's.
 
 ### Applying a clone (on the target)
 
@@ -235,14 +245,22 @@ bundled apps). Where it differs from the design above:
   point there. Files of the records it replaced are left in storage (not yet cleaned up).
 - **The production guard**: an instance marked production refuses (preview and apply) unless "Allow clones into this
   production instance" is ticked.
-- Not built: loading straight from a shared S3 bucket (upload the file instead), and the scheduled pull (step 4).
+- Not built: loading straight from a shared S3 bucket (upload the file, or pull it).
+
+### What is built (step 4)
+
+As designed under "Scheduled pull" above, with pull keys of a profile instead of `instance:export` API keys (said
+there). `00024_clone_pull` (`clone_pull_keys`, `clone_pulls`; `clone_loads` gains `origin`, `pull_key_id`,
+`scheduled_for`, `apply_when_pulled` and the status `pulling`), `internal/clone/pull.go` (keys, the client),
+`internal/backup/pull.go` (serving, fetching, the schedule in the backups loop), `internal/api/clone_pull.go` and the
+Source section of Admin → Clone in.
 
 ## 3. Permissions
 
 - `instance:backup`: snapshots, their schedule and restores. Admins.
 - `instance:clone`: profiles, packages, clone in, the clone source. Admins.
-- `instance:export`: may request a clone package for an allowed profile. Given only to a clone service account's
-  key; nobody holds it by role.
+- Pulling a package is not a permission: it takes a profile's pull key, made by an `instance:clone` holder on the
+  source. Setting the pull key on the target is setting a secret, so it needs `settings:manage` too.
 
 ## 4. Order of work
 
@@ -250,4 +268,4 @@ bundled apps). Where it differs from the design above:
    maintenance mode, the instance name, environment and banner. Docs for A and B.
 2. Clone profiles and packages on the source: filters, closure, masking, encryption; download and S3.
 3. Clone in on the target: preview, keep rules, identity matching and remapping, the safety switch, the report.
-4. Scheduled pull: `instance:export` keys, the export endpoint, the target's source settings and schedule.
+4. Scheduled pull: pull keys, the export endpoint, the target's source settings and schedule.

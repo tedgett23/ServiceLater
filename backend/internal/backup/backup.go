@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -55,6 +56,8 @@ type Service struct {
 	Registry *apps.Registry
 	// SyncApps brings the bundled apps to this binary's versions, as at startup, once a clone is loaded.
 	SyncApps func(context.Context)
+	// HTTP fetches pulled clone packages from the source (nil: a client with no timeout; the context ends it).
+	HTTP *http.Client
 }
 
 func (s *Service) now() time.Time {
@@ -133,6 +136,9 @@ func (s *Service) Tick(ctx context.Context) error {
 		if err := q.FailStaleCloneLoads(ctx); err != nil {
 			return err
 		}
+		if err := q.FailStaleServedPulls(ctx); err != nil {
+			return err
+		}
 		return q.FailUnclaimedRestores(ctx)
 	}); err != nil {
 		return err
@@ -140,11 +146,18 @@ func (s *Service) Tick(ctx context.Context) error {
 	if err := s.queueScheduled(ctx); err != nil {
 		return err
 	}
+	// A pull schedule that cannot be queued is logged, never in the way of restores and snapshots.
+	if err := s.queueScheduledPull(ctx); err != nil && ctx.Err() == nil {
+		slog.Error("the clone pull schedule", "err", err)
+	}
 	ran, err := s.runRestore(ctx)
 	if err != nil || ran {
 		return err
 	}
 	if ran, err = s.runLoad(ctx); err != nil || ran {
+		return err
+	}
+	if ran, err = s.runPull(ctx); err != nil || ran {
 		return err
 	}
 	if ran, err = s.runSnapshot(ctx); err != nil || ran {
