@@ -100,7 +100,7 @@ type putSavedViewRequest struct {
 	Description string `json:"description"`
 	// Shared makes it readable by everyone who may run queries (each still sees only their own rows).
 	Shared bool `json:"shared"`
-	// Chart is how the workbench draws it (line, bars, stacked or figure, over its columns); null or absent: a table.
+	// Chart is how the workbench draws the view's columns; null or absent: a table.
 	Chart *query.Chart `json:"chart"`
 }
 

@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { scaleLinear, scalePoint, scaleTime, scaleUtc } from 'd3-scale';
-	import { line } from 'd3-shape';
+	import { area, line } from 'd3-shape';
 	import { extent, max, min } from 'd3-array';
 	import type { QueryColumn } from '$lib/queries';
-	import { categories, COLORS, points as toPoints, short, whole, type ChartSpec } from './resultChart';
+	import { categories, COLORS, points as toPoints, radial, short, whole, type ChartSpec } from './resultChart';
+	import ShareChart from './ShareChart.svelte';
 
 	/**
 	 * A query's result drawn as the spec says: a line over its X, bars (grouped or stacked) by its X, or one figure.
@@ -12,7 +13,7 @@
 	 * more series a legend names them, and lines are also named at their ends. Hover, or focus and the arrow keys,
 	 * reads exact values. The Results tab is the same data as a table.
 	 */
-	let { columns, rows, spec, label }: { columns: QueryColumn[]; rows: unknown[][]; spec: ChartSpec; label: string } = $props();
+	let { columns, rows, spec, label, truncated }: { columns: QueryColumn[]; rows: unknown[][]; spec: ChartSpec; label: string; truncated: boolean } = $props();
 
 	const series = $derived(spec.y.map((key, i) => ({ key, color: COLORS[i] })));
 	let width = $state(0);
@@ -30,8 +31,8 @@
 	const height = 300;
 	const narrow = $derived(width < 520);
 	const pad = $derived({ left: 52, right: narrow ? 16 : 104, top: 12, bottom: 30 });
-	const line_ = $derived(spec.type === 'line' ? toPoints(columns, rows, spec) : null);
-	const pts = $derived(line_?.points ?? []);
+	const line_ = $derived(['line','area','scatter'].includes(spec.type) ? toPoints(columns, rows, spec) : null);
+	const pts = $derived(spec.type === 'scatter' ? line_?.points.filter(p => p.values[0] !== null) ?? [] : line_?.points ?? []);
 	const xs = $derived.by(() => {
 		const r: [number, number] = [pad.left, Math.max(pad.left + 1, width - pad.right)];
 		if (!line_ || line_.kind === 'text') {
@@ -64,6 +65,7 @@
 		let lo = min(vals) ?? 0;
 		let hi = max(vals) ?? 1;
 		if (lo >= 0 && lo < hi * 0.4) lo = 0;
+		if (spec.type === 'area') { lo = Math.min(0, lo); hi = Math.max(0, hi); }
 		if (lo === hi) [lo, hi] = [lo - 1, hi + 1];
 		return scaleLinear().domain([lo, hi]).range([height - pad.bottom, pad.top]).nice();
 	});
@@ -75,6 +77,8 @@
 				.y((i) => ys(pts[i].values[s] ?? 0))(pts.map((_, i) => i)) ?? ''
 		)
 	);
+	const fill = $derived(spec.type === 'area' ? area<number>().defined(i => pts[i].values[0] !== null)
+		.x(i => xs.at(i)).y0(ys(0)).y1(i => ys(pts[i].values[0] ?? 0))(pts.map((_, i) => i)) : null);
 	/** Each line named at its last point, nudged apart so two never overlap. */
 	const ends = $derived.by(() => {
 		if (narrow || series.length < 1) return [];
@@ -90,15 +94,17 @@
 		return out;
 	});
 	const positions = $derived(pts.map((_, i) => xs.at(i)));
-	function nearest(px: number): number | null {
+	function nearest(px: number, py: number): number | null {
 		if (!positions.length) return null;
 		let best = 0;
-		for (let i = 1; i < positions.length; i++) if (Math.abs(positions[i] - px) < Math.abs(positions[best] - px)) best = i;
+		const distance = (i: number) => (positions[i] - px) ** 2 + (spec.type === 'scatter' ? (ys(pts[i].values[0]!) - py) ** 2 : 0);
+		let min = distance(0);
+		for (let i = 1; i < positions.length; i++) { const d = distance(i); if (d < min) { best = i; min = d; } }
 		return best;
 	}
 	function onLineMove(e: PointerEvent) {
 		const box = (e.currentTarget as SVGElement).getBoundingClientRect();
-		active = nearest(e.clientX - box.left);
+		active = nearest(e.clientX - box.left, e.clientY - box.top);
 	}
 
 	// ---- the bars ----
@@ -159,9 +165,11 @@
 			<span class="value">{whole(figure.value)}</span>
 			{#if rows.length > 1}<span class="note">From the first of {rows.length.toLocaleString()} rows</span>{/if}
 		</figure>
-	{:else if spec.type === 'line'}
+	{:else if radial(spec.type)}
+		<ShareChart {columns} {rows} {spec} {label} {truncated} />
+	{:else if line_}
 		{#if !pts.length}
-			<p class="note">No rows have a value for {spec.x} to draw.</p>
+			<p class="note">{spec.type === 'scatter' ? 'No rows have a numeric value on both axes.' : `No rows have a value for ${spec.x} to draw.`}</p>
 		{:else}
 			<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 			<div
@@ -180,6 +188,10 @@
 					{#each line_?.kind === 'text' ? textTicks : xs.ticks as t, i (i)}
 						<text class="tick" x={t.at} y={height - 8} text-anchor="middle">{t.text}</text>
 					{/each}
+					{#if spec.type === 'scatter'}
+						{#each pts as p, i}<circle cx={xs.at(i)} cy={ys(p.values[0]!)} r="3.8" fill={COLORS[0]} fill-opacity="0.75" />{/each}
+					{:else}
+					{#if fill}<path d={fill} fill={COLORS[0]} fill-opacity="0.22" />{/if}
 					{#each paths as d, s (series[s].key)}
 						<path class="line" {d} stroke={series[s].color} />
 					{/each}
@@ -192,6 +204,7 @@
 						<circle class="dot" cx={e.x} cy={e.dot} r="4" fill={e.color} />
 						<text class="end" x={width - pad.right + 10} y={e.y} dy="0.32em">{e.key}</text>
 					{/each}
+					{/if}
 					{#if active !== null && pts[active]}
 						<line class="cross" x1={xs.at(active)} x2={xs.at(active)} y1={pad.top} y2={height - pad.bottom} />
 						{#each series as sr, s (sr.key)}

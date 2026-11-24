@@ -101,6 +101,49 @@ test('a quoted comment marker does not hide the next parameter', async ({ browse
 	await expect(page.getByRole('cell', { name: 'works', exact: true })).toBeVisible();
 });
 
+test('shares, areas and scatter use the chosen columns and a saved doughnut reopens', async ({ browser }, info) => {
+	const {page, context} = await as(browser, 'admin');
+	const view = `shares_${uid()}`;
+	try {
+		await page.goto('/queries');
+		await page.getByRole('textbox', {name: 'SQL query'}).click();
+		await page.keyboard.press('ControlOrMeta+a');
+		await page.keyboard.insertText("SELECT * FROM (VALUES ('Desk', 6, 3), ('Field', 2, 4)) AS v(team, tickets, hours)");
+		await page.keyboard.press('ControlOrMeta+Enter');
+		await page.getByRole('group', {name: 'Show'}).getByRole('button', {name: 'Chart'}).click();
+		const kinds = page.getByRole('group', {name: 'Chart type'});
+		await kinds.getByRole('button', {name: 'Area'}).click();
+		await expect(page.locator('svg path[fill-opacity]')).toHaveCount(1);
+		await kinds.getByRole('button', {name: 'Scatter'}).click();
+		const plot = page.getByRole('group', {name: /^hours by tickets/});
+		await plot.focus();
+		await page.keyboard.press('End');
+		await expect(plot.getByRole('status')).toContainText('3 hours');
+		await kinds.getByRole('button', {name: 'Pie', exact: true}).click();
+		await page.getByLabel('Slice by').selectOption('team');
+		await page.getByRole('combobox', {name: 'Measure'}).selectOption('tickets');
+		await expect(page.getByRole('figure', {name: 'tickets by team'})).toContainText('75%');
+		await kinds.getByRole('button', {name: 'Doughnut'}).click();
+		await page.getByRole('button', {name: 'Save as view'}).click();
+		await page.getByRole('dialog').getByLabel('Name').fill(view);
+		await page.getByRole('dialog').getByRole('button', {name: 'Save', exact: true}).click();
+		await expect(page).toHaveURL(new RegExp(`view=${view}$`));
+		await page.reload();
+		await page.getByRole('button', {name: /^Run/}).click();
+		const chart = page.getByRole('figure', {name: 'tickets by team'});
+		await expect(chart.getByRole('img', {name: /Doughnut/})).toBeVisible();
+		for (const [width, scheme] of [[1440,'light'],[1440,'dark'],[390,'light']] as const) {
+			await page.setViewportSize({width, height: 900});
+			await page.emulateMedia({colorScheme: scheme});
+			await chart.scrollIntoViewIfNeeded();
+			expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+			await page.screenshot({path: info.outputPath(`doughnut-${width}-${scheme}.png`)});
+		}
+	} finally {
+		await context.request.delete(`/api/v1/views/${view}`);
+	}
+});
+
 test('a result is drawn as the chart that fits it, and a view keeps its chart', async ({ browser }) => {
 	const { page, context } = await as(browser, 'admin');
 	const id = uid();
