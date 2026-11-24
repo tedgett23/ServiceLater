@@ -24,7 +24,7 @@ func (q *Queries) AddCloneKeepPerson(ctx context.Context, userID uuid.UUID) erro
 const claimCloneLoad = `-- name: ClaimCloneLoad :one
 UPDATE clone_loads SET status = 'running', started_at = now(), heartbeat_at = now()
 WHERE id = (SELECT id FROM clone_loads WHERE status = 'pending' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
-RETURNING id, status, error, destination, key, size, source, keep_studio, keep_people, passphrase_key_id, passphrase_nonce, passphrase, report, requested_by, requested_by_name, created_at, started_at, finished_at, heartbeat_at
+RETURNING id, status, error, destination, key, size, source, keep_studio, keep_people, passphrase_key_id, passphrase_nonce, passphrase, report, requested_by, requested_by_name, created_at, started_at, finished_at, heartbeat_at, origin, pull_key_id, scheduled_for, apply_when_pulled
 `
 
 func (q *Queries) ClaimCloneLoad(ctx context.Context) (CloneLoad, error) {
@@ -50,6 +50,10 @@ func (q *Queries) ClaimCloneLoad(ctx context.Context) (CloneLoad, error) {
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.HeartbeatAt,
+		&i.Origin,
+		&i.PullKeyID,
+		&i.ScheduledFor,
+		&i.ApplyWhenPulled,
 	)
 	return i, err
 }
@@ -85,6 +89,43 @@ func (q *Queries) ClaimClonePackage(ctx context.Context) (ClonePackage, error) {
 		&i.CreatedAt,
 		&i.FinishedAt,
 		&i.HeartbeatAt,
+	)
+	return i, err
+}
+
+const claimClonePull = `-- name: ClaimClonePull :one
+UPDATE clone_loads SET started_at = now(), heartbeat_at = now()
+WHERE id = (SELECT id FROM clone_loads WHERE status = 'pulling' AND started_at IS NULL ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
+RETURNING id, status, error, destination, key, size, source, keep_studio, keep_people, passphrase_key_id, passphrase_nonce, passphrase, report, requested_by, requested_by_name, created_at, started_at, finished_at, heartbeat_at, origin, pull_key_id, scheduled_for, apply_when_pulled
+`
+
+func (q *Queries) ClaimClonePull(ctx context.Context) (CloneLoad, error) {
+	row := q.db.QueryRow(ctx, claimClonePull)
+	var i CloneLoad
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.Error,
+		&i.Destination,
+		&i.Key,
+		&i.Size,
+		&i.Source,
+		&i.KeepStudio,
+		&i.KeepPeople,
+		&i.PassphraseKeyID,
+		&i.PassphraseNonce,
+		&i.Passphrase,
+		&i.Report,
+		&i.RequestedBy,
+		&i.RequestedByName,
+		&i.CreatedAt,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.HeartbeatAt,
+		&i.Origin,
+		&i.PullKeyID,
+		&i.ScheduledFor,
+		&i.ApplyWhenPulled,
 	)
 	return i, err
 }
@@ -135,15 +176,32 @@ func (q *Queries) FailClonePackage(ctx context.Context, arg FailClonePackagePara
 	return err
 }
 
-const failStaleCloneLoads = `-- name: FailStaleCloneLoads :exec
-UPDATE clone_loads SET status = 'failed', passphrase_key_id = '', passphrase_nonce = NULL, passphrase = NULL,
-    error = CASE WHEN status = 'running' THEN 'the worker loading it stopped' ELSE 'no worker took it within two minutes: is the worker running?' END,
-    finished_at = now(), heartbeat_at = NULL
-WHERE (status = 'running' AND heartbeat_at < now() - interval '1 minute')
-   OR (status = 'pending' AND created_at < now() - interval '2 minutes')
+const failClonePull = `-- name: FailClonePull :exec
+UPDATE clone_loads SET status = 'failed', error = $2, finished_at = now(), heartbeat_at = NULL WHERE id = $1
 `
 
-// A load whose worker stopped, or one no worker took within two minutes (the instance would stay in maintenance).
+type FailClonePullParams struct {
+	ID    uuid.UUID `json:"id"`
+	Error string    `json:"error"`
+}
+
+func (q *Queries) FailClonePull(ctx context.Context, arg FailClonePullParams) error {
+	_, err := q.db.Exec(ctx, failClonePull, arg.ID, arg.Error)
+	return err
+}
+
+const failStaleCloneLoads = `-- name: FailStaleCloneLoads :exec
+UPDATE clone_loads SET status = 'failed', passphrase_key_id = '', passphrase_nonce = NULL, passphrase = NULL,
+    error = CASE WHEN status = 'running' THEN 'the worker loading it stopped'
+                 WHEN status = 'pulling' AND started_at IS NOT NULL THEN 'the worker fetching it stopped'
+                 ELSE 'no worker took it within two minutes: is the worker running?' END,
+    finished_at = now(), heartbeat_at = NULL
+WHERE (status IN ('running', 'pulling') AND started_at IS NOT NULL AND heartbeat_at < now() - interval '1 minute')
+   OR (status IN ('pending', 'pulling') AND started_at IS NULL AND created_at < now() - interval '2 minutes')
+`
+
+// A load or pull whose worker stopped, or one no worker took within two minutes (a load would keep the instance in
+// maintenance).
 func (q *Queries) FailStaleCloneLoads(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, failStaleCloneLoads)
 	return err
@@ -158,6 +216,35 @@ WHERE status = 'running' AND heartbeat_at < now() - interval '1 minute'
 func (q *Queries) FailStaleClonePackages(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, failStaleClonePackages)
 	return err
+}
+
+const failStaleServedPulls = `-- name: FailStaleServedPulls :exec
+UPDATE clone_pulls SET status = 'failed', error = 'the server sending it stopped', finished_at = now()
+WHERE status = 'running' AND heartbeat_at < now() - interval '1 minute'
+`
+
+func (q *Queries) FailStaleServedPulls(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, failStaleServedPulls)
+	return err
+}
+
+const findClonePullKey = `-- name: FindClonePullKey :one
+UPDATE clone_pull_keys SET last_used_at = now() WHERE secret_hash = $1 AND revoked_at IS NULL
+RETURNING id, profile, name
+`
+
+type FindClonePullKeyRow struct {
+	ID      uuid.UUID `json:"id"`
+	Profile string    `json:"profile"`
+	Name    string    `json:"name"`
+}
+
+// As the system: the live key with this hash.
+func (q *Queries) FindClonePullKey(ctx context.Context, secretHash []byte) (FindClonePullKeyRow, error) {
+	row := q.db.QueryRow(ctx, findClonePullKey, secretHash)
+	var i FindClonePullKeyRow
+	err := row.Scan(&i.ID, &i.Profile, &i.Name)
+	return i, err
 }
 
 const finishCloneLoad = `-- name: FinishCloneLoad :exec
@@ -213,9 +300,63 @@ func (q *Queries) FinishClonePackage(ctx context.Context, arg FinishClonePackage
 	return err
 }
 
+const finishClonePull = `-- name: FinishClonePull :exec
+UPDATE clone_loads SET status = $6, error = $7, key = $2, size = $3, source = $4, pull_key_id = $5,
+    created_at = CASE WHEN $6 = 'pending' THEN now() ELSE created_at END, started_at = NULL, heartbeat_at = NULL
+WHERE id = $1 AND status = 'pulling'
+`
+
+type FinishClonePullParams struct {
+	ID        uuid.UUID `json:"id"`
+	Key       string    `json:"key"`
+	Size      int64     `json:"size"`
+	Source    []byte    `json:"source"`
+	PullKeyID string    `json:"pull_key_id"`
+	Status    string    `json:"status"`
+	Error     string    `json:"error"`
+}
+
+// Fetched: waiting to be previewed and applied, or (apply_when_pulled) applied now. started_at is cleared so a load
+// that follows has its own.
+func (q *Queries) FinishClonePull(ctx context.Context, arg FinishClonePullParams) error {
+	_, err := q.db.Exec(ctx, finishClonePull,
+		arg.ID,
+		arg.Key,
+		arg.Size,
+		arg.Source,
+		arg.PullKeyID,
+		arg.Status,
+		arg.Error,
+	)
+	return err
+}
+
+const finishServedPull = `-- name: FinishServedPull :exec
+UPDATE clone_pulls SET status = $2, error = $3, size = $4, rows = $5, finished_at = now() WHERE id = $1
+`
+
+type FinishServedPullParams struct {
+	ID     uuid.UUID `json:"id"`
+	Status string    `json:"status"`
+	Error  string    `json:"error"`
+	Size   int64     `json:"size"`
+	Rows   int64     `json:"rows"`
+}
+
+func (q *Queries) FinishServedPull(ctx context.Context, arg FinishServedPullParams) error {
+	_, err := q.db.Exec(ctx, finishServedPull,
+		arg.ID,
+		arg.Status,
+		arg.Error,
+		arg.Size,
+		arg.Rows,
+	)
+	return err
+}
+
 const getCloneLoad = `-- name: GetCloneLoad :one
 SELECT id, status, error, destination, key, size, source, keep_studio, keep_people, report, requested_by,
-    requested_by_name, created_at, started_at, finished_at, heartbeat_at
+    requested_by_name, created_at, started_at, finished_at, heartbeat_at, origin, pull_key_id, scheduled_for, apply_when_pulled
 FROM clone_loads WHERE id = $1
 `
 
@@ -236,6 +377,10 @@ type GetCloneLoadRow struct {
 	StartedAt       pgtype.Timestamptz `json:"started_at"`
 	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
 	HeartbeatAt     pgtype.Timestamptz `json:"heartbeat_at"`
+	Origin          string             `json:"origin"`
+	PullKeyID       string             `json:"pull_key_id"`
+	ScheduledFor    pgtype.Timestamptz `json:"scheduled_for"`
+	ApplyWhenPulled bool               `json:"apply_when_pulled"`
 }
 
 func (q *Queries) GetCloneLoad(ctx context.Context, id uuid.UUID) (GetCloneLoadRow, error) {
@@ -258,6 +403,10 @@ func (q *Queries) GetCloneLoad(ctx context.Context, id uuid.UUID) (GetCloneLoadR
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.HeartbeatAt,
+		&i.Origin,
+		&i.PullKeyID,
+		&i.ScheduledFor,
+		&i.ApplyWhenPulled,
 	)
 	return i, err
 }
@@ -348,11 +497,29 @@ func (q *Queries) HeartbeatClonePackage(ctx context.Context, id uuid.UUID) error
 	return err
 }
 
+const heartbeatClonePull = `-- name: HeartbeatClonePull :exec
+UPDATE clone_loads SET heartbeat_at = now() WHERE id = $1 AND status = 'pulling'
+`
+
+func (q *Queries) HeartbeatClonePull(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, heartbeatClonePull, id)
+	return err
+}
+
+const heartbeatServedPull = `-- name: HeartbeatServedPull :exec
+UPDATE clone_pulls SET heartbeat_at = now() WHERE id = $1 AND status = 'running'
+`
+
+func (q *Queries) HeartbeatServedPull(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, heartbeatServedPull, id)
+	return err
+}
+
 const insertCloneLoad = `-- name: InsertCloneLoad :one
 INSERT INTO clone_loads (destination, key, size, source, requested_by, requested_by_name)
 VALUES ($1, $2, $3, $4, $5, $6)
 RETURNING id, status, error, destination, key, size, source, keep_studio, keep_people, report, requested_by,
-    requested_by_name, created_at, started_at, finished_at, heartbeat_at
+    requested_by_name, created_at, started_at, finished_at, heartbeat_at, origin, pull_key_id, scheduled_for, apply_when_pulled
 `
 
 type InsertCloneLoadParams struct {
@@ -381,6 +548,10 @@ type InsertCloneLoadRow struct {
 	StartedAt       pgtype.Timestamptz `json:"started_at"`
 	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
 	HeartbeatAt     pgtype.Timestamptz `json:"heartbeat_at"`
+	Origin          string             `json:"origin"`
+	PullKeyID       string             `json:"pull_key_id"`
+	ScheduledFor    pgtype.Timestamptz `json:"scheduled_for"`
+	ApplyWhenPulled bool               `json:"apply_when_pulled"`
 }
 
 // A package uploaded to load here: kept until someone applies or deletes it.
@@ -411,6 +582,10 @@ func (q *Queries) InsertCloneLoad(ctx context.Context, arg InsertCloneLoadParams
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.HeartbeatAt,
+		&i.Origin,
+		&i.PullKeyID,
+		&i.ScheduledFor,
+		&i.ApplyWhenPulled,
 	)
 	return i, err
 }
@@ -510,6 +685,79 @@ func (q *Queries) InsertCloneProfile(ctx context.Context, arg InsertCloneProfile
 	return i, err
 }
 
+const insertClonePull = `-- name: InsertClonePull :one
+
+INSERT INTO clone_loads (status, origin, destination, source, keep_studio, keep_people, scheduled_for, apply_when_pulled,
+    requested_by, requested_by_name)
+VALUES ('pulling', 'pull', $1, '{}'::jsonb, $2, $3, $5, $4, $6, $7)
+ON CONFLICT DO NOTHING
+RETURNING id
+`
+
+type InsertClonePullParams struct {
+	Destination     string             `json:"destination"`
+	KeepStudio      bool               `json:"keep_studio"`
+	KeepPeople      bool               `json:"keep_people"`
+	ApplyWhenPulled bool               `json:"apply_when_pulled"`
+	ScheduledFor    pgtype.Timestamptz `json:"scheduled_for"`
+	RequestedBy     uuid.NullUUID      `json:"requested_by"`
+	RequestedByName string             `json:"requested_by_name"`
+}
+
+// ---- the scheduled pull (00024_clone_pull) ----
+// A pull from the source, waiting for the worker to fetch it (one at a time: a second is not added).
+func (q *Queries) InsertClonePull(ctx context.Context, arg InsertClonePullParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertClonePull,
+		arg.Destination,
+		arg.KeepStudio,
+		arg.KeepPeople,
+		arg.ApplyWhenPulled,
+		arg.ScheduledFor,
+		arg.RequestedBy,
+		arg.RequestedByName,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const insertClonePullKey = `-- name: InsertClonePullKey :one
+INSERT INTO clone_pull_keys (profile, name, prefix, secret_hash, created_by_name) VALUES ($1, $2, $3, $4, $5) RETURNING id
+`
+
+type InsertClonePullKeyParams struct {
+	Profile       string `json:"profile"`
+	Name          string `json:"name"`
+	Prefix        string `json:"prefix"`
+	SecretHash    []byte `json:"secret_hash"`
+	CreatedByName string `json:"created_by_name"`
+}
+
+func (q *Queries) InsertClonePullKey(ctx context.Context, arg InsertClonePullKeyParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertClonePullKey,
+		arg.Profile,
+		arg.Name,
+		arg.Prefix,
+		arg.SecretHash,
+		arg.CreatedByName,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lastScheduledPull = `-- name: LastScheduledPull :one
+SELECT coalesce(max(scheduled_for), '-infinity'::timestamptz)::timestamptz AS at FROM clone_loads WHERE origin = 'pull'
+`
+
+// The latest due time the schedule asked for a pull for (by the worker's clock, as the due time is worked out).
+func (q *Queries) LastScheduledPull(ctx context.Context) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, lastScheduledPull)
+	var at pgtype.Timestamptz
+	err := row.Scan(&at)
+	return at, err
+}
+
 const listCloneKeepPeople = `-- name: ListCloneKeepPeople :many
 SELECT k.user_id, u.name, u.email, k.added_at FROM clone_keep_people k JOIN users u ON u.id = k.user_id ORDER BY u.name
 `
@@ -548,7 +796,7 @@ func (q *Queries) ListCloneKeepPeople(ctx context.Context) ([]ListCloneKeepPeopl
 
 const listCloneLoads = `-- name: ListCloneLoads :many
 SELECT id, status, error, destination, key, size, source, keep_studio, keep_people, report, requested_by,
-    requested_by_name, created_at, started_at, finished_at, heartbeat_at
+    requested_by_name, created_at, started_at, finished_at, heartbeat_at, origin, pull_key_id, scheduled_for, apply_when_pulled
 FROM clone_loads ORDER BY created_at DESC LIMIT 100
 `
 
@@ -569,6 +817,10 @@ type ListCloneLoadsRow struct {
 	StartedAt       pgtype.Timestamptz `json:"started_at"`
 	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
 	HeartbeatAt     pgtype.Timestamptz `json:"heartbeat_at"`
+	Origin          string             `json:"origin"`
+	PullKeyID       string             `json:"pull_key_id"`
+	ScheduledFor    pgtype.Timestamptz `json:"scheduled_for"`
+	ApplyWhenPulled bool               `json:"apply_when_pulled"`
 }
 
 func (q *Queries) ListCloneLoads(ctx context.Context) ([]ListCloneLoadsRow, error) {
@@ -597,6 +849,10 @@ func (q *Queries) ListCloneLoads(ctx context.Context) ([]ListCloneLoadsRow, erro
 			&i.StartedAt,
 			&i.FinishedAt,
 			&i.HeartbeatAt,
+			&i.Origin,
+			&i.PullKeyID,
+			&i.ScheduledFor,
+			&i.ApplyWhenPulled,
 		); err != nil {
 			return nil, err
 		}
@@ -706,6 +962,88 @@ func (q *Queries) ListCloneProfiles(ctx context.Context) ([]CloneProfile, error)
 	return items, nil
 }
 
+const listClonePullKeys = `-- name: ListClonePullKeys :many
+SELECT id, profile, name, prefix, created_by_name, created_at, last_used_at, revoked_at FROM clone_pull_keys
+ORDER BY profile, created_at
+`
+
+type ListClonePullKeysRow struct {
+	ID            uuid.UUID          `json:"id"`
+	Profile       string             `json:"profile"`
+	Name          string             `json:"name"`
+	Prefix        string             `json:"prefix"`
+	CreatedByName string             `json:"created_by_name"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	LastUsedAt    pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt     pgtype.Timestamptz `json:"revoked_at"`
+}
+
+func (q *Queries) ListClonePullKeys(ctx context.Context) ([]ListClonePullKeysRow, error) {
+	rows, err := q.db.Query(ctx, listClonePullKeys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListClonePullKeysRow
+	for rows.Next() {
+		var i ListClonePullKeysRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Profile,
+			&i.Name,
+			&i.Prefix,
+			&i.CreatedByName,
+			&i.CreatedAt,
+			&i.LastUsedAt,
+			&i.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listServedPulls = `-- name: ListServedPulls :many
+SELECT id, profile, key_id, key_name, status, error, size, rows, remote_addr, started_at, finished_at, heartbeat_at FROM clone_pulls ORDER BY started_at DESC LIMIT 50
+`
+
+func (q *Queries) ListServedPulls(ctx context.Context) ([]ClonePull, error) {
+	rows, err := q.db.Query(ctx, listServedPulls)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ClonePull
+	for rows.Next() {
+		var i ClonePull
+		if err := rows.Scan(
+			&i.ID,
+			&i.Profile,
+			&i.KeyID,
+			&i.KeyName,
+			&i.Status,
+			&i.Error,
+			&i.Size,
+			&i.Rows,
+			&i.RemoteAddr,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.HeartbeatAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const removeCloneKeepPerson = `-- name: RemoveCloneKeepPerson :execrows
 DELETE FROM clone_keep_people WHERE user_id = $1
 `
@@ -748,6 +1086,46 @@ func (q *Queries) RequestCloneLoad(ctx context.Context, arg RequestCloneLoadPara
 		arg.Passphrase,
 		arg.RequestedBy,
 		arg.RequestedByName,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const revokeClonePullKey = `-- name: RevokeClonePullKey :execrows
+UPDATE clone_pull_keys SET revoked_at = now() WHERE id = $1 AND profile = $2 AND revoked_at IS NULL
+`
+
+type RevokeClonePullKeyParams struct {
+	ID      uuid.UUID `json:"id"`
+	Profile string    `json:"profile"`
+}
+
+func (q *Queries) RevokeClonePullKey(ctx context.Context, arg RevokeClonePullKeyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeClonePullKey, arg.ID, arg.Profile)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const startServedPull = `-- name: StartServedPull :one
+INSERT INTO clone_pulls (profile, key_id, key_name, remote_addr) VALUES ($1, $2, $3, $4) RETURNING id
+`
+
+type StartServedPullParams struct {
+	Profile    string        `json:"profile"`
+	KeyID      uuid.NullUUID `json:"key_id"`
+	KeyName    string        `json:"key_name"`
+	RemoteAddr string        `json:"remote_addr"`
+}
+
+func (q *Queries) StartServedPull(ctx context.Context, arg StartServedPullParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, startServedPull,
+		arg.Profile,
+		arg.KeyID,
+		arg.KeyName,
+		arg.RemoteAddr,
 	)
 	var id uuid.UUID
 	err := row.Scan(&id)

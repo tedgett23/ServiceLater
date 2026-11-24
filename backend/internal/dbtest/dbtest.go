@@ -38,7 +38,7 @@ func Pool(t *testing.T) *pgxpool.Pool {
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE tasks, sessions, rate_limits, user_credentials, users, apps, jobs, action_runs, workflow_executions, workflow_schedules, workflow_webhook_deliveries, rate_counts, snapshots, snapshot_restores, clone_profiles, clone_packages, clone_loads, groups, sso_providers CASCADE"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE tasks, sessions, rate_limits, user_credentials, users, apps, jobs, action_runs, workflow_executions, workflow_schedules, workflow_webhook_deliveries, rate_counts, snapshots, snapshot_restores, clone_profiles, clone_packages, clone_loads, clone_pulls, groups, sso_providers CASCADE"); err != nil {
 		t.Fatal(err)
 	}
 	// A sign-in setting left at "admins only" would refuse every later test's password.

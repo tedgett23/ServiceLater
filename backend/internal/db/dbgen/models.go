@@ -186,6 +186,10 @@ type CloneLoad struct {
 	StartedAt       pgtype.Timestamptz `json:"started_at"`
 	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
 	HeartbeatAt     pgtype.Timestamptz `json:"heartbeat_at"`
+	Origin          string             `json:"origin"`
+	PullKeyID       string             `json:"pull_key_id"`
+	ScheduledFor    pgtype.Timestamptz `json:"scheduled_for"`
+	ApplyWhenPulled bool               `json:"apply_when_pulled"`
 }
 
 type ClonePackage struct {
@@ -217,6 +221,33 @@ type CloneProfile struct {
 	Config      []byte             `json:"config"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ClonePull struct {
+	ID          uuid.UUID          `json:"id"`
+	Profile     string             `json:"profile"`
+	KeyID       uuid.NullUUID      `json:"key_id"`
+	KeyName     string             `json:"key_name"`
+	Status      string             `json:"status"`
+	Error       string             `json:"error"`
+	Size        int64              `json:"size"`
+	Rows        int64              `json:"rows"`
+	RemoteAddr  string             `json:"remote_addr"`
+	StartedAt   pgtype.Timestamptz `json:"started_at"`
+	FinishedAt  pgtype.Timestamptz `json:"finished_at"`
+	HeartbeatAt pgtype.Timestamptz `json:"heartbeat_at"`
+}
+
+type ClonePullKey struct {
+	ID            uuid.UUID          `json:"id"`
+	Profile       string             `json:"profile"`
+	Name          string             `json:"name"`
+	Prefix        string             `json:"prefix"`
+	SecretHash    []byte             `json:"secret_hash"`
+	CreatedByName string             `json:"created_by_name"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	LastUsedAt    pgtype.Timestamptz `json:"last_used_at"`
+	RevokedAt     pgtype.Timestamptz `json:"revoked_at"`
 }
 
 type EmailDelivery struct {

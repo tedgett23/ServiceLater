@@ -151,6 +151,9 @@ func NewRouter(d Deps) http.Handler {
 		r.Get("/attachments/{id}/file", h.serveAttachment)
 		// Webhooks that start workflows: the caller proves itself with the webhook's secret, not a session.
 		r.Post("/hooks/{app}/{workflow}", h.receiveWebhook)
+		// Another instance pulling a clone package: it proves itself with a profile's pull key, not a session.
+		r.Get("/instance/clone-source", h.getCloneSource)
+		r.Get("/instance/clone-package", h.getClonePackage)
 
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/login", h.login)
@@ -333,6 +336,8 @@ func NewRouter(d Deps) http.Handler {
 				r.Post("/profiles", h.createCloneProfile)
 				r.Put("/profiles/{name}", h.updateCloneProfile)
 				r.Delete("/profiles/{name}", h.deleteCloneProfile)
+				r.Post("/profiles/{name}/keys", h.makePullKey)
+				r.Delete("/profiles/{name}/keys/{id}", h.revokePullKey)
 				r.Post("/preview", h.previewClone)
 				r.Post("/packages", h.makeClonePackage)
 				r.Get("/packages/{id}/file", h.downloadClonePackage)
@@ -344,6 +349,9 @@ func NewRouter(d Deps) http.Handler {
 				r.Put("/settings", h.putCloneInSettings)
 				r.Put("/keep/{userId}", h.keepOnClone)
 				r.Delete("/keep/{userId}", h.unkeepOnClone)
+				r.Put("/source", h.putCloneSource)
+				r.Post("/source/test", h.testCloneSource)
+				r.Post("/pull", h.pullClone)
 				r.Post("/upload", h.uploadCloneLoad)
 				r.Post("/{id}/preview", h.previewCloneLoad)
 				r.Post("/{id}/apply", h.applyCloneLoad)

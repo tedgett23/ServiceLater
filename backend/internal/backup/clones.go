@@ -113,7 +113,7 @@ func (s *Service) makePackage(ctx context.Context, pkg dbgen.ClonePackage) error
 	if err != nil {
 		return err
 	}
-	_, in, err := s.Settings(ctx)
+	o, in, err := s.packageOptions(ctx, pkg.Profile, config, passphrase)
 	if err != nil {
 		return err
 	}
@@ -131,21 +131,6 @@ func (s *Service) makePackage(ctx context.Context, pkg dbgen.ClonePackage) error
 		return err
 	}
 	defer func() { _ = os.Remove(tmp) }()
-	o := s.cloneOptions(config)
-	o.ProfileName, o.Passphrase, o.Instance, o.Environment = pkg.Profile, passphrase, in.Name, in.Environment
-	if s.Files != nil {
-		o.Files = func(ctx context.Context, backend, key string) (io.ReadCloser, int64, error) {
-			store, err := s.Files.For(ctx, backend)
-			if err != nil {
-				return nil, 0, err
-			}
-			file, err := store.Open(ctx, key)
-			if err != nil {
-				return nil, 0, err
-			}
-			return file, file.Size(), nil
-		}
-	}
 	sum, err := clone.Export(ctx, s.Pool, f, o)
 	if cerr := f.Close(); err == nil {
 		err = cerr
@@ -170,6 +155,31 @@ func (s *Service) makePackage(ctx context.Context, pkg dbgen.ClonePackage) error
 			TakenAt: pgtype.Timestamptz{Time: sum.TakenAt, Valid: true}, SchemaVersion: pgtype.Int8{Int64: sum.Schema, Valid: true},
 			Rows: rows, Report: report})
 	})
+}
+
+// packageOptions are what making a package of a profile needs: the profile, the passphrase, this instance's name and
+// environment for the header, and its attachment files.
+func (s *Service) packageOptions(ctx context.Context, profile string, config clone.Profile, passphrase string) (clone.Options, settings.Instance, error) {
+	_, in, err := s.Settings(ctx)
+	if err != nil {
+		return clone.Options{}, in, err
+	}
+	o := s.cloneOptions(config)
+	o.ProfileName, o.Passphrase, o.Instance, o.Environment = profile, passphrase, in.Name, in.Environment
+	if s.Files != nil {
+		o.Files = func(ctx context.Context, backend, key string) (io.ReadCloser, int64, error) {
+			store, err := s.Files.For(ctx, backend)
+			if err != nil {
+				return nil, 0, err
+			}
+			file, err := store.Open(ctx, key)
+			if err != nil {
+				return nil, 0, err
+			}
+			return file, file.Size(), nil
+		}
+	}
+	return o, in, nil
 }
 
 // OpenPackage opens a ready package's file.

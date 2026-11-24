@@ -52,7 +52,7 @@ var skipped = []string{"sessions", "rate_limits", "rate_counts", "jobs", "goose_
 
 // Kept: the record of snapshots, restores and clone packages is neither in a snapshot nor emptied by a restore, so restoring an old
 // snapshot does not forget the ones taken since, or that it ran.
-var kept = []string{"snapshots", "snapshot_restores", "clone_packages", "clone_loads"}
+var kept = []string{"snapshots", "snapshot_restores", "clone_packages", "clone_loads", "clone_pulls"}
 
 // Header is what a snapshot says about itself before anything is decrypted: enough to refuse it early and to pick
 // the key.

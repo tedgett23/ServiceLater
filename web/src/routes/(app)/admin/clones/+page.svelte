@@ -46,7 +46,31 @@
 		requested_by_name: string;
 		created_at: string;
 	};
+	type PullKey = {
+		id: string;
+		profile: string;
+		name: string;
+		prefix: string;
+		created_by_name: string;
+		created_at: string;
+		last_used_at: string | null;
+		revoked_at: string | null;
+	};
+	type Pull = {
+		id: string;
+		profile: string;
+		key_name: string;
+		status: 'running' | 'done' | 'failed';
+		error: string;
+		size: number;
+		rows: number;
+		remote_addr: string;
+		started_at: string;
+		finished_at: string | null;
+	};
 	type Clones = {
+		pull_keys: PullKey[];
+		pulls: Pull[];
 		profiles: ProfileRow[];
 		packages: Package[];
 		default: Profile;
@@ -72,6 +96,19 @@
 	let again = $state('');
 	let destination = $state<'folder' | 's3'>('folder');
 	let deleting = $state<string | null>(null);
+	// A pull key being made, and the one just made (shown this once).
+	let keyName = $state('');
+	let madeKey = $state<{ profile: string; key: string } | null>(null);
+	let revoking = $state<string | null>(null);
+
+	async function makeKey(profile: string) {
+		const name = keyName.trim();
+		await run(async () => {
+			const k = await api<{ key: string }>(`/api/v1/clones/profiles/${profile}/keys`, { method: 'POST', body: { name } });
+			madeKey = { profile, key: k.key };
+			keyName = '';
+		}, 'Pull key made');
+	}
 
 	async function load() {
 		try {
@@ -256,6 +293,8 @@
 			{/if}
 			<ul class="rows">
 				{#each data.profiles as p (p.name)}
+					{@const keys = data.pull_keys.filter((k) => k.profile === p.name)}
+					{@const live = keys.filter((k) => !k.revoked_at).length}
 					<li>
 						<div class="what">
 							<strong class="mono">{p.name}</strong>
@@ -272,6 +311,53 @@
 								<button class="btn quiet-btn" type="button" aria-label="Remove {p.name}" onclick={() => (deleting = p.name)}>Remove</button>
 							{/if}
 						</div>
+						<details class="keys">
+							<summary>Pull keys{live ? ` (${live})` : ''}</summary>
+							<div class="keys-body" role="region" aria-label="Pull keys for {p.name}">
+								<p class="hint">
+									A UAT or development instance holding a key fetches a fresh package of this profile from this instance whenever it
+									asks or on its schedule (its Admin → Clone in → Source). A key does nothing else and signs nobody in.
+								</p>
+								{#if keys.length}
+									<ul class="plain">
+										{#each keys as k (k.id)}
+											<li class:revoked={!!k.revoked_at}>
+												<strong>{k.name}</strong> <span class="mono hint">{k.prefix}…</span>
+												<span class="hint">
+													{k.revoked_at ? `revoked ${when(k.revoked_at)}` : k.last_used_at ? `last used ${when(k.last_used_at)}` : 'never used'}
+												</span>
+												{#if !k.revoked_at}
+													{#if revoking === k.id}
+														<button class="btn reject" type="button" disabled={busy}
+															onclick={() => run(() => api(`/api/v1/clones/profiles/${p.name}/keys/${k.id}`, { method: 'DELETE' }), `Key ${k.name} revoked`)}>Revoke it</button>
+														<button class="btn" type="button" onclick={() => (revoking = null)}>Keep it</button>
+													{:else}
+														<button class="btn quiet-btn" type="button" aria-label="Revoke the key {k.name}" onclick={() => (revoking = k.id)}>Revoke</button>
+													{/if}
+												{/if}
+											</li>
+										{/each}
+									</ul>
+								{/if}
+								{#if madeKey?.profile === p.name}
+									<div class="made" role="status">
+										<p>Copy the key now: it is not shown again. Enter it on the other instance, with this instance’s address.</p>
+										<code class="mono">{madeKey.key}</code>
+										<div class="row-actions">
+											<button class="btn" type="button" onclick={() => navigator.clipboard?.writeText(madeKey?.key ?? '').then(() => (ui.announce = 'Copied'))}>Copy</button>
+											<button class="btn quiet-btn" type="button" onclick={() => (madeKey = null)}>Done</button>
+										</div>
+									</div>
+								{/if}
+								<form class="key-form" onsubmit={(e) => (e.preventDefault(), makeKey(p.name))}>
+									<div class="field">
+										<label for="key-{p.name}">Which instance will hold it</label>
+										<input id="key-{p.name}" bind:value={keyName} placeholder="UAT" autocomplete="off" />
+									</div>
+									<button class="btn" disabled={busy || !keyName.trim()}>Make a pull key</button>
+								</form>
+							</div>
+						</details>
 						{#if packing === p.name}
 							<form class="inset" onsubmit={makePackage} aria-label="Make a package of {p.name}">
 								<p>
@@ -499,10 +585,84 @@
 				<small class="hint">Packages stay until you delete them. Folder: <span class="path">{data.folder}</span></small>
 			{/if}
 		</section>
+
+		<section aria-labelledby="pulls-h">
+			<h2 id="pulls-h">Pulls</h2>
+			<p class="hint">Packages other instances fetched from this one with a pull key, made while they were sent.</p>
+			{#if data.pulls.length === 0}
+				<p class="hint">None yet.</p>
+			{:else}
+				<ul class="rows">
+					{#each data.pulls as pl (pl.id)}
+						<li class:failed={pl.status === 'failed'}>
+							<div class="what">
+								<strong>{when(pl.started_at)}</strong>
+								<span class="tag mono">{pl.profile}</span>
+								{#if pl.status === 'running'}<span class="tag busy">Being sent</span>{/if}
+								{#if pl.status === 'failed'}<span class="tag bad">Failed</span>{/if}
+							</div>
+							<div class="meta">
+								<span>key {pl.key_name}</span>
+								<span>from {pl.remote_addr}</span>
+								{#if pl.status === 'done'}<span>{size(pl.size)}</span><span>{pl.rows.toLocaleString()} rows</span>{/if}
+							</div>
+							{#if pl.error}<p class="err">{pl.error}</p>{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
 	{/if}
 </div>
 
 <style>
+	.keys summary {
+		cursor: pointer;
+		color: var(--ink-2);
+		font-size: 0.9rem;
+	}
+	.keys-body {
+		display: grid;
+		gap: 0.6rem;
+		padding: 0.6rem 0 0.25rem;
+	}
+	.keys ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+	}
+	.keys li {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.25rem 0.6rem;
+	}
+	.keys li.revoked {
+		opacity: 0.6;
+	}
+	.made {
+		display: grid;
+		gap: 0.5rem;
+		padding: 0.6rem 0.75rem;
+		border-left: 3px solid var(--marker);
+		background: var(--marker-soft);
+		color: var(--marker-ink);
+	}
+	.made p {
+		margin: 0;
+	}
+	.made code {
+		word-break: break-all;
+	}
+	.key-form {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: end;
+		gap: 0.75rem;
+	}
+	.key-form .field {
+		min-width: 14rem;
+	}
 	.page {
 		height: 100%;
 		overflow-y: auto;

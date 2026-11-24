@@ -93,13 +93,17 @@ type clonesDTO struct {
 	S3Configured bool `json:"s3_configured"`
 	// Folder is where packages kept in a folder are.
 	Folder string `json:"folder"`
+	// PullKeys are the profiles' pull keys, revoked ones too; Pulls the latest pulls other instances made.
+	PullKeys []pullKeyDTO    `json:"pull_keys"`
+	Pulls    []servedPullDTO `json:"pulls"`
 }
 
-// GET /clones (instance:clone): the clone profiles and the packages made from them.
+// GET /clones (instance:clone): the clone profiles, the packages made from them, the profiles' pull keys and the
+// latest pulls.
 func (h *handlers) getClones(w http.ResponseWriter, r *http.Request) {
 	out := clonesDTO{Profiles: []cloneProfileDTO{}, Packages: []clonePackageDTO{}, Default: clone.DefaultProfile,
 		RecordTypes: []cloneTypeDTO{}, MaskedFields: clone.MaskedFields(h.apps), KeyConfigured: h.keys.Configured(),
-		Folder: h.backups.Dir}
+		Folder: h.backups.Dir, PullKeys: []pullKeyDTO{}, Pulls: []servedPullDTO{}}
 	if out.MaskedFields == nil {
 		out.MaskedFields = []string{}
 	}
@@ -122,6 +126,20 @@ func (h *handlers) getClones(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, p := range pkgs {
 			out.Packages = append(out.Packages, toClonePackage(dbgen.GetClonePackageRow(p)))
+		}
+		keys, err := q.ListClonePullKeys(r.Context())
+		if err != nil {
+			return err
+		}
+		for _, k := range keys {
+			out.PullKeys = append(out.PullKeys, toPullKey(k))
+		}
+		pulls, err := q.ListServedPulls(r.Context())
+		if err != nil {
+			return err
+		}
+		for _, p := range pulls {
+			out.Pulls = append(out.Pulls, toServedPull(p))
 		}
 		types, err := q.ListTaskTypes(r.Context())
 		for _, t := range types {

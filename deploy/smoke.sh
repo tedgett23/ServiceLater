@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Smoke test against a running deployment: deploy/smoke.sh <base-url> <admin-email> <admin-password>
+# (SOURCE: the deployment's address as its own worker reaches it, for the clone pull; the base URL by default.)
 # Each check prints ok or FAIL; the exit status is 1 if any failed. It files records, a problem, an attachment and a
 # service account with a key, so run it against a test deployment, not production (make release-check does).
 set -u
@@ -50,13 +51,22 @@ req -X POST $B/api/v1/clones/profiles -d '{"name":"smoke","config":{"records":"o
 PKG=$(req -X POST $B/api/v1/clones/packages -d '{"profile":"smoke","passphrase":"smoke test passphrase","destination":"folder"}' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 for _ in $(seq 1 30); do [ "$(req $B/api/v1/clones/packages/$PKG/file | head -c 8)" = SLCLONE1 ] && break; sleep 1; done
 check "make a clone package" "$(req $B/api/v1/clones/packages/$PKG/file | head -c 8)" SLCLONE1
-# Load it back into this (throwaway) instance, last, since it replaces everything: marked UAT, uploaded, applied by
-# the worker in maintenance, then sign in again (a clone signs everyone out) and the open incident is still there.
+# Load it back into this (throwaway) instance, last, since it replaces everything: marked UAT, the package uploaded,
+# then a fresh one pulled from this same instance as its own source (a pull key, the source's address as the worker
+# sees it: the all-in-one container serves 8080 inside too), applied by the worker in maintenance, then sign in again
+# (a clone signs everyone out) and the open incident is still there.
 P=$(mktemp); trap 'rm -f $J $P' EXIT
 req $B/api/v1/clones/packages/$PKG/file -o $P
 req -X PUT $B/api/v1/settings/instance -d '{"name":"Smoke","environment":"uat"}' >/dev/null
-LOAD=$(curl -sS -b $J -c $J -H 'Content-Type: application/octet-stream' -H "Origin: $B" --data-binary @$P $B/api/v1/clone-in/upload | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
-check "apply a clone" "$(req -o /dev/null -w '%{http_code}' -X POST $B/api/v1/clone-in/$LOAD/apply -d '{"passphrase":"smoke test passphrase","keep_people":true,"keep_studio":true,"confirm":"Smoke"}')" 202
+UP=$(curl -sS -b $J -c $J -H 'Content-Type: application/octet-stream' -H "Origin: $B" --data-binary @$P $B/api/v1/clone-in/upload | grep -o '"status":"[a-z]*"' | head -1)
+check "upload a clone package" "$UP" '"status":"uploaded"'
+PK=$(req -X POST $B/api/v1/clones/profiles/smoke/keys -d '{"name":"Smoke"}' | grep -o '"key":"[^"]*"' | cut -d'"' -f4)
+req -X PUT $B/api/v1/clone-in/source -d "{\"url\":\"${SOURCE:-$B}\",\"key\":\"$PK\",\"cron\":\"0 2 * * 0\",\"timezone\":\"UTC\",\"keep_people\":true,\"keep_studio\":true}" >/dev/null
+check "the clone source answers" "$(req -X POST $B/api/v1/clone-in/source/test -d '{}' | grep -o '"profile":"smoke"')" '"profile":"smoke"'
+LOAD=$(req -X POST $B/api/v1/clone-in/pull | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+for _ in $(seq 1 60); do req $B/api/v1/clone-in | grep -q "\"id\":\"$LOAD\",\"status\":\"uploaded\"" && break; sleep 1; done
+check "pull a clone package" "$(req $B/api/v1/clone-in | grep -c "\"id\":\"$LOAD\",\"status\":\"uploaded\"")" 1
+check "apply the pulled clone" "$(req -o /dev/null -w '%{http_code}' -X POST $B/api/v1/clone-in/$LOAD/apply -d '{"keep_people":true,"keep_studio":true,"confirm":"Smoke"}')" 202
 for _ in $(seq 1 60); do curl -s $B/api/v1/instance | grep -q '"maintenance":null' && break; sleep 1; done
 req -o /dev/null -X POST $B/api/v1/auth/login -d "{\"email\":\"$2\",\"password\":\"$3\"}"
 check "the clone loaded" "$(req $B/api/v1/clone-in | grep -o '"status":"done"' | head -1)" '"status":"done"'

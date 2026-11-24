@@ -29,11 +29,12 @@ type policy struct {
 }
 
 // Never copied (docs/backup-and-clone.md §2, "What the target keeps"): sign-in state, settings and secrets, queued
-// work and counters, the record of snapshots and clones, API keys (production's would be live credentials on the
+// work and counters, the record of snapshots and clones, API keys and pull keys (production's would be live credentials on the
 // target), single sign-on, the query key, workflow schedules (they start counting from the clone) and webhook calls.
 var never = []string{
 	"sessions", "rate_limits", "rate_counts", "jobs", "goose_db_version",
 	"snapshots", "snapshot_restores", "clone_profiles", "clone_packages", "clone_loads", "clone_keep_people",
+	"clone_pull_keys", "clone_pulls",
 	"settings", "secrets", "sso_providers", "sso_group_maps", "user_identities", "query_keys", "api_keys",
 	"workflow_schedules", "workflow_webhook_deliveries",
 }

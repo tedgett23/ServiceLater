@@ -113,7 +113,9 @@ again). A snapshot from an older version is migrated up after loading; one from 
   upload, preview with the passphrase, apply. It replaces that instance's records (it is unavailable meanwhile and
   everyone signs in again), keeps its settings, secrets, single sign-on and the people on its keep list, and turns
   off outbound email, SMS, Teams, incoming mail, workflow calls, schedules and webhooks until you turn each back on.
-  An instance marked production refuses clones unless you allow it there.
+  An instance marked production refuses clones unless you allow it there. Instead of uploading, a UAT instance can
+  pull a fresh package from production (Admin → Clone in → Source, with a pull key made under the profile on
+  production), by hand or on a schedule; it must reach production's address over https.
 
 ### The database host's backups (managed Postgres)
 
