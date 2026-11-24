@@ -50,4 +50,15 @@ req -X POST $B/api/v1/clones/profiles -d '{"name":"smoke","config":{"records":"o
 PKG=$(req -X POST $B/api/v1/clones/packages -d '{"profile":"smoke","passphrase":"smoke test passphrase","destination":"folder"}' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
 for _ in $(seq 1 30); do [ "$(req $B/api/v1/clones/packages/$PKG/file | head -c 8)" = SLCLONE1 ] && break; sleep 1; done
 check "make a clone package" "$(req $B/api/v1/clones/packages/$PKG/file | head -c 8)" SLCLONE1
+# Load it back into this (throwaway) instance, last, since it replaces everything: marked UAT, uploaded, applied by
+# the worker in maintenance, then sign in again (a clone signs everyone out) and the open incident is still there.
+P=$(mktemp); trap 'rm -f $J $P' EXIT
+req $B/api/v1/clones/packages/$PKG/file -o $P
+req -X PUT $B/api/v1/settings/instance -d '{"name":"Smoke","environment":"uat"}' >/dev/null
+LOAD=$(curl -sS -b $J -c $J -H 'Content-Type: application/octet-stream' -H "Origin: $B" --data-binary @$P $B/api/v1/clone-in/upload | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+check "apply a clone" "$(req -o /dev/null -w '%{http_code}' -X POST $B/api/v1/clone-in/$LOAD/apply -d '{"passphrase":"smoke test passphrase","keep_people":true,"keep_studio":true,"confirm":"Smoke"}')" 202
+for _ in $(seq 1 60); do curl -s $B/api/v1/instance | grep -q '"maintenance":null' && break; sleep 1; done
+req -o /dev/null -X POST $B/api/v1/auth/login -d "{\"email\":\"$2\",\"password\":\"$3\"}"
+check "the clone loaded" "$(req $B/api/v1/clone-in | grep -o '"status":"done"' | head -1)" '"status":"done"'
+check "its records are there" "$(req $B/api/v1/tickets/$ID | grep -c "\"reference\":\"$REF\"")" 1
 exit $fail

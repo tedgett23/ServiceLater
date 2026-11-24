@@ -472,7 +472,7 @@ func choosePeople(ctx context.Context, tx pgx.Tx, p Profile) error {
 
 func identities(ctx context.Context, tx pgx.Tx, salt string) ([]Identity, error) {
 	rows, err := tx.Query(ctx, `SELECT t.id, lower(t.email) FROM users t JOIN clone_users k ON k.id = t.id
-		WHERE t.email IS NOT NULL AND t.email <> '' AND `+person+` ORDER BY t.id`)
+		WHERE t.email IS NOT NULL AND t.email <> '' AND `+isPerson+` ORDER BY t.id`)
 	if err != nil {
 		return nil, err
 	}

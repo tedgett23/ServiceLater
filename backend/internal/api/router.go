@@ -338,6 +338,17 @@ func NewRouter(d Deps) http.Handler {
 				r.Get("/packages/{id}/file", h.downloadClonePackage)
 				r.Delete("/packages/{id}", h.deleteClonePackage)
 			})
+			r.Route("/clone-in", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.InstanceClone))
+				r.Get("/", h.getCloneIn)
+				r.Put("/settings", h.putCloneInSettings)
+				r.Put("/keep/{userId}", h.keepOnClone)
+				r.Delete("/keep/{userId}", h.unkeepOnClone)
+				r.Post("/upload", h.uploadCloneLoad)
+				r.Post("/{id}/preview", h.previewCloneLoad)
+				r.Post("/{id}/apply", h.applyCloneLoad)
+				r.Delete("/{id}", h.deleteCloneLoad)
+			})
 			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/limits", h.getLimits)
 			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/limits", h.putLimits)
 			r.Route("/settings/storage", func(r chi.Router) {

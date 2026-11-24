@@ -157,7 +157,8 @@ func Run(ctx context.Context, cfg config.Config) error {
 			worker.Register(notify.TeamsKind, (&notify.Poster{Pool: workerPool, Apps: workerApps, Keys: keys, Teams: notify.TeamsPoster{}}).Handler())
 			workerFiles := &storage.Manager{Pool: workerPool, Keys: keys, LocalDir: cfg.AttachmentsDir}
 			backups := &backup.Service{Pool: workerPool, Keys: keys, Files: workerFiles, Dir: cfg.SnapshotsDir,
-				AttachmentsDir: cfg.AttachmentsDir, Binary: "servicelater " + apps.PlatformVersion, Registry: workerApps}
+				AttachmentsDir: cfg.AttachmentsDir, Binary: "servicelater " + apps.PlatformVersion, Registry: workerApps,
+				SyncApps: func(ctx context.Context) { apps.LogSync(apps.SyncBundled(ctx, workerPool, bundled, cfg.AppsLocalDir)) }}
 			worker.Register(storage.PurgeKind, workerFiles.PurgeHandler())
 			worker.Register(storage.ExpireKind, workerFiles.ExpireHandler())
 			// Incoming mail: replies become comments, new mail (when allowed) incidents.

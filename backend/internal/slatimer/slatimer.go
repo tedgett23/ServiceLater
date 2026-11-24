@@ -72,7 +72,7 @@ func tickBatch(ctx context.Context, pool *pgxpool.Pool, now time.Time) (int, err
 		cals := slaclock.NewCalendars(q)
 		for _, row := range rows {
 			c := slaclock.FromRow(row)
-			if err := advance(ctx, q, cals, &c, now); err != nil {
+			if err := advance(ctx, q, cals, &c, now, true); err != nil {
 				return err
 			}
 			if err := slaclock.Save(ctx, q, c); err != nil {
@@ -86,7 +86,7 @@ func tickBatch(ctx context.Context, pool *pgxpool.Pool, now time.Time) (int, err
 
 // advance brings one running clock up to now: the alerts it owes are queued, and it is scheduled again with its
 // calendar as it is now (a calendar edit asks for this by setting next_alert_at to now).
-func advance(ctx context.Context, q *dbgen.Queries, cals *slaclock.Calendars, c *slaclock.Clock, now time.Time) error {
+func advance(ctx context.Context, q *dbgen.Queries, cals *slaclock.Calendars, c *slaclock.Clock, now time.Time, alert bool) error {
 	def, err := apps.SLAFromSnapshot(c.Definition, c.Checksum, c.App)
 	if err != nil {
 		// Nothing can be worked out; stop looking until a save changes it.
@@ -102,14 +102,47 @@ func advance(ctx context.Context, q *dbgen.Queries, cals *slaclock.Calendars, c 
 		warnings[i] = w.At
 	}
 	fire, breach := c.Owed(now, cal, warnings)
-	if err := slaclock.Queue(ctx, q, c.ID, fire, breach); err != nil {
-		return err
+	if alert {
+		if err := slaclock.Queue(ctx, q, c.ID, fire, breach); err != nil {
+			return err
+		}
 	}
 	c.Problem = problem
 	if err := c.Schedule(cal, warnings); err != nil {
 		c.Problem, c.NextAlertAt = fmt.Sprintf("the due time cannot be worked out: %v", err), time.Time{}
 	}
 	return nil
+}
+
+// Settle brings every due clock up to now without alerting: the warnings and breaches it owes are recorded as passed
+// but nothing is sent. A clone uses it, so a target does not send a wave of alerts for time that passed on the source.
+// It works in the caller's transaction and returns how many clocks it settled.
+func Settle(ctx context.Context, q *dbgen.Queries, now time.Time) (int, error) {
+	cals := slaclock.NewCalendars(q)
+	total := 0
+	for range 10_000 { // a clock that stays due is left (its NextAlertAt is cleared on a problem), so this ends
+		rows, err := q.ClaimDueSLAs(ctx, batch)
+		if err != nil {
+			return total, err
+		}
+		for _, row := range rows {
+			c := slaclock.FromRow(row)
+			if err := advance(ctx, q, cals, &c, now, false); err != nil {
+				return total, err
+			}
+			if !c.NextAlertAt.IsZero() && !c.NextAlertAt.After(now) {
+				c.NextAlertAt = now.Add(time.Minute) // never claimed again in this loop
+			}
+			if err := slaclock.Save(ctx, q, c); err != nil {
+				return total, err
+			}
+		}
+		total += len(rows)
+		if len(rows) < batch {
+			break
+		}
+	}
+	return total, nil
 }
 
 // Handler carries out a queued alert: the SLA's warning or breach actions, as its app's principal acting for nobody,

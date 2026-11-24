@@ -240,6 +240,32 @@
         ],
         "type": "object"
       },
+      "ApiKeptPerson": {
+        "description": "Someone this instance keeps when a clone replaces its people.",
+        "properties": {
+          "added_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "added_at",
+          "email",
+          "name",
+          "user_id"
+        ],
+        "type": "object"
+      },
       "ApiKey": {
         "description": "An API key as it is listed: never the key itself.",
         "properties": {
@@ -341,6 +367,21 @@
         "required": [
           "label",
           "value"
+        ],
+        "type": "object"
+      },
+      "AppAt": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version"
         ],
         "type": "object"
       },
@@ -2281,6 +2322,177 @@
         ],
         "type": "object"
       },
+      "Clone": {
+        "properties": {
+          "allow_into_production": {
+            "type": "boolean"
+          },
+          "hold_http": {
+            "type": "boolean"
+          },
+          "hold_schedules": {
+            "type": "boolean"
+          },
+          "hold_webhooks": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "allow_into_production",
+          "hold_http",
+          "hold_schedules",
+          "hold_webhooks"
+        ],
+        "type": "object"
+      },
+      "CloneIn": {
+        "description": "Admin → Clone in.",
+        "properties": {
+          "environment": {
+            "description": "This instance's; a production one refuses clones unless allow_into_production.",
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "keep": {
+            "description": "The people a clone keeps (with whoever applies it).",
+            "items": {
+              "$ref": "#/components/schemas/ApiKeptPerson"
+            },
+            "type": "array"
+          },
+          "key_configured": {
+            "type": "boolean"
+          },
+          "loads": {
+            "items": {
+              "$ref": "#/components/schemas/CloneLoad"
+            },
+            "type": "array"
+          },
+          "schema_version": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/Clone"
+          },
+          "switched": {
+            "description": "The settings the last clone's safety switch turns off, as they are now.",
+            "items": {
+              "$ref": "#/components/schemas/Switch"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "environment",
+          "instance",
+          "keep",
+          "key_configured",
+          "loads",
+          "schema_version",
+          "settings",
+          "switched"
+        ],
+        "type": "object"
+      },
+      "CloneLoad": {
+        "description": "One package uploaded here, and what became of it.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "keep_people": {
+            "type": "boolean"
+          },
+          "keep_studio": {
+            "type": "boolean"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LoadReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the load brought and kept, once done."
+          },
+          "requested_by_name": {
+            "type": "string"
+          },
+          "size": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "source": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Header"
+              }
+            ],
+            "description": "The package's header: the instance, environment and profile it came from, when, at which schema."
+          },
+          "status": {
+            "description": "Uploaded (waiting to be applied), pending, running, done or failed (Error says why; a load that failed changed nothing).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "error",
+          "finished_at",
+          "id",
+          "keep_people",
+          "keep_studio",
+          "report",
+          "requested_by_name",
+          "size",
+          "source",
+          "status"
+        ],
+        "type": "object"
+      },
+      "CloneLoadRequest": {
+        "description": "Previews or applies an uploaded package.",
+        "properties": {
+          "confirm": {
+            "description": "This instance's name (or \"clone\" when it has none), for applying.",
+            "type": "string"
+          },
+          "keep_people": {
+            "description": "Keeps the people on the keep list (whoever applies it is kept either way).",
+            "type": "boolean"
+          },
+          "keep_studio": {
+            "description": "Keeps this instance's workflow, form and catalog edits over production's.",
+            "type": "boolean"
+          },
+          "passphrase": {
+            "description": "The one the package was made with.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "ClonePackage": {
         "description": "One clone package.",
         "properties": {
@@ -3631,6 +3843,38 @@
         ],
         "type": "object"
       },
+      "Header": {
+        "properties": {
+          "environment": {
+            "type": "string"
+          },
+          "format": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "schema": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "taken_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "format",
+          "profile",
+          "schema",
+          "taken_at"
+        ],
+        "type": "object"
+      },
       "HeldRole": {
         "description": "A role someone or a group holds, and through what.",
         "properties": {
@@ -4130,6 +4374,28 @@
         ],
         "type": "object"
       },
+      "KeptPerson": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "outcome"
+        ],
+        "type": "object"
+      },
       "Lifecycle": {
         "properties": {
           "app": {
@@ -4219,6 +4485,220 @@
           "sign_in_window_minutes",
           "sms_codes_per_hour",
           "webhook_per_minute"
+        ],
+        "type": "object"
+      },
+      "LoadPreview": {
+        "properties": {
+          "apps": {
+            "items": {
+              "$ref": "#/components/schemas/AppAt"
+            },
+            "type": "array"
+          },
+          "binary": {
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/components/schemas/Profile"
+          },
+          "dropped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "format": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "identity_salt": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "people": {
+            "items": {
+              "$ref": "#/components/schemas/KeptPerson"
+            },
+            "type": "array"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "profile": {
+            "type": "string"
+          },
+          "report": {
+            "$ref": "#/components/schemas/Report"
+          },
+          "rows": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "schema": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "schema_here": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sequences": {
+            "items": {
+              "$ref": "#/components/schemas/Sequence"
+            },
+            "type": "array"
+          },
+          "set_aside": {
+            "items": {
+              "$ref": "#/components/schemas/SetAside"
+            },
+            "type": "array"
+          },
+          "studio_kept": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/Table"
+            },
+            "type": "array"
+          },
+          "taken_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "apps",
+          "binary",
+          "config",
+          "dropped",
+          "format",
+          "people",
+          "problems",
+          "profile",
+          "report",
+          "rows",
+          "schema",
+          "schema_here",
+          "sequences",
+          "set_aside",
+          "studio_kept",
+          "tables",
+          "taken_at"
+        ],
+        "type": "object"
+      },
+      "LoadReport": {
+        "properties": {
+          "api_keys": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "approvals_closed": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "clocks_settled": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "dropped": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "files": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "identities": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "identities_dropped": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "missing_files": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "package": {
+            "$ref": "#/components/schemas/Report"
+          },
+          "people": {
+            "items": {
+              "$ref": "#/components/schemas/KeptPerson"
+            },
+            "type": "array"
+          },
+          "rows": {
+            "additionalProperties": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": "object"
+          },
+          "runs_cancelled": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "set_aside": {
+            "items": {
+              "$ref": "#/components/schemas/SetAside"
+            },
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/Header"
+          },
+          "studio_kept": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "switched_off": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "api_keys",
+          "approvals_closed",
+          "clocks_settled",
+          "dropped",
+          "files",
+          "identities",
+          "identities_dropped",
+          "missing_files",
+          "package",
+          "people",
+          "rows",
+          "runs_cancelled",
+          "set_aside",
+          "source",
+          "studio_kept",
+          "switched_off"
         ],
         "type": "object"
       },
@@ -5826,6 +6306,48 @@
         ],
         "type": "object"
       },
+      "Sequence": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "type": "object"
+      },
+      "SetAside": {
+        "properties": {
+          "app": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "app",
+          "content",
+          "path",
+          "reason"
+        ],
+        "type": "object"
+      },
       "SettingChange": {
         "description": "One change to a setting.",
         "properties": {
@@ -6933,6 +7455,45 @@
           "type",
           "updated_at",
           "why"
+        ],
+        "type": "object"
+      },
+      "Switch": {
+        "description": "One thing the safety switch turns off after a clone, and whether it is on now.",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "on": {
+            "type": "boolean"
+          },
+          "page": {
+            "description": "Where it is turned back on (the holds are turned on here).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "on",
+          "page"
+        ],
+        "type": "object"
+      },
+      "Table": {
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "columns",
+          "name"
         ],
         "type": "object"
       },
@@ -13357,6 +13918,889 @@
         ],
         "x-permissions": [
           "cmdb:manage"
+        ]
+      }
+    },
+    "/api/v1/clone-in": {
+      "get": {
+        "description": "(instance:clone): the packages uploaded here, the people a clone keeps, and the safety switch.\n\nRequires the `instance:clone` permission.",
+        "operationId": "getCloneIn",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloneIn"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get clone in",
+        "tags": [
+          "clone-in"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clone-in/keep/{userId}": {
+      "delete": {
+        "description": "(instance:clone): stop keeping this person on a clone.\n\nRequires the `instance:clone` permission.",
+        "operationId": "unkeepOnClone",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Unkeep on clone",
+        "tags": [
+          "clone-in"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      },
+      "put": {
+        "description": "(instance:clone): keep this person when a clone replaces this instance's people.\n\nRequires the `instance:clone` permission.",
+        "operationId": "keepOnClone",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Keep on clone",
+        "tags": [
+          "clone-in"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clone-in/settings": {
+      "put": {
+        "description": "(instance:clone) with {\"allow_into_production\", \"hold_http\", \"hold_schedules\", \"hold_webhooks\"}: lift (or set again) the safety switch's holds, and say whether this instance may be cloned into while it is marked production.\n\nRequires the `instance:clone` permission.",
+        "operationId": "putCloneInSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Clone"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Clone"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Put clone in settings",
+        "tags": [
+          "clone-in"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clone-in/upload": {
+      "post": {
+        "description": "(instance:clone) with a clone package as the body: keep it here to preview and apply. Only its header is read now; nothing changes until it is applied.\n\nRequires the `instance:clone` permission.",
+        "operationId": "uploadCloneLoad",
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloneLoad"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Upload clone load",
+        "tags": [
+          "clone-in"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clone-in/{id}": {
+      "delete": {
+        "description": "(instance:clone): delete an uploaded package and its file (the record of a load goes with it).\n\nRequires the `instance:clone` permission.",
+        "operationId": "deleteCloneLoad",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Delete clone load",
+        "tags": [
+          "clone-in"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clone-in/{id}/apply": {
+      "post": {
+        "description": "(instance:clone) with {\"passphrase\", \"keep_people\", \"keep_studio\", \"confirm\"}: replace this instance's records with the package's. The worker does it; until it ends the instance is in maintenance, and afterwards everyone signs in again. A load that fails changes nothing. An instance marked production refuses unless allow_into_production is set.\n\nRequires the `instance:clone` permission.",
+        "operationId": "applyCloneLoad",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloneLoadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Apply clone load",
+        "tags": [
+          "clone-in"
+        ],
+        "x-permissions": [
+          "instance:clone"
+        ]
+      }
+    },
+    "/api/v1/clone-in/{id}/preview": {
+      "post": {
+        "description": "(instance:clone) with {\"passphrase\", \"keep_people\", \"keep_studio\"}: what applying the package would do now (what it brings, which of this instance's people it keeps and how, what cannot follow them, which studio edits are kept or set aside, and any problem that stops it), without changing anything.\n\nRequires the `instance:clone` permission.",
+        "operationId": "previewCloneLoad",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloneLoadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/LoadPreview"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Preview clone load",
+        "tags": [
+          "clone-in"
+        ],
+        "x-permissions": [
+          "instance:clone"
         ]
       }
     },
@@ -31053,6 +32497,9 @@
     },
     {
       "name": "cis"
+    },
+    {
+      "name": "clone-in"
     },
     {
       "name": "clones"

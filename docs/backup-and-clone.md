@@ -1,8 +1,8 @@
 # Backups, snapshots and clones
 
 Design agreed with the user on 2026-11-24. Status: step 1 (snapshots, Admin → Backups, maintenance mode, the
-instance name, environment and banner) and step 2 (clone profiles and packages on the source, Admin → Clones) built;
-steps 3-4 (clone in on the target, scheduled pull) designed.
+instance name, environment and banner), step 2 (clone profiles and packages on the source, Admin → Clones) and step 3
+(loading a package on the target, Admin → Clone in) built; step 4 (scheduled pull) designed.
 
 Three things are covered here: keeping a copy of an instance (backups and snapshots), copying production down to
 UAT or development (clones), and keeping identities straight when the two have drifted apart.
@@ -206,7 +206,36 @@ them; a studio edit that no longer compiles is set aside and reported, never los
   (`.slclone`) or S3 under `<prefix>clones/`, listed with their report, downloaded and deleted by hand
   (`00022_clones`: `clone_profiles`, `clone_packages`, which like `snapshots` is in no snapshot and emptied by no
   restore). API `/api/v1/clones` (`instance:clone`), web Admin → Clones, CLI `servicelater clone package|verify`.
-- Not yet: loading a package (step 3), so nothing on the target reads `identities.json` or the report yet.
+
+### What is built (step 3)
+
+Admin → Clone in (`instance:clone`, `internal/clone/load.go`, `internal/api/clone_in.go`, `00023_clone_loads`):
+upload a package (kept in the snapshots folder or under `<prefix>clones/`; only its header is read), preview it with
+the passphrase (`clone.Inspect`: the package's people, groups and roles read into temporary tables of a rolled-back
+transaction, every table's checksum verified), then apply it (the confirmation is the instance's name; the worker
+loads it in maintenance mode, in one transaction, then reinstalls apps over the kept studio layer and syncs the
+bundled apps). Where it differs from the design above:
+
+- **The people kept** are a list (`clone_keep_people`, Admin → Clone in), not a flag on the person, plus whoever
+  applies the clone, always, so they can still sign in. A kept person production also has takes production's id and
+  this instance's name, address, base role, password, phone, role grants, group memberships (by group name) and API
+  keys; one production lacks is added as they are. Anything that cannot follow (a group or role production does not
+  have) is listed in the report. One that cannot be kept at all (a clash) is reported; the clone still succeeds.
+- **The target's own groups, roles and saved views are not kept**: production's replace them, and kept people's
+  memberships and grants follow them by name. (So "Network (UAT)" renames are not needed.)
+- **Single sign-on links** of every person production also has move to production's id; the rest are dropped.
+- **An older package** is loaded by column name into today's tables (migrations are additive, so it has a subset of
+  the columns; the rest take their defaults), not by migrating the database down and up. A newer one is refused.
+- **The safety switch** turns off `email.enabled`, `sms.enabled`, `teams.enabled` and `inbound.enabled` where they
+  were on, and sets `clone.hold_http`, `clone.hold_schedules` and `clone.hold_webhooks` (http.request steps fail
+  through `on_error`, schedules start nothing, webhooks answer 503) until an admin lifts each in Admin → Clone in.
+- **Clocks**: due SLA alerts are recorded as passed without being sent (`slatimer.Settle`); runs still going are
+  cancelled and their open approvals closed; schedules' marks are emptied, so each starts from its next due time.
+- **Attachment files** in the package are written to this instance's current storage (folder or S3) and their rows
+  point there. Files of the records it replaced are left in storage (not yet cleaned up).
+- **The production guard**: an instance marked production refuses (preview and apply) unless "Allow clones into this
+  production instance" is ticked.
+- Not built: loading straight from a shared S3 bucket (upload the file instead), and the scheduled pull (step 4).
 
 ## 3. Permissions
 

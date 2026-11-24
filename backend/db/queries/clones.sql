@@ -60,3 +60,61 @@ FROM clone_packages WHERE id = $1;
 
 -- name: DeleteClonePackage :exec
 DELETE FROM clone_packages WHERE id = $1;
+
+-- name: InsertCloneLoad :one
+-- A package uploaded to load here: kept until someone applies or deletes it.
+INSERT INTO clone_loads (destination, key, size, source, requested_by, requested_by_name)
+VALUES ($1, $2, $3, $4, sqlc.narg('requested_by'), sqlc.arg('requested_by_name'))
+RETURNING id, status, error, destination, key, size, source, keep_studio, keep_people, report, requested_by,
+    requested_by_name, created_at, started_at, finished_at, heartbeat_at;
+
+-- name: GetCloneLoad :one
+SELECT id, status, error, destination, key, size, source, keep_studio, keep_people, report, requested_by,
+    requested_by_name, created_at, started_at, finished_at, heartbeat_at
+FROM clone_loads WHERE id = $1;
+
+-- name: ListCloneLoads :many
+SELECT id, status, error, destination, key, size, source, keep_studio, keep_people, report, requested_by,
+    requested_by_name, created_at, started_at, finished_at, heartbeat_at
+FROM clone_loads ORDER BY created_at DESC LIMIT 100;
+
+-- name: RequestCloneLoad :one
+-- Apply an uploaded package (again, after one that failed or was done): the passphrase waits sealed for the worker.
+UPDATE clone_loads SET status = 'pending', error = '', keep_studio = $2, keep_people = $3, passphrase_key_id = $4,
+    passphrase_nonce = $5, passphrase = $6, requested_by = sqlc.narg('requested_by'), requested_by_name = sqlc.arg('requested_by_name'),
+    created_at = now(), started_at = NULL, finished_at = NULL, report = NULL
+WHERE id = $1 AND status IN ('uploaded', 'done', 'failed')
+RETURNING id;
+
+-- name: ClaimCloneLoad :one
+UPDATE clone_loads SET status = 'running', started_at = now(), heartbeat_at = now()
+WHERE id = (SELECT id FROM clone_loads WHERE status = 'pending' ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
+RETURNING *;
+
+-- name: HeartbeatCloneLoad :exec
+UPDATE clone_loads SET heartbeat_at = now() WHERE id = $1 AND status = 'running';
+
+-- name: FinishCloneLoad :exec
+UPDATE clone_loads SET status = $2, error = $3, report = $4, passphrase_key_id = '', passphrase_nonce = NULL, passphrase = NULL,
+    finished_at = now(), heartbeat_at = NULL
+WHERE id = $1;
+
+-- name: FailStaleCloneLoads :exec
+-- A load whose worker stopped, or one no worker took within two minutes (the instance would stay in maintenance).
+UPDATE clone_loads SET status = 'failed', passphrase_key_id = '', passphrase_nonce = NULL, passphrase = NULL,
+    error = CASE WHEN status = 'running' THEN 'the worker loading it stopped' ELSE 'no worker took it within two minutes: is the worker running?' END,
+    finished_at = now(), heartbeat_at = NULL
+WHERE (status = 'running' AND heartbeat_at < now() - interval '1 minute')
+   OR (status = 'pending' AND created_at < now() - interval '2 minutes');
+
+-- name: DeleteCloneLoad :exec
+DELETE FROM clone_loads WHERE id = $1;
+
+-- name: ListCloneKeepPeople :many
+SELECT k.user_id, u.name, u.email, k.added_at FROM clone_keep_people k JOIN users u ON u.id = k.user_id ORDER BY u.name;
+
+-- name: AddCloneKeepPerson :exec
+INSERT INTO clone_keep_people (user_id) VALUES ($1) ON CONFLICT DO NOTHING;
+
+-- name: RemoveCloneKeepPerson :execrows
+DELETE FROM clone_keep_people WHERE user_id = $1;

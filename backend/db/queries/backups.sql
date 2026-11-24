@@ -82,9 +82,15 @@ SELECT r.*, s.taken_at AS snapshot_taken_at FROM snapshot_restores r JOIN snapsh
 ORDER BY r.created_at DESC LIMIT 20;
 
 -- name: ActiveRestore :one
--- The restore waiting or running, if any: while there is one the instance is in maintenance.
-SELECT r.id, r.status, r.created_at, r.started_at, r.requested_by_name
-FROM snapshot_restores r
-WHERE (r.status = 'pending' AND r.created_at > now() - interval '2 minutes')
-   OR (r.status = 'running' AND r.heartbeat_at > now() - interval '1 minute')
-ORDER BY r.created_at LIMIT 1;
+-- The restore or clone waiting or running, if any: while there is one the instance is in maintenance.
+SELECT x.id, x.operation, x.status, x.created_at, x.started_at, x.requested_by_name FROM (
+    SELECT r.id, 'restore'::text AS operation, r.status, r.created_at, r.started_at, r.requested_by_name
+    FROM snapshot_restores r
+    WHERE (r.status = 'pending' AND r.created_at > now() - interval '2 minutes')
+       OR (r.status = 'running' AND r.heartbeat_at > now() - interval '1 minute')
+    UNION ALL
+    SELECT c.id, 'clone'::text, c.status, c.created_at, c.started_at, c.requested_by_name
+    FROM clone_loads c
+    WHERE (c.status = 'pending' AND c.created_at > now() - interval '2 minutes')
+       OR (c.status = 'running' AND c.heartbeat_at > now() - interval '1 minute')
+) x ORDER BY x.created_at LIMIT 1;

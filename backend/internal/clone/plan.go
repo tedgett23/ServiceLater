@@ -33,7 +33,7 @@ type policy struct {
 // target), single sign-on, the query key, workflow schedules (they start counting from the clone) and webhook calls.
 var never = []string{
 	"sessions", "rate_limits", "rate_counts", "jobs", "goose_db_version",
-	"snapshots", "snapshot_restores", "clone_profiles", "clone_packages",
+	"snapshots", "snapshot_restores", "clone_profiles", "clone_packages", "clone_loads", "clone_keep_people",
 	"settings", "secrets", "sso_providers", "sso_group_maps", "user_identities", "query_keys", "api_keys",
 	"workflow_schedules", "workflow_webhook_deliveries",
 }
@@ -87,7 +87,7 @@ func logs(where string) func(Profile) string {
 }
 
 // person is a row of users that is a person: not an app's principal, not a service account.
-const person = "t.app_name IS NULL AND NOT EXISTS (SELECT 1 FROM service_accounts s WHERE s.user_id = t.id)"
+const isPerson = "t.app_name IS NULL AND NOT EXISTS (SELECT 1 FROM service_accounts s WHERE s.user_id = t.id)"
 
 var policies = map[string]policy{
 	// Definitions and reference data come whole: apps, their files and studio edits, types, roles, groups,
@@ -114,10 +114,10 @@ var policies = map[string]policy{
 		out := map[string]string{"manager_id": clearUser("manager_id")}
 		n := "(SELECT k.n FROM clone_users k WHERE k.id = t.id)"
 		if p.Mask.Emails {
-			out["email"] = fmt.Sprintf("CASE WHEN %s THEN 'user-' || %s || '@masked.invalid' ELSE t.email END", person, n)
+			out["email"] = fmt.Sprintf("CASE WHEN %s THEN 'user-' || %s || '@masked.invalid' ELSE t.email END", isPerson, n)
 		}
 		if p.Mask.Names {
-			out["name"] = fmt.Sprintf("CASE WHEN %s THEN 'Person ' || %s ELSE t.name END", person, n)
+			out["name"] = fmt.Sprintf("CASE WHEN %s THEN 'Person ' || %s ELSE t.name END", isPerson, n)
 		}
 		return out
 	}},
