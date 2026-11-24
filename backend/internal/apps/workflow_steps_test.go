@@ -34,7 +34,8 @@ const everyStep = "  s:\n    type: query\n    find:\n      type: incident\n     
 
 // Every new step, and a schedule, compile; written back out they read the same.
 func TestTheNewStepsCompileAndWriteBack(t *testing.T) {
-	c, p := compile(t, stepsApp(flow(everyStep, "schedule:\n  cron: \"0 8 * * 1-5\"\n  timezone: Europe/London\n  for_each:\n    type: incident\n    where:\n      state_category: { eq: open }\n"),
+	c, p := compile(t, stepsApp(flow(everyStep, "schedule:\n  cron: \"0 8 * * 1-5\"\n  timezone: Europe/London\n  for_each:\n    type: incident\n    where:\n      state_category: { eq: open }\n"+
+		"webhook:\n  secret: token\n  auth: hmac\n  signature_header: X-Hub-Signature-256\n  dedupe_header: X-GitHub-Delivery\n"),
 		"default/notifications/heads-up.yaml", "kind: notification\nname: heads-up\ntitle: Look\n"))
 	if p != nil {
 		t.Fatal(p)
@@ -89,6 +90,12 @@ func TestNewStepMistakesFailTheInstall(t *testing.T) {
 		"bad recipient":         {stepsApp(flow("  s:\n    type: notify\n    template: x\n    recipients: [everyone]\n    next: done\n")), `"everyone" is not a recipient`},
 		"bad cron":              {stepsApp(flow("  s:\n    type: end\n", "schedule:\n  cron: \"every day\"\n")), "schedule: cron"},
 		"bad zone":              {stepsApp(flow("  s:\n    type: end\n", "schedule:\n  cron: \"0 8 * * *\"\n  timezone: Mars/Olympus\n")), "is not a time zone"},
+		"webhook auth":          {stepsApp(flow("  s:\n    type: end\n", "webhook:\n  secret: token\n  auth: basic\n")), "webhook: auth must be token"},
+		"webhook secret":        {stepsApp(flow("  s:\n    type: wait\n    for: 1m\n    next: done\n", "webhook:\n  secret: other\n  auth: token\n")), `webhook: the app declares no secret "other"`},
+		"webhook no secret":     {stepsApp(flow("  s:\n    type: end\n", "webhook:\n  auth: token\n")), "webhook: secret is required"},
+		"webhook header":        {stepsApp(flow("  s:\n    type: end\n", "webhook:\n  secret: token\n  auth: hmac\n  signature_header: \"X Sig\"\n")), "is not a header name"},
+		"webhook token header":  {stepsApp(flow("  s:\n    type: end\n", "webhook:\n  secret: token\n  auth: token\n  signature_header: X-Sig\n")), "only for auth: hmac"},
+		"webhook on authz":      {stepsApp(flow("  s:\n    type: end\n", "webhook:\n  secret: token\n  auth: hmac\n  signature_header: authorization\n")), "cannot be Authorization"},
 		"bad host permission":   {map[string]string{"app.yaml": strings.Replace(stepsManifest, "http:api.example.com", "http:https://x", 1)}, "is not a host to allow"},
 	} {
 		_, p := compile(t, tc.files)

@@ -251,14 +251,17 @@ func (s *Service) CreateUser(ctx context.Context, email, name, role, password st
 	return out, err
 }
 
-// Cleanup removes expired sessions and stale rate-limit rows.
+// Cleanup removes expired sessions, stale rate-limit rows and webhook calls older than 30 days.
 func (s *Service) Cleanup(ctx context.Context) error {
 	return db.WithSystem(ctx, s.pool, func(tx pgx.Tx) error {
 		q := dbgen.New(tx)
 		if _, err := q.DeleteExpiredSessions(ctx); err != nil {
 			return err
 		}
-		_, err := q.DeleteStaleRateLimits(ctx)
+		if _, err := q.DeleteStaleRateLimits(ctx); err != nil {
+			return err
+		}
+		_, err := q.DeleteOldWebhookDeliveries(ctx)
 		return err
 	})
 }

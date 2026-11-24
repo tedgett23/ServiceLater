@@ -1005,7 +1005,7 @@ and the `schedule` trigger. Steps run as the workflow's app (its service princip
 started it: they can do what the app's manifest declares, whoever started it, and `user` is still that person. Live
 highlighting of the running step arrives with the visual builder; the viewer refreshes by polling.
 
-### 7.8 Subflows, foreach, HTTP, queries, records, notify and schedules (built 2026-11-18)
+### 7.8 Subflows, foreach, HTTP, queries, records, notify, schedules and webhooks (built 2026-11-18, webhooks 2026-11-24)
 
 Agreed with the user 2026-11-18, alongside scripts (§6.7). Each runs in the step's transaction as the run's actor
 (the app, for the person), like every step.
@@ -1048,6 +1048,22 @@ Agreed with the user 2026-11-18, alongside scripts (§6.7). Each runs in the ste
   starts it, as the app for nobody: once with no record, or once per record `for_each` (a query) finds. A schedule seen
   for the first time only notes the time (no backlog after an install or upgrade). Edited in the builder's workflow
   panel.
+- **Webhooks** (built 2026-11-24; the user chose a header token or an HMAC signature, never a token in the URL): a
+  workflow may have `webhook: {secret, auth, signature_header, signature_prefix, dedupe_header}`. Another system calls
+  `POST /api/v1/hooks/{app}/{workflow}` with no session. `secret` names one the app declares (manifest `config`, type
+  `secret`, checked at install) and an admin sets under Admin → Connections; until it is set every call is refused.
+  `auth: token` wants `Authorization: Bearer <secret>`; `auth: hmac` wants the hex HMAC-SHA256 of the raw body under
+  the secret in `signature_header` (default `X-Signature-256`), after `signature_prefix` (default `sha256=`, also
+  accepted without it); GitHub is `X-Hub-Signature-256`. The JSON body (48 KB at most) becomes `vars.payload` (typed
+  `dyn`: convert with `string()`, `int()`... where a step wants a type) and `vars.webhook` holds `delivery` and
+  `received_at`; the run acts as the app, for nobody, with no record (like a schedule). A call repeating the value of
+  `dedupe_header` (default `Idempotency-Key`) gets the first call's run back with 200 and starts nothing (a partial
+  unique index, so two at once cannot both start one). Answers: 202 `{run_id}`, 200 for a repeat, 401 bad or missing
+  proof or no secret, 400 not JSON, 413 too large, 404 no such webhook, 429 past 300 calls a minute per webhook
+  (refused ones count). Every call is logged without its body in `workflow_webhook_deliveries` (`00018_webhooks`,
+  written as the system, read with `workflows:read_all` via `GET /workflows/{app}/{name}/deliveries`, kept 30 days).
+  Edited in the builder's workflow panel (`WebhookSettings.svelte`: auth, secret, headers, the address to copy,
+  whether the secret is set, the latest calls).
 
 ### 7.7 The workflow builder (built, slice 9)
 

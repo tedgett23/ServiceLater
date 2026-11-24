@@ -6662,6 +6662,101 @@
         ],
         "type": "object"
       },
+      "Webhook": {
+        "properties": {
+          "auth": {
+            "type": "string"
+          },
+          "dedupe_header": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "signature_header": {
+            "type": "string"
+          },
+          "signature_prefix": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "auth",
+          "secret"
+        ],
+        "type": "object"
+      },
+      "WebhookDelivery": {
+        "description": "One call to a webhook.",
+        "properties": {
+          "delivery_key": {
+            "description": "The value of the webhook's dedupe header, when the call had one.",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "outcome": {
+            "description": "Started, duplicate (an earlier call with the same key started the run) or refused.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Says why a call was refused.",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "remote": {
+            "description": "The address the call came from, as the server saw it.",
+            "type": "string"
+          },
+          "run_id": {
+            "description": "The run it started or repeated; null when refused.",
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size": {
+            "description": "The body's size in bytes.",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "delivery_key",
+          "id",
+          "outcome",
+          "reason",
+          "received_at",
+          "remote",
+          "run_id",
+          "size"
+        ],
+        "type": "object"
+      },
+      "WebhookStarted": {
+        "description": "What a call that reached its workflow gets back.",
+        "properties": {
+          "duplicate": {
+            "description": "True when an earlier call with the same dedupe header started RunID, and this one started nothing.",
+            "type": "boolean"
+          },
+          "run_id": {
+            "description": "The workflow run the call started (GET /api/v1/workflow-runs/{id}, for those who may read runs).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ],
+        "type": "object"
+      },
       "Workflow": {
         "properties": {
           "app": {
@@ -6857,6 +6952,21 @@
             },
             "type": "array"
           },
+          "webhook": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Webhook"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Starts it when another system calls POST /api/v1/hooks/{app}/{name}, if it has one."
+          },
+          "webhook_secret_set": {
+            "description": "Says whether the webhook's secret has been set (Admin → Connections); until it is, every call is refused.",
+            "type": "boolean"
+          },
           "yaml": {
             "description": "The definition as a file, for those who keep apps in version control.",
             "type": "string"
@@ -6877,6 +6987,7 @@
           "shipped",
           "start",
           "steps",
+          "webhook_secret_set",
           "yaml"
         ],
         "type": "object"
@@ -6912,6 +7023,17 @@
               "$ref": "#/components/schemas/AppsStep"
             },
             "type": "array"
+          },
+          "webhook": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Webhook"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Starts it when another system calls it: secret, auth (token or hmac) and header names."
           }
         },
         "type": "object"
@@ -14891,6 +15013,157 @@
         ],
         "x-permissions": [
           "settings:manage"
+        ]
+      }
+    },
+    "/api/v1/hooks/{app}/{workflow}": {
+      "post": {
+        "description": "Starts a workflow whose definition has a webhook. No session: the caller proves itself with the webhook's secret, as Authorization: Bearer \u003csecret\u003e or a signature of the body (HMAC-SHA256, hex, in the webhook's signature header), and the run acts as the app, for nobody, with the JSON body as vars.payload. A call repeating the value of the webhook's dedupe header (Idempotency-Key unless it names another) gets the first call's run back with 200 and starts nothing. Every call is logged without its body (GET /workflows/{app}/{name}/deliveries).",
+        "operationId": "receiveWebhook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "workflow",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookStarted"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookStarted"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "Receive webhook",
+        "tags": [
+          "hooks"
         ]
       }
     },
@@ -27410,6 +27683,130 @@
         ]
       }
     },
+    "/api/v1/workflows/{app}/{name}/deliveries": {
+      "get": {
+        "description": "(workflows:read_all): a webhook's latest 50 calls, newest first.\n\nRequires the `workflows:read_all` permission.",
+        "operationId": "listWebhookDeliveries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "app",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WebhookDelivery"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List webhook deliveries",
+        "tags": [
+          "workflows"
+        ],
+        "x-permissions": [
+          "workflows:read_all"
+        ]
+      }
+    },
     "/api/v1/workflows/{app}/{name}/edits": {
       "delete": {
         "description": "(workflows:edit): undo the edits made here: a workflow the app ships goes back to the app's version; one created here is removed. Runs in progress keep the version they started with.\n\nRequires the `workflows:edit` permission.",
@@ -27577,6 +27974,9 @@
     },
     {
       "name": "groups"
+    },
+    {
+      "name": "hooks"
     },
     {
       "name": "kb"

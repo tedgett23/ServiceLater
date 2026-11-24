@@ -403,6 +403,7 @@ func (b *Bundle) Compile() (*Compiled, error) {
 	checkWorkflowStarts(defs, &p)
 	checkWorkflowCalls(defs, &p)
 	checkHTTPSteps(m, defs, &p)
+	checkWebhooks(m, defs, &p)
 	checkNotifyTemplates(defs, &p)
 	checkTransitionTargets(defs, &p)
 	checkClasses(defs, &p)
