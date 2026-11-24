@@ -29,6 +29,7 @@ Usage:
   servicelater secrets ...     make and rotate the key that encrypts stored secrets
   servicelater storage ...     check the attachments folder
   servicelater snapshot ...    take, check and restore snapshots of this instance
+  servicelater clone ...       make and check clone packages (copies for UAT or development)
 
 Configuration is environment variables (SL_DATABASE_URL, SL_JWT_SECRET, ...): see .env.example.
 `
@@ -50,7 +51,7 @@ func main() {
 		case "help", "--help", "-help", "-h":
 			fmt.Print(usage)
 			return
-		case "app", "jobs", "group", "secrets", "snapshot", "storage", "user":
+		case "app", "clone", "jobs", "group", "secrets", "snapshot", "storage", "user":
 		default:
 			fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", os.Args[1], usage)
 			os.Exit(2)
@@ -86,6 +87,13 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "snapshot" {
 		if err := runSnapshot(context.Background(), os.Args[2:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "clone" {
+		if err := runClone(context.Background(), os.Args[2:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

@@ -50,9 +50,9 @@ const workFactor = 10
 // migration table (recorded as Header.Schema instead). A restore empties them.
 var skipped = []string{"sessions", "rate_limits", "rate_counts", "jobs", "goose_db_version"}
 
-// Kept: the record of snapshots and restores is neither in a snapshot nor emptied by a restore, so restoring an old
+// Kept: the record of snapshots, restores and clone packages is neither in a snapshot nor emptied by a restore, so restoring an old
 // snapshot does not forget the ones taken since, or that it ran.
-var kept = []string{"snapshots", "snapshot_restores"}
+var kept = []string{"snapshots", "snapshot_restores", "clone_packages"}
 
 // Header is what a snapshot says about itself before anything is decrypted: enough to refuse it early and to pick
 // the key.
@@ -507,12 +507,16 @@ func Verify(r io.Reader, keys *secrets.Keyring) (*Summary, error) {
 // tablesInOrder lists the tables a snapshot holds, parents before the tables that refer to them (there are no cycles
 // between tables; a table referring to itself is loaded in one COPY, which checks its keys at the end).
 func tablesInOrder(ctx context.Context, tx pgx.Tx) ([]Table, error) {
+	return tablesListed(ctx, tx, append(slices.Clone(skipped), kept...))
+}
+
+func tablesListed(ctx context.Context, tx pgx.Tx, leaveOut []string) ([]Table, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT c.relname, array_agg(a.attname ORDER BY a.attnum)
 		FROM pg_class c
 		JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated = ''
 		WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND NOT c.relname = ANY ($1)
-		GROUP BY c.relname ORDER BY c.relname`, append(slices.Clone(skipped), kept...))
+		GROUP BY c.relname ORDER BY c.relname`, leaveOut)
 	if err != nil {
 		return nil, err
 	}
@@ -551,7 +555,7 @@ func tablesInOrder(ctx context.Context, tx pgx.Tx) ([]Table, error) {
 			}
 			ready := true
 			for _, p := range parents[t.Name] {
-				if !done[p] && !slices.Contains(skipped, p) && !slices.Contains(kept, p) {
+				if !done[p] && !slices.Contains(leaveOut, p) {
 					ready = false
 					break
 				}

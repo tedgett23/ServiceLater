@@ -45,4 +45,9 @@ SNAP=$(req -X POST $B/api/v1/backups | grep -o '"id":"[^"]*"' | head -1 | cut -d
 for _ in $(seq 1 30); do req $B/api/v1/backups | grep -q "\"id\":\"$SNAP\",\"kind\":\"manual\",\"status\":\"ready\"" && break; sleep 1; done
 check "take a snapshot" "$(req $B/api/v1/backups | grep -c "\"id\":\"$SNAP\",\"kind\":\"manual\",\"status\":\"ready\"")" 1
 check "download the snapshot" "$(req $B/api/v1/backups/$SNAP/file | head -c 7)" SLSNAP1
+# A clone package: a profile of open records with addresses masked, made by the worker into the same volume.
+req -X POST $B/api/v1/clones/profiles -d '{"name":"smoke","config":{"records":"open","mask":{"emails":true}}}' >/dev/null
+PKG=$(req -X POST $B/api/v1/clones/packages -d '{"profile":"smoke","passphrase":"smoke test passphrase","destination":"folder"}' | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+for _ in $(seq 1 30); do [ "$(req $B/api/v1/clones/packages/$PKG/file | head -c 8)" = SLCLONE1 ] && break; sleep 1; done
+check "make a clone package" "$(req $B/api/v1/clones/packages/$PKG/file | head -c 8)" SLCLONE1
 exit $fail

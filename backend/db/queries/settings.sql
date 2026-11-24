@@ -83,4 +83,5 @@ ON CONFLICT (key, window_start) DO UPDATE SET count = rate_counts.count + EXCLUD
 RETURNING key, window_start, count;
 
 -- name: DeleteOldRateCounts :exec
-DELETE FROM rate_counts WHERE window_start < now() - interval '5 minutes';
+-- Windows that ended long before now, by the limiter's clock (its windows are by its clock too).
+DELETE FROM rate_counts WHERE window_start < sqlc.arg('now')::timestamptz - interval '5 minutes';

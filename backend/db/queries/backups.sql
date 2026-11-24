@@ -1,8 +1,8 @@
 -- Snapshots and restores (00021_backups, internal/backup). Written as the system; read by instance:backup holders.
 
 -- name: InsertSnapshot :one
-INSERT INTO snapshots (kind, destination, include_attachments, requested_by, requested_by_name)
-VALUES ($1, $2, $3, sqlc.narg('requested_by'), sqlc.arg('requested_by_name'))
+INSERT INTO snapshots (kind, destination, include_attachments, scheduled_for, requested_by, requested_by_name)
+VALUES ($1, $2, $3, sqlc.narg('scheduled_for'), sqlc.narg('requested_by'), sqlc.arg('requested_by_name'))
 RETURNING *;
 
 -- name: InsertUploadedSnapshot :one
@@ -44,7 +44,8 @@ SELECT * FROM snapshots WHERE id = $1;
 DELETE FROM snapshots WHERE id = $1;
 
 -- name: LastScheduledSnapshot :one
-SELECT coalesce(max(created_at), '-infinity'::timestamptz)::timestamptz AS at FROM snapshots WHERE kind = 'scheduled';
+-- The latest due time the schedule queued a snapshot for (by the worker's clock, as the due time is worked out).
+SELECT coalesce(max(scheduled_for), '-infinity'::timestamptz)::timestamptz AS at FROM snapshots WHERE kind = 'scheduled';
 
 -- name: ScheduledSnapshots :many
 -- The scheduled snapshots that are ready, newest first: what retention chooses from.

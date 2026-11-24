@@ -105,6 +105,11 @@ again). A snapshot from an older version is migrated up after loading; one from 
   half a second and restored in about 15 seconds.
 - **Not to the second**: a snapshot is the moment it was taken. For recovery to any point, add one of the layers
   below.
+- **Clone packages** (Admin → Clones, `instance:clone`): copies of production's records and people for UAT or
+  development, filtered and optionally masked by a profile, encrypted with a passphrase you choose. They are made by
+  the worker into the same folder (`.slclone` files) or under `<prefix>clones/` in S3, and stay until deleted.
+  `servicelater clone package -profile uat -passphrase-file f` and `servicelater clone verify -passphrase-file f
+  <file>` do the same from the command line. Loading one into the target instance is not built yet.
 
 ### The database host's backups (managed Postgres)
 

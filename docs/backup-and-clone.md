@@ -1,7 +1,8 @@
 # Backups, snapshots and clones
 
 Design agreed with the user on 2026-11-24. Status: step 1 (snapshots, Admin → Backups, maintenance mode, the
-instance name, environment and banner) built; steps 2-4 (clones) designed.
+instance name, environment and banner) and step 2 (clone profiles and packages on the source, Admin → Clones) built;
+steps 3-4 (clone in on the target, scheduled pull) designed.
 
 Three things are covered here: keeping a copy of an instance (backups and snapshots), copying production down to
 UAT or development (clones), and keeping identities straight when the two have drifted apart.
@@ -89,7 +90,10 @@ Filtering happens on the source, so data a profile leaves out never leaves produ
 - **People**: everyone, or only those the kept records and kept groups refer to.
 - **Masking** (off by default): names, email addresses, phone numbers, comment and description text, and form fields
   marked `mask: true` in their app (a form field attribute, so a field holding personal data is masked wherever it
-  appears). Masked emails are `user-<n>@masked.invalid`; masking runs after identity matching (below).
+  appears). Masked emails are `user-<n>@masked.invalid`. Masking happens on the source, so real addresses never
+  leave it; the target still matches its own people by address because the package carries a salted SHA-256 of each
+  masked person's lowercased address (`identities.json`, a fresh salt per package). Service accounts and apps'
+  principals are never masked.
 - **Who may pull it**: the service accounts allowed to request this profile (see scheduled pull).
 
 **Closure** is worked out, never left to the admin: a skipped record takes its comments, attachments, SLA clocks,
@@ -102,7 +106,9 @@ is chosen. The **clone report** lists every link it cleared.
 All three ways are built from the start:
 
 1. **Download and upload**: Admin → Clones → Make a package on the source; Admin → Clone in → Upload on the target.
-   The package is encrypted with a passphrase the admin chooses (AES-256-GCM, key from scrypt).
+   The package is encrypted with a passphrase the admin chooses (at least 12 characters; age with an scrypt
+   recipient, the same stream as a snapshot: header `SLCLONE1`, then tar, zstd, age). The passphrase waits for the
+   worker sealed under the secrets key and is cleared once the package is made or fails.
 2. **Shared S3 bucket**: the source writes the package to a bucket and prefix; the target reads it from there.
 3. **Scheduled pull** ("refresh UAT every Sunday at 02:00"): the target calls the source's API and streams the
    package down, on a schedule or on demand.
@@ -186,6 +192,21 @@ The package records the source's goose version and apps. A package newer than th
 the target first). An older one is migrated up after loading. Apps and their definitions come from the source; the
 target's binary then syncs its bundled apps as at every start, and the target's kept studio layer is applied over
 them; a studio edit that no longer compiles is set aside and reported, never lost.
+
+### What is built (step 2)
+
+- `internal/clone`: `Profile` (settings, `Check`), `Export`, `Preview`, `Verify`. Every table has a policy in
+  `plan.go` (`TestEveryTableHasAClonePolicy`): never copied (the target's own, listed in `never`), whole (apps,
+  definitions, groups, roles, CMDB, knowledge, saved views), or filtered by temporary tables the export fills in its own
+  rolled-back `REPEATABLE READ` transaction (`clone_tasks`, `clone_runs`, `clone_users`, `clone_mask`, `clone_notes`).
+  A link from a kept row to a left-out record or person is cleared (`CASE WHEN ... THEN col END`) and, for record
+  links (part of, problem, fixes problem), listed in the report. Exclusions are CEL in the rule environment with the
+  type's form fields, evaluated per record (`records.Load`), so they cost one load per record of that type.
+- Packages are made by the backups loop on the worker (`internal/backup/clones.go`), kept in the snapshots folder
+  (`.slclone`) or S3 under `<prefix>clones/`, listed with their report, downloaded and deleted by hand
+  (`00022_clones`: `clone_profiles`, `clone_packages`, which like `snapshots` is in no snapshot and emptied by no
+  restore). API `/api/v1/clones` (`instance:clone`), web Admin → Clones, CLI `servicelater clone package|verify`.
+- Not yet: loading a package (step 3), so nothing on the target reads `identities.json` or the report yet.
 
 ## 3. Permissions
 

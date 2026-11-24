@@ -119,7 +119,7 @@ func (l *Limiter) Sync(ctx context.Context) error {
 			}
 		}
 		if sweep {
-			if err := q.DeleteOldRateCounts(ctx); err != nil {
+			if err := q.DeleteOldRateCounts(ctx, pgtype.Timestamptz{Time: now, Valid: true}); err != nil {
 				return err
 			}
 		}

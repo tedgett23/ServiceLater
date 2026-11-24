@@ -161,6 +161,37 @@ type CiRelationship struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type ClonePackage struct {
+	ID              uuid.UUID          `json:"id"`
+	Profile         string             `json:"profile"`
+	Config          []byte             `json:"config"`
+	Status          string             `json:"status"`
+	Error           string             `json:"error"`
+	Destination     string             `json:"destination"`
+	Key             string             `json:"key"`
+	Size            int64              `json:"size"`
+	PassphraseKeyID string             `json:"passphrase_key_id"`
+	PassphraseNonce []byte             `json:"passphrase_nonce"`
+	Passphrase      []byte             `json:"passphrase"`
+	TakenAt         pgtype.Timestamptz `json:"taken_at"`
+	SchemaVersion   pgtype.Int8        `json:"schema_version"`
+	Rows            int64              `json:"rows"`
+	Report          []byte             `json:"report"`
+	RequestedBy     uuid.NullUUID      `json:"requested_by"`
+	RequestedByName string             `json:"requested_by_name"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
+	HeartbeatAt     pgtype.Timestamptz `json:"heartbeat_at"`
+}
+
+type CloneProfile struct {
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Config      []byte             `json:"config"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type EmailDelivery struct {
 	ID             uuid.UUID          `json:"id"`
 	NotificationID uuid.NullUUID      `json:"notification_id"`
@@ -756,6 +787,7 @@ type Snapshot struct {
 	CreatedAt          pgtype.Timestamptz `json:"created_at"`
 	FinishedAt         pgtype.Timestamptz `json:"finished_at"`
 	HeartbeatAt        pgtype.Timestamptz `json:"heartbeat_at"`
+	ScheduledFor       pgtype.Timestamptz `json:"scheduled_for"`
 }
 
 type SnapshotRestore struct {

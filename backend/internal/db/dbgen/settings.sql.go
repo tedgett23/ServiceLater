@@ -57,11 +57,12 @@ func (q *Queries) ClearSecret(ctx context.Context, name string) error {
 }
 
 const deleteOldRateCounts = `-- name: DeleteOldRateCounts :exec
-DELETE FROM rate_counts WHERE window_start < now() - interval '5 minutes'
+DELETE FROM rate_counts WHERE window_start < $1::timestamptz - interval '5 minutes'
 `
 
-func (q *Queries) DeleteOldRateCounts(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, deleteOldRateCounts)
+// Windows that ended long before now, by the limiter's clock (its windows are by its clock too).
+func (q *Queries) DeleteOldRateCounts(ctx context.Context, now pgtype.Timestamptz) error {
+	_, err := q.db.Exec(ctx, deleteOldRateCounts, now)
 	return err
 }
 

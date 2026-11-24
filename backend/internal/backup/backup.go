@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/servicelater/servicelater/backend/internal/apps"
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/secrets"
@@ -50,6 +51,8 @@ type Service struct {
 	Now func() time.Time
 	// Heartbeat is how often a running snapshot or restore says it is alive.
 	Heartbeat time.Duration
+	// Registry gives clone packages the forms' masked fields and compiles their exclusions.
+	Registry *apps.Registry
 }
 
 func (s *Service) now() time.Time {
@@ -122,6 +125,9 @@ func (s *Service) Tick(ctx context.Context) error {
 		if err := q.FailStaleRestores(ctx); err != nil {
 			return err
 		}
+		if err := q.FailStaleClonePackages(ctx); err != nil {
+			return err
+		}
 		return q.FailUnclaimedRestores(ctx)
 	}); err != nil {
 		return err
@@ -133,7 +139,10 @@ func (s *Service) Tick(ctx context.Context) error {
 	if err != nil || ran {
 		return err
 	}
-	_, err = s.runSnapshot(ctx)
+	if ran, err = s.runSnapshot(ctx); err != nil || ran {
+		return err
+	}
+	_, err = s.runPackage(ctx)
 	return err
 }
 
@@ -170,7 +179,7 @@ func (s *Service) queueScheduled(ctx context.Context) error {
 			return nil
 		}
 		_, err = q.InsertSnapshot(ctx, dbgen.InsertSnapshotParams{Kind: "scheduled", Destination: b.Destination,
-			IncludeAttachments: b.Attachments, RequestedByName: "the schedule"})
+			IncludeAttachments: b.Attachments, ScheduledFor: pgtype.Timestamptz{Time: due, Valid: true}, RequestedByName: "the schedule"})
 		return err
 	})
 }
@@ -273,6 +282,10 @@ func (s *Service) take(ctx context.Context, snap dbgen.Snapshot) error {
 
 // store moves a finished file from the folder to its destination, and gives its key there and its size.
 func (s *Service) store(ctx context.Context, destination, tmp, name string) (string, int64, error) {
+	return s.storeAs(ctx, destination, tmp, name, "snapshots/")
+}
+
+func (s *Service) storeAs(ctx context.Context, destination, tmp, name, under string) (string, int64, error) {
 	info, err := os.Stat(tmp)
 	if err != nil {
 		return "", 0, err
@@ -284,7 +297,7 @@ func (s *Service) store(ctx context.Context, destination, tmp, name string) (str
 	if err != nil {
 		return "", 0, err
 	}
-	key := prefix + "snapshots/" + name
+	key := prefix + under + name
 	if err := upload(ctx, store, key, tmp, info.Size()); err != nil {
 		return "", 0, fmt.Errorf("uploading to S3: %w", err)
 	}
@@ -336,10 +349,14 @@ func (s *Service) Open(ctx context.Context, snap dbgen.Snapshot) (storage.File, 
 	if snap.Status != "ready" {
 		return nil, errors.New("the snapshot is not ready")
 	}
-	if snap.Destination == settings.BackupFolder {
-		f, err := os.Open(filepath.Join(s.Dir, filepath.Base(snap.Key))) //nolint:gosec // a name we made, kept to the folder
+	return s.openFile(ctx, snap.Destination, snap.Key)
+}
+
+func (s *Service) openFile(ctx context.Context, destination, key string) (storage.File, error) {
+	if destination == settings.BackupFolder {
+		f, err := os.Open(filepath.Join(s.Dir, filepath.Base(key))) //nolint:gosec // a name we made, kept to the folder
 		if err != nil {
-			return nil, fmt.Errorf("the snapshot file is not in %s: %w", s.Dir, err)
+			return nil, fmt.Errorf("the file is not in %s: %w", s.Dir, err)
 		}
 		return folderFile{f}, nil
 	}
@@ -347,7 +364,7 @@ func (s *Service) Open(ctx context.Context, snap dbgen.Snapshot) (storage.File, 
 	if err != nil {
 		return nil, err
 	}
-	return store.Open(ctx, snap.Key)
+	return store.Open(ctx, key)
 }
 
 type folderFile struct{ *os.File }

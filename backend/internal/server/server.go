@@ -117,7 +117,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 			deps.Instance = instance.NewWatcher(pool)
 			go deps.Instance.Run(ctx, time.Second)
 			deps.Backups = &backup.Service{Pool: pool, Keys: keys, Files: deps.Files, Dir: cfg.SnapshotsDir,
-				AttachmentsDir: cfg.AttachmentsDir, Binary: "servicelater " + apps.PlatformVersion}
+				AttachmentsDir: cfg.AttachmentsDir, Binary: "servicelater " + apps.PlatformVersion, Registry: deps.Apps}
 			if os.Getenv("SL_MAX_LIVE_CONNS") != "" {
 				slog.Warn("SL_MAX_LIVE_CONNS is no longer read: set live connections under Admin → Rate limits")
 			}
@@ -157,7 +157,7 @@ func Run(ctx context.Context, cfg config.Config) error {
 			worker.Register(notify.TeamsKind, (&notify.Poster{Pool: workerPool, Apps: workerApps, Keys: keys, Teams: notify.TeamsPoster{}}).Handler())
 			workerFiles := &storage.Manager{Pool: workerPool, Keys: keys, LocalDir: cfg.AttachmentsDir}
 			backups := &backup.Service{Pool: workerPool, Keys: keys, Files: workerFiles, Dir: cfg.SnapshotsDir,
-				AttachmentsDir: cfg.AttachmentsDir, Binary: "servicelater " + apps.PlatformVersion}
+				AttachmentsDir: cfg.AttachmentsDir, Binary: "servicelater " + apps.PlatformVersion, Registry: workerApps}
 			worker.Register(storage.PurgeKind, workerFiles.PurgeHandler())
 			worker.Register(storage.ExpireKind, workerFiles.ExpireHandler())
 			// Incoming mail: replies become comments, new mail (when allowed) incidents.
