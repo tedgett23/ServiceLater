@@ -9,7 +9,7 @@ import (
 )
 
 // PlatformVersion is the version of this ServiceLater build, checked against an app's ServiceLater_min_version.
-const PlatformVersion = "0.1.0"
+const PlatformVersion = "0.2.0"
 
 // Version is a plain major.minor.patch version.
 type Version struct{ Major, Minor, Patch int }
