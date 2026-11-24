@@ -22,7 +22,14 @@ const appUsage = `usage: servicelater app <command>
 
   validate <path>...            check apps (folders or .swapp files); needs no database
   pack [-o dir] <path>          write <name>-<version>.swapp (the shipped layer only, never local/)
-  install [-dry-run] <path>...  install or update apps, dependencies first
+  install [-dry-run] [-approve-permissions] [-url instance] <path>...
+                                install or update apps, dependencies first; with -url, through that instance's
+                                API (Admin → Apps) with the key in SL_API_KEY, as a pipeline would (a lower
+                                version than installed is refused there; without -url it rolls back)
+  dev -url <instance> [-approve-permissions] <folder>
+                                install a folder into a development instance through its API, then again on
+                                every save, until stopped (key in SL_API_KEY; the instance must be marked
+                                development in Admin → Instance)
   sync [-dry-run]               install or upgrade the apps bundled in this binary, as at startup
   uninstall <name>...           remove apps and everything they define; records are kept
   list                          show installed apps
@@ -48,6 +55,8 @@ func runApp(ctx context.Context, args []string, out io.Writer) error {
 		return appPack(rest, out)
 	case "install":
 		return appInstall(ctx, rest, out)
+	case "dev":
+		return appDev(ctx, rest, out)
 	case "sync":
 		return appSync(ctx, rest, out)
 	case "uninstall":
@@ -109,8 +118,12 @@ func appInstall(ctx context.Context, args []string, out io.Writer) error {
 	fs.SetOutput(io.Discard)
 	dry := fs.Bool("dry-run", false, "")
 	approve := fs.Bool("approve-permissions", false, "")
+	url := fs.String("url", "", "")
 	if err := fs.Parse(args); err != nil || fs.NArg() == 0 {
-		return errors.New("usage: servicelater app install [-dry-run] [-approve-permissions] <path> [<path> ...]")
+		return errors.New("usage: servicelater app install [-dry-run] [-approve-permissions] [-url instance] <path> [<path> ...]")
+	}
+	if *url != "" {
+		return appInstallRemote(ctx, *url, *dry, *approve, fs.Args(), out)
 	}
 
 	pool, err := openDatabase(ctx)

@@ -385,6 +385,92 @@
         ],
         "type": "object"
       },
+      "AppPlan": {
+        "description": "What installing an app does, or did.",
+        "properties": {
+          "added": {
+            "description": "Added, Changed and Removed are its definitions, as kind and name (\"workflow onboarding\").",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "app": {
+            "type": "string"
+          },
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "from_version": {
+            "description": "The installed version, empty for a new app.",
+            "type": "string"
+          },
+          "new_permissions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "no_change": {
+            "description": "Set when installing would leave everything as it is.",
+            "type": "boolean"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "permissions": {
+            "description": "What the app's own actions will be able to do; NewPermissions, those it does not have yet, which installing approves.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "renames": {
+            "description": "Statuses whose records move to a new name.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "runs_as_app": {
+            "description": "The rules that act as the app rather than as the person saving.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "to_version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "added",
+          "app",
+          "changed",
+          "from_version",
+          "new_permissions",
+          "no_change",
+          "notes",
+          "permissions",
+          "removed",
+          "renames",
+          "runs_as_app",
+          "to_version"
+        ],
+        "type": "object"
+      },
       "Approval": {
         "description": "One pending approval request, with enough of the ticket to show in a list. Anyone can be asked to approve something, staff or not, so this is not a staff-only endpoint.",
         "properties": {
@@ -3178,6 +3264,21 @@
         ],
         "type": "object"
       },
+      "Dependency": {
+        "properties": {
+          "constraint": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "constraint",
+          "name"
+        ],
+        "type": "object"
+      },
       "Download": {
         "description": "Where to fetch a file: a short-lived URL that needs no sign-in, to open or link to.",
         "properties": {
@@ -4538,6 +4639,75 @@
           "tls",
           "trusted_authserv",
           "username"
+        ],
+        "type": "object"
+      },
+      "InstalledApp": {
+        "description": "An installed app.",
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "definitions": {
+            "description": "Counts what it defines; Local, how many of them carry this instance's changes (local files, or edits made in the builders).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "dependencies": {
+            "items": {
+              "$ref": "#/components/schemas/Dependency"
+            },
+            "type": "array"
+          },
+          "description": {
+            "type": "string"
+          },
+          "first_party": {
+            "description": "Apps ship with ServiceLater and are installed at every start: they are updated by upgrading ServiceLater, never from here.",
+            "type": "boolean"
+          },
+          "installed_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "installed_by": {
+            "type": "string"
+          },
+          "local": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "permissions": {
+            "description": "What the app's own actions may do (its async rules, workflows and run_as: app rules).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "author",
+          "definitions",
+          "dependencies",
+          "description",
+          "first_party",
+          "installed_at",
+          "installed_by",
+          "local",
+          "name",
+          "permissions",
+          "updated_at",
+          "version"
         ],
         "type": "object"
       },
@@ -9746,6 +9916,455 @@
         "summary": "Decide approval",
         "tags": [
           "approvals"
+        ]
+      }
+    },
+    "/api/v1/apps": {
+      "get": {
+        "description": "(apps:manage): the installed apps, by name.\n\nRequires the `apps:manage` permission.",
+        "operationId": "listInstalledApps",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/InstalledApp"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List installed apps",
+        "tags": [
+          "apps"
+        ],
+        "x-permissions": [
+          "apps:manage"
+        ]
+      }
+    },
+    "/api/v1/apps/install": {
+      "post": {
+        "description": "(apps:manage) with a .swapp as the body: install or update it, in one transaction, and answer with what was done. New permissions the app asks for are refused unless approve_permissions=true, which also needs roles:manage (an app can be given anything). dev=true is a development reload (servicelater app dev): refused unless this instance is marked development. An app older than the installed one is refused here; the command line can roll back.\n\nRequires the `apps:manage` permission.",
+        "operationId": "installApp",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "approve_permissions",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dev",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppPlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Install app",
+        "tags": [
+          "apps"
+        ],
+        "x-permissions": [
+          "apps:manage"
+        ]
+      }
+    },
+    "/api/v1/apps/plan": {
+      "post": {
+        "description": "(apps:manage) with a .swapp as the body: what installing it would do (new, an update, or no change), checked against this instance as an install checks it, writing nothing. 422 lists every problem.\n\nRequires the `apps:manage` permission.",
+        "operationId": "planApp",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppPlan"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Plan app",
+        "tags": [
+          "apps"
+        ],
+        "x-permissions": [
+          "apps:manage"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}": {
+      "delete": {
+        "description": "(apps:manage): remove an app and everything it defines. Records are kept: their types retire and fall back to the built-in lifecycle. confirm must repeat the app's name. First-party apps, and apps others depend on, cannot be removed.\n\nRequires the `apps:manage` permission.",
+        "operationId": "uninstallApp",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Uninstall app",
+        "tags": [
+          "apps"
+        ],
+        "x-permissions": [
+          "apps:manage"
         ]
       }
     },
@@ -33815,6 +34434,9 @@
     },
     {
       "name": "approvals"
+    },
+    {
+      "name": "apps"
     },
     {
       "name": "attachments"
