@@ -225,6 +225,14 @@ func NewRouter(d Deps) http.Handler {
 				r.With(auth.RequirePermission(authz.CalendarsManage)).Delete("/{id}", h.deleteBusinessCalendar)
 			})
 
+			r.Route("/apps", func(r chi.Router) {
+				r.Use(auth.RequirePermission(authz.AppsManage))
+				r.Get("/", h.listInstalledApps)
+				r.Post("/plan", h.planApp)
+				r.Post("/install", h.installApp)
+				r.Delete("/{name}", h.uninstallApp)
+			})
+
 			r.Route("/tickets", func(r chi.Router) {
 				r.Get("/", h.listTickets)
 				r.Post("/", h.createTicket)

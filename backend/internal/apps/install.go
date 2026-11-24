@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -112,6 +113,9 @@ type InstallOptions struct {
 	// ApprovePermissions accepts the permissions an app asks for that its installed version does not have. Without
 	// it such an install is refused (a dry run just shows them). First-party bundled apps are approved by shipping.
 	ApprovePermissions bool
+	// NoDowngrade refuses an app older than the installed version (the admin page and its API). The CLI may go back,
+	// which is how a release is rolled back.
+	NoDowngrade bool
 	// Also runs in the install's transaction once every app is applied, so a change made with the install (the
 	// builder's edit) commits or rolls back with it. Not run on a dry run.
 	Also func(ctx context.Context, q *dbgen.Queries) error
@@ -145,6 +149,14 @@ func InstallAll(ctx context.Context, pool *pgxpool.Pool, apps []*Compiled, opts 
 				return fmt.Errorf("installing %s: %w", c.Manifest.Name, err)
 			}
 			plans = append(plans, plan)
+			if opts.NoDowngrade && plan.FromVersion != "" {
+				from, err1 := ParseVersion(plan.FromVersion)
+				to, err2 := ParseVersion(plan.ToVersion)
+				if err1 == nil && err2 == nil && to.Compare(from) < 0 {
+					return fmt.Errorf("%s %s is older than the installed %s: install a newer version, or roll back with the command line (servicelater app install)",
+						c.Manifest.Name, plan.ToVersion, plan.FromVersion)
+				}
+			}
 			if len(plan.NewPermissions) > 0 && !opts.ApprovePermissions && !opts.DryRun {
 				return fmt.Errorf("%s asks for permissions it does not have yet: %s. Its async rules, workflows and run_as: app rules act with them for anyone. Review them, then install again approving them (-approve-permissions)",
 					c.Manifest.Name, strings.Join(plan.NewPermissions, ", "))
@@ -544,6 +556,13 @@ type Installed struct {
 	Description string
 	Definitions int
 	Local       int // definitions that include local changes
+	// From List only: the rest of the manifest and who installed it when.
+	Author       string
+	Permissions  []string
+	Dependencies []Dependency
+	InstalledBy  string
+	InstalledAt  time.Time
+	UpdatedAt    time.Time
 }
 
 func List(ctx context.Context, pool *pgxpool.Pool) ([]Installed, error) {
@@ -568,7 +587,9 @@ func List(ctx context.Context, pool *pgxpool.Pool) ([]Installed, error) {
 		for _, a := range apps {
 			var m Manifest
 			_ = json.Unmarshal(a.Manifest, &m)
-			out = append(out, Installed{Name: a.Name, Version: a.Version, Description: m.Description, Definitions: counts[a.Name], Local: local[a.Name]})
+			out = append(out, Installed{Name: a.Name, Version: a.Version, Description: m.Description, Definitions: counts[a.Name], Local: local[a.Name],
+				Author: m.Author, Permissions: m.Permissions, Dependencies: m.Deps, InstalledBy: a.InstalledBy,
+				InstalledAt: a.InstalledAt.Time, UpdatedAt: a.UpdatedAt.Time})
 		}
 		return nil
 	})

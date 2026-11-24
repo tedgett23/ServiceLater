@@ -334,6 +334,38 @@ accepted), applying the instance local directory. `servicelater app sync` does t
 editing a local file. Because the sync runs at every start, an uninstalled bundled app comes back at the next
 restart; leave it out of `SL_BUNDLED_APPS` to keep it off, and `app uninstall` says so.
 
+### 4.6 Installing apps: the Apps page, pipelines and dev reload (built 2026-11-24)
+
+Three ways in, one installer (`apps.Install`: plan first, one transaction, advisory lock), each with the instance's
+local files and studio edits layered on top, as `servicelater app install` does:
+
+- **Admin → Apps** (`/admin/apps`, permission `apps:manage`, admins; `internal/api/apps_admin.go`). Lists installed
+  apps (version, author, definitions and how many carry this instance's changes, permissions, dependencies, who
+  installed it). Uploading a `.swapp` (`POST /apps/plan`, the raw archive as the body, at most 16 MB) shows what
+  installing does without writing anything: definitions added, changed and removed, status renames, the app's
+  permissions with the new ones marked, rules that act as the app, and notes. Every problem (it does not compile, a
+  missing dependency, records a removed status would strand) is listed. Installing (`POST /apps/install`) refuses
+  new permissions unless `approve_permissions=true`, which also needs `roles:manage` (an app can be given anything),
+  and refuses a version lower than the installed one (the command line can still roll back). Removing
+  (`DELETE /apps/{name}?confirm=<name>`) needs the name typed; records are kept, as with `app uninstall`.
+  **First-party apps** (embedded in the binary) are neither uploaded nor removed here: they are synced at every
+  start, so they change by upgrading ServiceLater, or with local files and the builders.
+- **Pipelines**: `servicelater app install -url https://instance [-dry-run] [-approve-permissions] <folder|.swapp>...`
+  sends each app (a folder is packed first) to that API with the key in `SL_API_KEY` (a service account's key
+  holding `apps:manage`, and `roles:manage` to approve permissions), in the order given. Without `-url` it still
+  installs straight into `SL_DATABASE_URL`.
+- **Dev reload**: `servicelater app dev -url http://localhost:8080 ./my-app` installs the folder, then again whenever a
+  file in it changes (polled every 500 ms: works in containers and on network folders), until stopped. A save that
+  does not compile is reported and the instance keeps the last good version. The instance refuses it
+  (`dev=true`, 409) unless Admin → Instance marks it **development**, so a wrong `-url` never reaches UAT or
+  production; it needs no version bump and may go back a version. Installed by is recorded as `<email> (dev)`.
+
+Promoting an app: build it with `app dev` on a development instance, bump `version`, `servicelater app pack`, then
+install the `.swapp` on UAT and production from the Apps page or a pipeline. Installs and removals clear the
+permission cache, so roles an app adds or removes apply at once on that server (within 5 s elsewhere).
+
+Not built: app migrations and UI extensions (apps never run DDL, D17), installing from a URL, a marketplace.
+
 ## 5. Expressions (CEL)
 
 Used wherever an app needs a condition or a computed value: transition guards, rule filters, `set` values, form

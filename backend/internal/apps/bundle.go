@@ -172,12 +172,28 @@ func add(files map[string][]byte, name string, data []byte, total *int64) error 
 	return nil
 }
 
+// MaxArchiveBytes is the largest .swapp an upload may be (compressed, so never more than the app it holds).
+const MaxArchiveBytes = maxBytes
+
 func loadArchive(file string) (*Bundle, error) {
 	zr, err := zip.OpenReader(file)
 	if err != nil {
 		return nil, fmt.Errorf("%s is not a folder or a valid .swapp archive: %w", file, err)
 	}
 	defer func() { _ = zr.Close() }()
+	return readArchive(&zr.Reader)
+}
+
+// LoadArchive reads a bundle from the bytes of a .swapp archive, such as an upload.
+func LoadArchive(data []byte) (*Bundle, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, fmt.Errorf("this is not a .swapp archive (a zip of the app's files): %w", err)
+	}
+	return readArchive(zr)
+}
+
+func readArchive(zr *zip.Reader) (*Bundle, error) {
 	files := map[string][]byte{}
 	var total int64
 	for _, f := range zr.File {

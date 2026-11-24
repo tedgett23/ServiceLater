@@ -340,7 +340,8 @@ export const P = {
 	reportsRead: 'reports:read',
 	queryRun: 'query:run',
 	instanceBackup: 'instance:backup',
-	instanceClone: 'instance:clone'
+	instanceClone: 'instance:clone',
+	appsManage: 'apps:manage'
 } as const;
 
 /** Whether someone may do something. The server decides for real; this only shows and hides things. */
@@ -402,7 +403,8 @@ export const canAdmin = (u: User | null | undefined) =>
 	can(u, P.catalogManage) ||
 	can(u, P.formsManage) ||
 	can(u, P.instanceBackup) ||
-	can(u, P.instanceClone);
+	can(u, P.instanceClone) ||
+	can(u, P.appsManage);
 
 export interface LifecycleState {
 	id: string;
