@@ -92,7 +92,9 @@ type notificationNote struct {
 
 type Hub struct {
 	// MaxPerUser is how many live connections one person may hold (open tabs and devices). Zero means the default.
+	// Limit, when set, wins: the live_connections setting (Admin → Rate limits), read at each new connection.
 	MaxPerUser int
+	Limit      func() int
 	// Audience says whether a record is routed to a restricted group and, if so, who besides those holding
 	// restricted:read may hear about it (the group's members and the assignee). Nil treats every record as
 	// unrestricted (tests that do not need it).
@@ -106,6 +108,11 @@ type Hub struct {
 }
 
 func (h *Hub) max() int {
+	if h.Limit != nil {
+		if n := h.Limit(); n > 0 {
+			return n
+		}
+	}
 	if h.MaxPerUser > 0 {
 		return h.MaxPerUser
 	}

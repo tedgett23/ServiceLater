@@ -18,6 +18,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/inbound"
 	"github.com/servicelater/servicelater/backend/internal/notify"
 	"github.com/servicelater/servicelater/backend/internal/query"
+	"github.com/servicelater/servicelater/backend/internal/ratelimit"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/secrets"
@@ -54,6 +55,9 @@ type Deps struct {
 	OpenMailbox func(ctx context.Context, cfg settings.Inbound, secret string, tlsConfig *tls.Config) (inbound.Mailbox, error)
 	// Query runs the SQL people write (optional: without it there are no queries).
 	Query *query.Runner
+	// Limits counts API requests per caller (optional: without it each router counts on its own, with the default
+	// limits, which is enough for tests).
+	Limits *ratelimit.Limiter
 }
 
 type handlers struct {
@@ -72,6 +76,7 @@ type handlers struct {
 	teamsPoster TeamsPoster
 	openMailbox func(ctx context.Context, cfg settings.Inbound, secret string, tlsConfig *tls.Config) (inbound.Mailbox, error)
 	query       *query.Runner
+	limits      *ratelimit.Limiter
 }
 
 // lifecycleFor is the status flow for a ticket type: the type's own, else the `task` default, else the built-in one.
@@ -109,12 +114,15 @@ func NewRouter(d Deps) http.Handler {
 	if d.OpenMailbox == nil {
 		d.OpenMailbox = inbound.Open
 	}
+	if d.Limits == nil {
+		d.Limits = ratelimit.New(d.Pool)
+	}
 	if d.SSO == nil {
 		d.SSO = &sso.Manager{Pool: d.Pool, Keys: d.Keys, StateKey: []byte(rand.Text())}
 	}
 	h := &handlers{pool: d.Pool, perms: auth.NewPermissionCache(d.Pool), auth: d.Auth, apps: d.Apps, svc: &records.Service{Apps: d.Apps, Pool: d.Pool},
 		keys: d.Keys, sender: d.Sender, files: d.Files, signer: d.Signer, sso: d.SSO,
-		smsSender: d.SMS, teamsPoster: d.Teams, openMailbox: d.OpenMailbox, query: d.Query}
+		smsSender: d.SMS, teamsPoster: d.Teams, openMailbox: d.OpenMailbox, query: d.Query, limits: d.Limits}
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID, middleware.Recoverer, finishWrites)
 
@@ -138,7 +146,7 @@ func NewRouter(d Deps) http.Handler {
 		})
 
 		r.Group(func(r chi.Router) {
-			r.Use(d.Tokens.Authenticate, h.perms.Load)
+			r.Use(d.Tokens.Authenticate, h.perms.Load, h.rateLimit)
 
 			r.Route("/users", func(r chi.Router) {
 				r.With(auth.RequirePermission(authz.UsersRead)).Get("/", h.listUsers)
@@ -153,6 +161,7 @@ func NewRouter(d Deps) http.Handler {
 					r.Get("/api-keys", h.listAPIKeys)
 					r.Post("/api-keys", h.createAPIKey)
 					r.Delete("/api-keys/{keyId}", h.revokeAPIKey)
+					r.Patch("/api-keys/{keyId}", h.updateAPIKey)
 				})
 			})
 			r.With(auth.RequirePermission(authz.UsersManage)).Post("/service-accounts", h.createServiceAccount)
@@ -289,6 +298,8 @@ func NewRouter(d Deps) http.Handler {
 			})
 			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/history", h.getHistorySettings)
 			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/history", h.putHistorySettings)
+			r.With(auth.RequirePermission(authz.SettingsManage)).Get("/settings/limits", h.getLimits)
+			r.With(auth.RequirePermission(authz.SettingsManage)).Put("/settings/limits", h.putLimits)
 			r.Route("/settings/storage", func(r chi.Router) {
 				r.Use(auth.RequirePermission(authz.SettingsManage))
 				r.Get("/", h.getStorageSettings)

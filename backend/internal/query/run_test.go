@@ -139,13 +139,17 @@ func TestAQueryStopsAtItsLimits(t *testing.T) {
 		t.Fatalf("stopped only after %s", time.Since(started))
 	}
 
-	if _, err := pool.Exec(ctx, `INSERT INTO query_runs (user_id, sql, outcome) SELECT $1, 'SELECT 1', 'ok' FROM generate_series(1, $2::int)`,
-		admin, query.PerHour); err != nil {
+	// The hourly limit is a setting (Admin → Rate limits).
+	if _, err := pool.Exec(ctx, `INSERT INTO settings (name, value) VALUES ('limits.queries_per_hour', '5')`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM settings WHERE name LIKE 'limits.%'`) })
+	if _, err := pool.Exec(ctx, `INSERT INTO query_runs (user_id, sql, outcome) SELECT $1, 'SELECT 1', 'ok' FROM generate_series(1, 5)`, admin); err != nil {
 		t.Fatal(err)
 	}
 	_, err = r.Run(ctx, query.Request{User: admin, SQL: "SELECT 1"})
 	var busy *query.Busy
-	if !errors.As(err, &busy) {
+	if !errors.As(err, &busy) || !strings.Contains(busy.Message, "5 queries") {
 		t.Fatalf("over the hourly limit: got %v", err)
 	}
 }

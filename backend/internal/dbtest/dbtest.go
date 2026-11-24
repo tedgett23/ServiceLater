@@ -38,11 +38,11 @@ func Pool(t *testing.T) *pgxpool.Pool {
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE tasks, sessions, rate_limits, user_credentials, users, apps, jobs, action_runs, workflow_executions, workflow_schedules, workflow_webhook_deliveries, groups, sso_providers CASCADE"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE tasks, sessions, rate_limits, user_credentials, users, apps, jobs, action_runs, workflow_executions, workflow_schedules, workflow_webhook_deliveries, rate_counts, groups, sso_providers CASCADE"); err != nil {
 		t.Fatal(err)
 	}
 	// A sign-in setting left at "admins only" would refuse every later test's password.
-	if _, err := pool.Exec(ctx, "DELETE FROM settings WHERE name LIKE 'sign_in.%'"); err != nil {
+	if _, err := pool.Exec(ctx, "DELETE FROM settings WHERE name LIKE 'sign_in.%' OR name LIKE 'limits.%'"); err != nil {
 		t.Fatal(err)
 	}
 	// Record types apps defined go with the apps, and their numbering with them.

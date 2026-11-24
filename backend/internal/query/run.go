@@ -24,16 +24,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/servicelater/servicelater/backend/internal/db"
+	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
+	"github.com/servicelater/servicelater/backend/internal/ratelimit"
+	"github.com/servicelater/servicelater/backend/internal/settings"
 )
 
-// Limits on what one query may take.
+// Limits on what one query may take. How many one person may start in an hour (counted from the audit log, so across
+// servers) and have running at once (on one server) are settings: queries_per_hour and queries_at_once (Admin → Rate
+// limits).
 const (
 	DefaultTimeout = 30 * time.Second
 	DefaultMaxRows = 5000
-	// PerPerson is how many queries one person may have running at once, on one server.
-	PerPerson = 2
-	// PerHour is how many queries one person may start in an hour (counted from the audit log, so across servers).
-	PerHour = 300
 )
 
 // Runner runs checked queries as the query role (app_query_role) and records every attempt in query_runs.
@@ -119,17 +120,23 @@ func (r *Runner) Run(ctx context.Context, req Request) (*Result, error) {
 
 func (r *Runner) start(ctx context.Context, user uuid.UUID) error {
 	var lastHour int
-	if err := r.owner.QueryRow(ctx, `SELECT count(*) FROM query_runs WHERE user_id = $1 AND started_at > now() - interval '1 hour'`,
-		user).Scan(&lastHour); err != nil {
+	var limits settings.Limits
+	if err := db.WithSystem(ctx, r.owner, func(tx pgx.Tx) error {
+		var err error
+		if limits, err = ratelimit.Load(ctx, dbgen.New(tx)); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, `SELECT count(*) FROM query_runs WHERE user_id = $1 AND started_at > now() - interval '1 hour'`, user).Scan(&lastHour)
+	}); err != nil {
 		return fmt.Errorf("query: count runs: %w", err)
 	}
-	if lastHour >= PerHour {
-		return &Busy{Message: fmt.Sprintf("you have run %d queries in the last hour, the most allowed: try again later", PerHour)}
+	if lastHour >= limits.QueriesPerHour {
+		return &Busy{Message: fmt.Sprintf("you have run %d queries in the last hour, the most allowed: try again later", limits.QueriesPerHour)}
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.running[user] >= PerPerson {
-		return &Busy{Message: fmt.Sprintf("you already have %d queries running: wait for one to finish", PerPerson)}
+	if r.running[user] >= limits.QueriesAtOnce {
+		return &Busy{Message: fmt.Sprintf("you already have %d queries running: wait for one to finish", limits.QueriesAtOnce)}
 	}
 	r.running[user]++
 	return nil

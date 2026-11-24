@@ -5,7 +5,8 @@ whichever was used.
 
 ## Passwords
 
-`POST /api/v1/auth/login` (bcrypt, rate-limited) sets an `sl_access` cookie (a short-lived token) and an `sl_refresh`
+`POST /api/v1/auth/login` (bcrypt, rate-limited per address and place by the `sign_in_attempts` and
+`sign_in_window_minutes` settings, Admin → Rate limits) sets an `sl_access` cookie (a short-lived token) and an `sl_refresh`
 cookie (rotating, reuse revokes the family). Admin → Sign-in can keep passwords for **admins only**
 (`sign_in.passwords = "admins"`, only once a single sign-on provider is on): anyone else's correct password is
 answered 403 with "sign in with your organisation's single sign-on". Admins keep passwords so a broken provider cannot
@@ -28,6 +29,10 @@ Decided with the user (2026-11-17): **keys belong to service accounts**, never t
   `records:<verb>:*`, and `records:<verb>:*` keeps only the record permissions of that verb the account has. Go narrows
   `Principal.Perms` (`PermissionCache.Load`, `/auth/me`); the database narrows too: `db.WithScopes` on the request
   context makes `db.WithUser` call `app_begin_key`, so RLS sees only the key's permissions.
+- **Rate limits** (2026-11-24): a key's requests count against `api_keys_per_minute` (Admin → Rate limits) unless the
+  key has its own `rate_limit` (`PATCH /api/v1/users/{id}/api-keys/{keyId}` with a number, 0 for none, or null for
+  the setting; `app_set_api_key_rate_limit`, `users:manage`; "Rate limit" on the key in the user page). See
+  docs/deploy.md "Rate limits".
 - **Nobody makes a key that could do more than they can** (`app_create_api_key` checks every permission the key would
   have against the maker's), so `users:manage` alone cannot mint a key for an admin account.
 

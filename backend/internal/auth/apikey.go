@@ -70,6 +70,10 @@ func (k *APIKeys) Verify(ctx context.Context, key string) (Principal, error) {
 		if row.ExpiresAt.Valid {
 			p.Expires = row.ExpiresAt.Time
 		}
+		if row.RateLimit.Valid {
+			n := int(row.RateLimit.Int32)
+			p.KeyLimit = &n
+		}
 		return q.TouchAPIKey(ctx, row.ID)
 	})
 	return p, err

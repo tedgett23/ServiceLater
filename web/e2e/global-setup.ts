@@ -40,4 +40,11 @@ export default async function globalSetup(config: FullConfig) {
 		await new Promise((r) => setTimeout(r, 100));
 	}
 	await agent.dispose();
+
+	// The suite drives a few shared accounts far faster than a person could, so the API limit for people and keys
+	// is off here (limits.spec.ts puts back what it finds). Every other rate limit keeps its default.
+	const admin = await request.newContext({ baseURL, storageState: stateFile('admin') });
+	const lifted = await admin.put('/api/v1/settings/limits', { data: { api_people_per_minute: 0, api_keys_per_minute: 0 } });
+	if (!lifted.ok()) throw new Error(`lifting the API rate limit: ${lifted.status()} ${await lifted.text()}`);
+	await admin.dispose();
 }

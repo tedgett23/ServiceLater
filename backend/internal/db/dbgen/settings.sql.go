@@ -12,12 +12,56 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addRateCounts = `-- name: AddRateCounts :many
+INSERT INTO rate_counts (key, window_start, count)
+SELECT unnest($1::text[]), unnest($2::timestamptz[]), unnest($3::int[])
+ON CONFLICT (key, window_start) DO UPDATE SET count = rate_counts.count + EXCLUDED.count
+RETURNING key, window_start, count
+`
+
+type AddRateCountsParams struct {
+	Keys    []string             `json:"keys"`
+	Windows []pgtype.Timestamptz `json:"windows"`
+	Deltas  []int32              `json:"deltas"`
+}
+
+// Adds what one server counted since it last did (one row per caller and minute) and returns the totals every
+// server has counted (internal/ratelimit). A delta of 0 only reads.
+func (q *Queries) AddRateCounts(ctx context.Context, arg AddRateCountsParams) ([]RateCount, error) {
+	rows, err := q.db.Query(ctx, addRateCounts, arg.Keys, arg.Windows, arg.Deltas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []RateCount
+	for rows.Next() {
+		var i RateCount
+		if err := rows.Scan(&i.Key, &i.WindowStart, &i.Count); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const clearSecret = `-- name: ClearSecret :exec
 SELECT app_clear_secret($1::text)
 `
 
 func (q *Queries) ClearSecret(ctx context.Context, name string) error {
 	_, err := q.db.Exec(ctx, clearSecret, name)
+	return err
+}
+
+const deleteOldRateCounts = `-- name: DeleteOldRateCounts :exec
+DELETE FROM rate_counts WHERE window_start < now() - interval '5 minutes'
+`
+
+func (q *Queries) DeleteOldRateCounts(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteOldRateCounts)
 	return err
 }
 

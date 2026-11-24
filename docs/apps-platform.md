@@ -1059,8 +1059,8 @@ Agreed with the user 2026-11-18, alongside scripts (§6.7). Each runs in the ste
   `received_at`; the run acts as the app, for nobody, with no record (like a schedule). A call repeating the value of
   `dedupe_header` (default `Idempotency-Key`) gets the first call's run back with 200 and starts nothing (a partial
   unique index, so two at once cannot both start one). Answers: 202 `{run_id}`, 200 for a repeat, 401 bad or missing
-  proof or no secret, 400 not JSON, 413 too large, 404 no such webhook, 429 past 300 calls a minute per webhook
-  (refused ones count). Every call is logged without its body in `workflow_webhook_deliveries` (`00018_webhooks`,
+  proof or no secret, 400 not JSON, 413 too large, 404 no such webhook, 429 past the `webhook_per_minute` rate limit (default
+  300 a minute per webhook, refused ones count; Admin → Rate limits). Every call is logged without its body in `workflow_webhook_deliveries` (`00018_webhooks`,
   written as the system, read with `workflows:read_all` via `GET /workflows/{app}/{name}/deliveries`, kept 30 days).
   Edited in the builder's workflow panel (`WebhookSettings.svelte`: auth, secret, headers, the address to copy,
   whether the secret is set, the latest calls).

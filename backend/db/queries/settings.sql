@@ -73,3 +73,14 @@ RETURNING email_notifications;
 -- name: SetMyTheme :one
 UPDATE users SET theme = $2 WHERE id = $1 AND id = app_current_user_id()
 RETURNING theme;
+
+-- name: AddRateCounts :many
+-- Adds what one server counted since it last did (one row per caller and minute) and returns the totals every
+-- server has counted (internal/ratelimit). A delta of 0 only reads.
+INSERT INTO rate_counts (key, window_start, count)
+SELECT unnest(sqlc.arg('keys')::text[]), unnest(sqlc.arg('windows')::timestamptz[]), unnest(sqlc.arg('deltas')::int[])
+ON CONFLICT (key, window_start) DO UPDATE SET count = rate_counts.count + EXCLUDED.count
+RETURNING key, window_start, count;
+
+-- name: DeleteOldRateCounts :exec
+DELETE FROM rate_counts WHERE window_start < now() - interval '5 minutes';
