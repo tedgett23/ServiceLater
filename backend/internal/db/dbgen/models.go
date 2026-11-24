@@ -690,10 +690,10 @@ type SavedView struct {
 	Shared      bool               `json:"shared"`
 	Columns     []byte             `json:"columns"`
 	DependsOn   []string           `json:"depends_on"`
+	Chart       []byte             `json:"chart"`
 	OwnerID     uuid.UUID          `json:"owner_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
-	Chart       []byte             `json:"chart"`
 }
 
 type Secret struct {

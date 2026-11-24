@@ -5,6 +5,8 @@
 -- Global search's "contains" (ILIKE) and "looks like" (word similarity) indexes. It ships with Postgres and is a
 -- trusted extension, so the database's owner may create it.
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- hmac() for checking the signed identity SQL queries carry (00017_query). Also ships with Postgres and is trusted.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- The runtime role RLS applies to. The connection role (table owner, used for migrations and explicit system
 -- operations, db.WithSystem) switches to it per transaction with SET LOCAL ROLE. Every table the owner creates is
@@ -21,6 +23,12 @@ BEGIN
 END
 $$;
 -- +goose StatementEnd
+
+-- Everyone may use the public schema by default. Only the owner and the app role should be able to: the login role
+-- SQL queries run as (00017_query) must not reach the tables' functions (app_permissions_of tells anyone's
+-- permissions, for one) or anything else in it. The query views still call into public; they run as their owner.
+REVOKE USAGE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO servicelater_app;
 
 -- The person acting in this transaction, or NULL when none was set.
 -- +goose StatementBegin
@@ -48,4 +56,7 @@ CREATE FUNCTION app_can(p_permission text) RETURNS boolean
 DROP FUNCTION app_can(text);
 DROP FUNCTION app_on_behalf_of();
 DROP FUNCTION app_current_user_id();
+GRANT USAGE ON SCHEMA public TO PUBLIC;
+REVOKE USAGE ON SCHEMA public FROM servicelater_app;
+DROP EXTENSION pgcrypto;
 DROP EXTENSION pg_trgm;

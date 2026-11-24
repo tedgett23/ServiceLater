@@ -1,4 +1,4 @@
--- Roles and who has them (migration 00019). Roles are written by app install (as the owner); grants by admins
+-- Roles and who has them (migration 00004_access). Roles are written by app install (as the owner); grants by admins
 -- under RLS.
 
 -- name: UpsertAppRole :exec

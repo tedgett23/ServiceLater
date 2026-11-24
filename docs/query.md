@@ -22,7 +22,7 @@ between a query and the data, and each holds on its own:
 2. **The role.** Queries run on a login role of their own: `app_query_role()`, `<database>_query`, because roles
    belong to the whole cluster. It is not a member of the owner, so `RESET ROLE` gains nothing. The transaction is
    read-only, with a statement timeout. The role:
-   - has `USAGE` on the `query` schema only (migration 00017 revokes `public` from `PUBLIC` and grants it to the app
+   - has `USAGE` on the `query` schema only (migration 00001_foundation revokes `public` from `PUBLIC` and grants it to the app
      role);
    - has `SELECT` on its views (default privileges) and `EXECUTE` on `app_query_identity()`.
 
@@ -64,7 +64,7 @@ kept too. People read their own (`GET /api/v1/query/runs`); `settings:manage` re
 
 ## The views
 
-`backend/db/migrations/00018_query_views.sql`. Each one shows what the API would show the person, no more:
+`backend/db/migrations/00017_query.sql`. Each one shows what the API would show the person, no more:
 
 | View | Rows | Who sees them |
 |---|---|---|
@@ -87,7 +87,7 @@ Something linked to a record joins `query.records`, so the record rule is writte
 
 A gotcha found writing them: planning a query inlines the SQL functions in the table's index expressions as the
 person running it, so an index function that names `public.` breaks every query on that table for the query role
-(which may not use `public`). 00018 gives `app_record_words` a `SET search_path` so it is never inlined.
+(which may not use `public`). `00015_search` gives `app_record_words` a `SET search_path` so it is never inlined.
 `TestEveryQueryViewCanBeRead` finds the next one.
 
 ## The workbench
@@ -106,13 +106,13 @@ picked to fit the result (a time column and numbers: a line; text and numbers: b
 again when the columns change; up to four numeric columns, coloured series-1..4 in their result order, never cycled.
 Bar charts show the first 50 rows in query order and say how many more are in Results. Zero draws nothing; hover or the arrow keys read exact values; dates are drawn in UTC.
 Choose **Pie** or **Doughnut** for shares of an additive measure, such as ticket counts by priority. Each category needs a single row, with a non-negative value and a positive total. These charts show values and percentages for up to eight categories and decline truncated results; they never silently combine or drop slices. **Area** fills one trend to zero. **Scatter** draws points without connecting them: choose two different numeric columns, for example open tickets and average resolution time by team. Rows missing either coordinate have no point.
-A saved view keeps its chart (`saved_views.chart`, `00020_saved_view_charts`; `query.Chart` checks it against the
+A saved view keeps its chart (`saved_views.chart`, `00017_query`; `query.Chart` checks it against the
 view's columns on every save).
 
 ## Saved views
 
 A query saved under a name, which other queries read like a table (`SELECT * FROM open_incidents`), and which
-`GET /api/v1/views/{name}/rows` serves like a table API. Migration `00019_saved_views`, `internal/query/saved.go`,
+`GET /api/v1/views/{name}/rows` serves like a table API. Migration `00017_query`, `internal/query/saved.go`,
 `internal/api/views.go`.
 
 - **Only the SQL is kept.** When a query names a saved view, the runner puts its SQL in front as a `WITH` clause (and

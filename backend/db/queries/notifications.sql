@@ -9,7 +9,7 @@ SELECT count(*) FROM notifications WHERE user_id = sqlc.arg('user_id') AND read_
 -- name: MarkNotificationRead :one
 UPDATE notifications SET read_at = now() WHERE id = sqlc.arg('id') AND read_at IS NULL RETURNING *;
 
--- Deliver a template notification about a ticket; app_notify (00018) decides who actually gets one.
+-- Deliver a template notification about a ticket; app_notify (00009_notifications) decides who actually gets one.
 -- name: SendNotification :one
 SELECT app_notify(sqlc.arg('user_ids')::uuid[], sqlc.arg('task_id')::uuid, sqlc.arg('app')::text, sqlc.arg('template')::text)::int AS sent;
 
