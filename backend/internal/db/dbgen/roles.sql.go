@@ -334,7 +334,7 @@ type UpsertAppRoleParams struct {
 	AppName     pgtype.Text `json:"app_name"`
 }
 
-// Roles and who has them (migration 00019). Roles are written by app install (as the owner); grants by admins
+// Roles and who has them (migration 00004_access). Roles are written by app install (as the owner); grants by admins
 // under RLS.
 func (q *Queries) UpsertAppRole(ctx context.Context, arg UpsertAppRoleParams) error {
 	_, err := q.db.Exec(ctx, upsertAppRole,

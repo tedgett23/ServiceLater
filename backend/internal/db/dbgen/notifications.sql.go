@@ -116,7 +116,7 @@ type SendNotificationParams struct {
 	Template string      `json:"template"`
 }
 
-// Deliver a template notification about a ticket; app_notify (00018) decides who actually gets one.
+// Deliver a template notification about a ticket; app_notify (00009_notifications) decides who actually gets one.
 func (q *Queries) SendNotification(ctx context.Context, arg SendNotificationParams) (int32, error) {
 	row := q.db.QueryRow(ctx, sendNotification,
 		arg.UserIds,

@@ -56,13 +56,14 @@ CREATE POLICY group_members_delete ON group_members FOR DELETE TO servicelater_a
 
 -- The built-in roles, as one function so the migration and the test reset (dbtest truncates apps, which cascades
 -- here) write the same rows. A later migration that changes a built-in role replaces this function and calls it.
+-- Admins run SQL queries (query:run); others get it through a role (core-itsm's analyst).
 -- +goose StatementBegin
 CREATE FUNCTION app_seed_builtin_roles() RETURNS void
     LANGUAGE sql
     AS $$
     INSERT INTO roles (name, label, description, permissions) VALUES
         ('admin', 'Admin', 'Everything, including people, groups and roles.',
-         '{calendars:manage,catalog:manage,cmdb:manage,cmdb:read,comments:delete,comments:internal,forms:manage,freezes:manage,groups:manage,knowledge:publish,knowledge:read_internal,knowledge:write,records:create:*,records:delete:*,records:read:*,records:update:*,reports:read,restricted:read,roles:manage,scripts:edit,slas:manage,settings:manage,users:manage,users:read,workflows:edit,workflows:read_all,workflows:run}'),
+         '{calendars:manage,catalog:manage,cmdb:manage,cmdb:read,comments:delete,comments:internal,forms:manage,freezes:manage,groups:manage,knowledge:publish,knowledge:read_internal,knowledge:write,query:run,records:create:*,records:delete:*,records:read:*,records:update:*,reports:read,restricted:read,roles:manage,scripts:edit,slas:manage,settings:manage,users:manage,users:read,workflows:edit,workflows:read_all,workflows:run}'),
         ('agent', 'Agent', 'Works tickets of every type: sees, files and edits them, writes internal notes, runs workflows.',
          '{cmdb:read,comments:internal,knowledge:read_internal,knowledge:write,records:create:*,records:read:*,records:update:*,reports:read,users:read,workflows:read_all,workflows:run}'),
         ('end_user', 'End user', 'Files tickets and follows their own.', '{}')

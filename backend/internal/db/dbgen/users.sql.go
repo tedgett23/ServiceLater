@@ -315,7 +315,7 @@ type SetUserPasswordParams struct {
 	PasswordHash string    `json:"password_hash"`
 }
 
-// Through SECURITY DEFINER functions (00017): credentials and sessions are owner-only tables.
+// Through SECURITY DEFINER functions (00002_people): credentials and sessions are owner-only tables.
 func (q *Queries) SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error {
 	_, err := q.db.Exec(ctx, setUserPassword, arg.UserID, arg.PasswordHash)
 	return err

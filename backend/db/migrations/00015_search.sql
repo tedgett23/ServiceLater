@@ -59,6 +59,11 @@ $$;
 CREATE FUNCTION app_record_words(p_description text, p_fields jsonb) RETURNS tsvector
     LANGUAGE sql IMMUTABLE PARALLEL SAFE
     -- Schema-qualified: Postgres 17 builds and maintains indexes with a search path of pg_catalog only.
+    -- The SET clause keeps Postgres from inlining it: it inlines a SQL function in an index expression while planning
+    -- any query on the table, as whoever runs it, and the query role (00017_query) may not use the public schema, so
+    -- every query over tasks failed with "permission denied for schema public". TestEveryQueryViewCanBeRead finds any
+    -- other function like it.
+    SET search_path = pg_catalog
     AS $$ SELECT to_tsvector('english'::regconfig, coalesce(p_description, '') || ' ' || public.app_fields_text(p_fields)) $$;
 -- +goose StatementEnd
 

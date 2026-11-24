@@ -52,7 +52,7 @@ RETURNING id, email, name, role, manager_id, app_name, deactivated_at, email_not
 -- name: DeleteUser :execrows
 DELETE FROM users WHERE id = $1;
 
--- Through SECURITY DEFINER functions (00017): credentials and sessions are owner-only tables.
+-- Through SECURITY DEFINER functions (00002_people): credentials and sessions are owner-only tables.
 -- name: SetUserPassword :exec
 SELECT app_set_password(sqlc.arg('user_id')::uuid, sqlc.arg('password_hash')::text);
 
