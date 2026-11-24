@@ -33,6 +33,8 @@ type Principal struct {
 	// narrowed to (nil: everything its account may do). PermissionCache.Load and db.WithUser both apply them.
 	KeyID  uuid.UUID
 	Scopes []string
+	// KeyLimit is the key's own rate limit (requests a minute, 0 for none); nil follows the setting for keys.
+	KeyLimit *int
 }
 
 // Can reports whether the caller has a permission. It is the fast check in Go; RLS checks again.

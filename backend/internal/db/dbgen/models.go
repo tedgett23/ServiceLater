@@ -36,6 +36,7 @@ type ApiKey struct {
 	ExpiresAt  pgtype.Timestamptz `json:"expires_at"`
 	LastUsedAt pgtype.Timestamptz `json:"last_used_at"`
 	RevokedAt  pgtype.Timestamptz `json:"revoked_at"`
+	RateLimit  pgtype.Int4        `json:"rate_limit"`
 }
 
 type App struct {
@@ -637,6 +638,12 @@ type QuerySla struct {
 	StartedAt pgtype.Timestamptz `json:"started_at"`
 	// When it stopped; null while running or paused.
 	StoppedAt pgtype.Timestamptz `json:"stopped_at"`
+}
+
+type RateCount struct {
+	Key         string             `json:"key"`
+	WindowStart pgtype.Timestamptz `json:"window_start"`
+	Count       int32              `json:"count"`
 }
 
 type RateLimit struct {

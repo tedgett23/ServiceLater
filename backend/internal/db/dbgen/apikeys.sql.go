@@ -55,7 +55,7 @@ func (q *Queries) CreateServiceAccount(ctx context.Context, arg CreateServiceAcc
 }
 
 const getAPIKeyForAuth = `-- name: GetAPIKeyForAuth :one
-SELECT k.id, k.user_id, k.scopes, k.expires_at, u.role
+SELECT k.id, k.user_id, k.scopes, k.expires_at, u.role, k.rate_limit
 FROM api_keys k
 JOIN users u ON u.id = k.user_id
 JOIN service_accounts s ON s.user_id = u.id
@@ -69,6 +69,7 @@ type GetAPIKeyForAuthRow struct {
 	Scopes    []string           `json:"scopes"`
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	Role      string             `json:"role"`
+	RateLimit pgtype.Int4        `json:"rate_limit"`
 }
 
 // What a request's key is good for, read as the system (owner role) before anyone is known: nothing when it is
@@ -82,6 +83,7 @@ func (q *Queries) GetAPIKeyForAuth(ctx context.Context, secretHash []byte) (GetA
 		&i.Scopes,
 		&i.ExpiresAt,
 		&i.Role,
+		&i.RateLimit,
 	)
 	return i, err
 }
@@ -103,7 +105,7 @@ func (q *Queries) GetServiceAccount(ctx context.Context, userID uuid.UUID) (Serv
 }
 
 const listAPIKeys = `-- name: ListAPIKeys :many
-SELECT k.id, k.name, k.prefix, k.scopes, k.created_at, c.name AS created_by_name, k.expires_at, k.last_used_at, k.revoked_at
+SELECT k.id, k.name, k.prefix, k.scopes, k.created_at, c.name AS created_by_name, k.expires_at, k.last_used_at, k.revoked_at, k.rate_limit
 FROM api_keys k LEFT JOIN users c ON c.id = k.created_by
 WHERE k.user_id = $1
 ORDER BY k.revoked_at IS NOT NULL, k.created_at DESC
@@ -119,6 +121,7 @@ type ListAPIKeysRow struct {
 	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
 	LastUsedAt    pgtype.Timestamptz `json:"last_used_at"`
 	RevokedAt     pgtype.Timestamptz `json:"revoked_at"`
+	RateLimit     pgtype.Int4        `json:"rate_limit"`
 }
 
 // An account's keys, live ones first (RLS: users:manage).
@@ -141,6 +144,7 @@ func (q *Queries) ListAPIKeys(ctx context.Context, userID uuid.UUID) ([]ListAPIK
 			&i.ExpiresAt,
 			&i.LastUsedAt,
 			&i.RevokedAt,
+			&i.RateLimit,
 		); err != nil {
 			return nil, err
 		}
@@ -206,6 +210,23 @@ func (q *Queries) RevokeAPIKey(ctx context.Context, arg RevokeAPIKeyParams) (boo
 	var revoked bool
 	err := row.Scan(&revoked)
 	return revoked, err
+}
+
+const setAPIKeyRateLimit = `-- name: SetAPIKeyRateLimit :one
+SELECT app_set_api_key_rate_limit($1::uuid, $2::uuid, $3::int)::bool AS found
+`
+
+type SetAPIKeyRateLimitParams struct {
+	UserID    uuid.UUID   `json:"user_id"`
+	ID        uuid.UUID   `json:"id"`
+	RateLimit pgtype.Int4 `json:"rate_limit"`
+}
+
+func (q *Queries) SetAPIKeyRateLimit(ctx context.Context, arg SetAPIKeyRateLimitParams) (bool, error) {
+	row := q.db.QueryRow(ctx, setAPIKeyRateLimit, arg.UserID, arg.ID, arg.RateLimit)
+	var found bool
+	err := row.Scan(&found)
+	return found, err
 }
 
 const touchAPIKey = `-- name: TouchAPIKey :exec

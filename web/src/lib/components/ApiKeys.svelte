@@ -21,6 +21,10 @@
 	let made = $state<{ name: string; key: string } | null>(null);
 	let copied = $state(false);
 	let confirming = $state('');
+	/** The key whose rate limit is being changed, and the choice so far. */
+	let limiting = $state('');
+	let limitMode = $state<'setting' | 'own' | 'none'>('setting');
+	let limitValue = $state(1200);
 
 	const origin = typeof location === 'undefined' ? '' : location.origin;
 	const today = new Date().toISOString().slice(0, 10);
@@ -76,6 +80,33 @@
 			/* the key is selectable text as well */
 		}
 	}
+
+	function editLimit(k: ApiKey) {
+		limiting = k.id;
+		limitMode = k.rate_limit === null ? 'setting' : k.rate_limit === 0 ? 'none' : 'own';
+		limitValue = k.rate_limit || 1200;
+	}
+
+	const limitOk = $derived(limitMode !== 'own' || (Number.isInteger(limitValue) && limitValue >= 10 && limitValue <= 1_000_000));
+
+	async function saveLimit(k: ApiKey) {
+		busy = true;
+		error = '';
+		try {
+			const rate_limit = limitMode === 'setting' ? null : limitMode === 'none' ? 0 : limitValue;
+			await api(`/api/v1/users/${userId}/api-keys/${k.id}`, { method: 'PATCH', body: { rate_limit } });
+			limiting = '';
+			ui.announce = `${k.name}’s rate limit saved`;
+			await load();
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'The rate limit wasn’t saved';
+		} finally {
+			busy = false;
+		}
+	}
+
+	const limitText = (k: ApiKey) =>
+		k.rate_limit === null ? 'Rate limit: the setting for keys' : k.rate_limit === 0 ? 'No rate limit' : `Rate limit: ${k.rate_limit.toLocaleString()} a minute`;
 
 	async function revoke(k: ApiKey) {
 		busy = true;
@@ -166,13 +197,30 @@
 						<span>{k.last_used_at ? `Last used ${when(k.last_used_at)}` : 'Never used'}</span>
 						{#if k.expires_at && !k.revoked_at}<span>Expires {day(k.expires_at)}</span>{/if}
 						<span>{k.scopes ? `Only: ${k.scopes.join(', ')}` : 'Everything the account can do'}</span>
+						{#if !k.revoked_at}<span>{limitText(k)}</span>{/if}
 					</div>
+					{#if limiting === k.id}
+						<form class="limit" onsubmit={(e) => (e.preventDefault(), saveLimit(k))} aria-label="Rate limit for {k.name}">
+							<label class="opt"><input type="radio" bind:group={limitMode} value="setting" /> The setting for keys (Admin → Rate limits)</label>
+							<label class="opt">
+								<input type="radio" bind:group={limitMode} value="own" /> Its own:
+								<input class="num" type="number" min="10" max="1000000" step="1" bind:value={limitValue} disabled={limitMode !== 'own'} aria-label="Requests a minute" />
+								a minute
+							</label>
+							<label class="opt"><input type="radio" bind:group={limitMode} value="none" /> No limit</label>
+							<div class="act">
+								<button class="btn primary" disabled={busy || !limitOk}>Save</button>
+								<button class="btn" type="button" onclick={() => (limiting = '')}>Cancel</button>
+							</div>
+						</form>
+					{/if}
 					{#if !k.revoked_at && !disabled}
 						<div class="act">
 							{#if confirming === k.id}
 								<button class="btn reject" type="button" disabled={busy} onclick={() => revoke(k)}>Revoke {k.name}</button>
 								<button class="btn" type="button" onclick={() => (confirming = '')}>Keep it</button>
 							{:else}
+								{#if limiting !== k.id}<button class="btn quiet-btn" type="button" onclick={() => editLimit(k)} aria-label="Rate limit for {k.name}">Rate limit</button>{/if}
 								<button class="btn quiet-btn" type="button" onclick={() => (confirming = k.id)} aria-label="Revoke {k.name}">Revoke</button>
 							{/if}
 						</div>
@@ -322,5 +370,30 @@
 		.pair {
 			grid-template-columns: 1fr;
 		}
+	}
+	.limit {
+		display: grid;
+		gap: 0.4rem;
+		padding: 0.6rem 0.75rem;
+		border-left: 3px solid var(--rule);
+		background: var(--raised);
+	}
+	.opt {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.45rem;
+		font-size: 0.875rem;
+	}
+	.num {
+		width: 7.5rem;
+		min-height: 2rem;
+		padding: 0.25rem 0.5rem;
+		border: 1px solid var(--rule);
+		border-radius: var(--radius);
+		background: var(--surface);
+		color: var(--ink);
+		font: inherit;
+		font-variant-numeric: tabular-nums;
 	}
 </style>

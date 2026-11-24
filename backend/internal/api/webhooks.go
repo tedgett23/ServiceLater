@@ -23,15 +23,14 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/auth"
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
+	"github.com/servicelater/servicelater/backend/internal/ratelimit"
 	"github.com/servicelater/servicelater/backend/internal/secrets"
 	"github.com/servicelater/servicelater/backend/internal/workflow"
 )
 
-// How many calls one webhook takes in a minute, refused ones included (so a secret cannot be guessed at speed).
-const (
-	webhookPerMinute = 300
-	maxDeliveryKey   = 200
-)
+// The longest dedupe header value kept. How many calls a webhook takes a minute, refused ones included (so a secret
+// cannot be guessed at speed), is the webhook_per_minute setting (Admin → Rate limits).
+const maxDeliveryKey = 200
 
 // webhookStarted is what a call that reached its workflow gets back.
 type webhookStarted struct {
@@ -58,15 +57,23 @@ func (h *handlers) receiveWebhook(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	var calls int32
+	var limit int
 	if err := db.WithSystem(ctx, h.pool, func(tx pgx.Tx) error {
-		var err error
-		calls, err = dbgen.New(tx).HitRateLimit(ctx, dbgen.HitRateLimitParams{Key: "webhook:" + app + "/" + name, WindowSecs: time.Minute.Seconds()})
+		q := dbgen.New(tx)
+		limits, err := ratelimit.Load(ctx, q)
+		if err != nil {
+			return err
+		}
+		if limit = limits.WebhookPerMinute; limit == 0 {
+			return nil
+		}
+		calls, err = q.HitRateLimit(ctx, dbgen.HitRateLimitParams{Key: "webhook:" + app + "/" + name, WindowSecs: time.Minute.Seconds()})
 		return err
 	}); err != nil {
 		writeDBError(w, err)
 		return
 	}
-	if calls > webhookPerMinute {
+	if limit > 0 && int(calls) > limit {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "this webhook has had too many calls this minute")
 		return

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/jobs"
 	"github.com/servicelater/servicelater/backend/internal/notify"
 	"github.com/servicelater/servicelater/backend/internal/query"
+	"github.com/servicelater/servicelater/backend/internal/ratelimit"
 	"github.com/servicelater/servicelater/backend/internal/realtime"
 	"github.com/servicelater/servicelater/backend/internal/records"
 	"github.com/servicelater/servicelater/backend/internal/ruleruns"
@@ -107,7 +109,12 @@ func Run(ctx context.Context, cfg config.Config) error {
 			}
 			go deps.Apps.Run(ctx, cfg.DatabaseURL)
 			deps.Hub = realtime.NewHub()
-			deps.Hub.MaxPerUser = cfg.MaxLiveConns
+			deps.Limits = ratelimit.New(pool)
+			go deps.Limits.Run(ctx, time.Second)
+			deps.Hub.Limit = func() int { return deps.Limits.Limits().LiveConnections }
+			if os.Getenv("SL_MAX_LIVE_CONNS") != "" {
+				slog.Warn("SL_MAX_LIVE_CONNS is no longer read: set live connections under Admin → Rate limits")
+			}
 			deps.Hub.Audience = realtime.AudienceFrom(pool)
 			deps.Apps.OnChange(deps.Hub.DefinitionsChanged)
 			go deps.Hub.Run(ctx, cfg.DatabaseURL)

@@ -278,6 +278,14 @@
             "description": "The key's first characters (slk_ and eight more), to tell keys apart.",
             "type": "string"
           },
+          "rate_limit": {
+            "description": "The key's own limit, requests a minute (0: none); null follows the setting for keys.",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
           "revoked_at": {
             "format": "date-time",
             "type": [
@@ -301,8 +309,23 @@
           "last_used_at",
           "name",
           "prefix",
+          "rate_limit",
           "revoked_at"
         ],
+        "type": "object"
+      },
+      "ApiKeyPatch": {
+        "description": "Changes a key.",
+        "properties": {
+          "rate_limit": {
+            "description": "The key's own limit, requests a minute: 0 for none, 10 to 1,000,000, or null to follow the setting for keys (Admin → Rate limits).",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
         "type": "object"
       },
       "ApiOption": {
@@ -3745,6 +3768,68 @@
         ],
         "type": "object"
       },
+      "Limits": {
+        "description": "The rate limits and what they would be if nobody had changed them.",
+        "properties": {
+          "api_keys_per_minute": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "api_people_per_minute": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "defaults": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SettingsLimits"
+              }
+            ],
+            "description": "The limits as shipped, for the page to show beside each one."
+          },
+          "live_connections": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "queries_at_once": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "queries_per_hour": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sign_in_attempts": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sign_in_window_minutes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sms_codes_per_hour": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "webhook_per_minute": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "api_keys_per_minute",
+          "api_people_per_minute",
+          "defaults",
+          "live_connections",
+          "queries_at_once",
+          "queries_per_hour",
+          "sign_in_attempts",
+          "sign_in_window_minutes",
+          "sms_codes_per_hour",
+          "webhook_per_minute"
+        ],
+        "type": "object"
+      },
       "Member": {
         "description": "One person in a group.",
         "properties": {
@@ -5133,6 +5218,58 @@
           "new",
           "old",
           "setting"
+        ],
+        "type": "object"
+      },
+      "SettingsLimits": {
+        "properties": {
+          "api_keys_per_minute": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "api_people_per_minute": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "live_connections": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "queries_at_once": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "queries_per_hour": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sign_in_attempts": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sign_in_window_minutes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sms_codes_per_hour": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "webhook_per_minute": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "api_keys_per_minute",
+          "api_people_per_minute",
+          "live_connections",
+          "queries_at_once",
+          "queries_per_hour",
+          "sign_in_attempts",
+          "sign_in_window_minutes",
+          "sms_codes_per_hour",
+          "webhook_per_minute"
         ],
         "type": "object"
       },
@@ -20266,6 +20403,220 @@
         ]
       }
     },
+    "/api/v1/settings/limits": {
+      "get": {
+        "description": "(settings:manage): the rate limits (Admin → Rate limits).\n\nRequires the `settings:manage` permission.",
+        "operationId": "getLimits",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Limits"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Get limits",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      },
+      "put": {
+        "description": "(settings:manage) with the limits to change (the rest stay): how many API requests a person and an API key may make a minute (0 for no limit; a key may have its own), sign-in attempts and their window, calls a webhook takes a minute, SQL queries a person may run an hour and at once, SMS codes an hour, and live connections a person may hold. The API limit reaches every server within a second; the others apply at once.\n\nRequires the `settings:manage` permission.",
+        "operationId": "putLimits",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsLimits"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Limits"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Put limits",
+        "tags": [
+          "settings"
+        ],
+        "x-permissions": [
+          "settings:manage"
+        ]
+      }
+    },
     "/api/v1/settings/messaging/deliveries": {
       "get": {
         "description": "(settings:manage): the latest 100 text messages and Teams posts, newest first. channel is sms or teams (both when left out).\n\nRequires the `settings:manage` permission.",
@@ -25540,6 +25891,14 @@
                       "description": "The key's first characters (slk_ and eight more), to tell keys apart.",
                       "type": "string"
                     },
+                    "rate_limit": {
+                      "description": "The key's own limit, requests a minute (0: none); null follows the setting for keys.",
+                      "format": "int32",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
                     "revoked_at": {
                       "format": "date-time",
                       "type": [
@@ -25564,6 +25923,7 @@
                     "last_used_at",
                     "name",
                     "prefix",
+                    "rate_limit",
                     "revoked_at"
                   ],
                   "type": "object"
@@ -25768,6 +26128,130 @@
           }
         ],
         "summary": "Revoke API key",
+        "tags": [
+          "users"
+        ],
+        "x-permissions": [
+          "users:manage"
+        ]
+      },
+      "patch": {
+        "description": "Give a key its own rate limit, for an integration that needs more (or less) than the setting for keys. It applies within a second.\n\nRequires the `users:manage` permission.",
+        "operationId": "updateAPIKey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "keyId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeyPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "Update API key",
         "tags": [
           "users"
         ],

@@ -13,7 +13,7 @@ SELECT app_create_api_key(sqlc.arg('user_id')::uuid, sqlc.arg('name')::text, sql
 
 -- An account's keys, live ones first (RLS: users:manage).
 -- name: ListAPIKeys :many
-SELECT k.id, k.name, k.prefix, k.scopes, k.created_at, c.name AS created_by_name, k.expires_at, k.last_used_at, k.revoked_at
+SELECT k.id, k.name, k.prefix, k.scopes, k.created_at, c.name AS created_by_name, k.expires_at, k.last_used_at, k.revoked_at, k.rate_limit
 FROM api_keys k LEFT JOIN users c ON c.id = k.created_by
 WHERE k.user_id = $1
 ORDER BY k.revoked_at IS NOT NULL, k.created_at DESC;
@@ -21,10 +21,13 @@ ORDER BY k.revoked_at IS NOT NULL, k.created_at DESC;
 -- name: RevokeAPIKey :one
 SELECT app_revoke_api_key(sqlc.arg('user_id')::uuid, sqlc.arg('id')::uuid)::bool AS revoked;
 
+-- name: SetAPIKeyRateLimit :one
+SELECT app_set_api_key_rate_limit(sqlc.arg('user_id')::uuid, sqlc.arg('id')::uuid, sqlc.narg('rate_limit')::int)::bool AS found;
+
 -- What a request's key is good for, read as the system (owner role) before anyone is known: nothing when it is
 -- revoked, expired, or its account is deactivated or no longer a service account.
 -- name: GetAPIKeyForAuth :one
-SELECT k.id, k.user_id, k.scopes, k.expires_at, u.role
+SELECT k.id, k.user_id, k.scopes, k.expires_at, u.role, k.rate_limit
 FROM api_keys k
 JOIN users u ON u.id = k.user_id
 JOIN service_accounts s ON s.user_id = u.id

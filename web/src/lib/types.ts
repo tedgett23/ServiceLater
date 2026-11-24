@@ -559,6 +559,8 @@ export interface ApiKey {
 	expires_at: string | null;
 	last_used_at: string | null;
 	revoked_at: string | null;
+	/** Its own rate limit, requests a minute (0: none); null follows the setting for keys (Admin → Rate limits). */
+	rate_limit: number | null;
 }
 
 export const roleLabel: Record<Role, string> = { admin: 'Admin', agent: 'Agent', end_user: 'End user' };

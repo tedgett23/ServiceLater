@@ -37,6 +37,8 @@ type apiKeyDTO struct {
 	ExpiresAt     *time.Time `json:"expires_at"`
 	LastUsedAt    *time.Time `json:"last_used_at"`
 	RevokedAt     *time.Time `json:"revoked_at"`
+	// RateLimit is the key's own limit, requests a minute (0: none); null follows the setting for keys.
+	RateLimit *int32 `json:"rate_limit"`
 }
 
 func tsPtr(t pgtype.Timestamptz) *time.Time {
@@ -114,6 +116,9 @@ func (h *handlers) listAPIKeys(w http.ResponseWriter, r *http.Request) {
 		for _, k := range rows {
 			d := apiKeyDTO{ID: k.ID, Name: k.Name, Prefix: k.Prefix, Scopes: k.Scopes, CreatedAt: k.CreatedAt.Time,
 				ExpiresAt: tsPtr(k.ExpiresAt), LastUsedAt: tsPtr(k.LastUsedAt), RevokedAt: tsPtr(k.RevokedAt)}
+			if k.RateLimit.Valid {
+				d.RateLimit = &k.RateLimit.Int32
+			}
 			if k.CreatedByName.Valid {
 				d.CreatedByName = &k.CreatedByName.String
 			}
@@ -231,6 +236,52 @@ func (h *handlers) revokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
 		revoked, err := q.RevokeAPIKey(r.Context(), dbgen.RevokeAPIKeyParams{UserID: id, ID: kid})
 		if err == nil && !revoked {
+			return notFound()
+		}
+		return err
+	}) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// apiKeyPatch changes a key.
+type apiKeyPatch struct {
+	// RateLimit is the key's own limit, requests a minute: 0 for none, 10 to 1,000,000, or null to follow the
+	// setting for keys (Admin → Rate limits).
+	RateLimit nullable[int32] `json:"rate_limit"`
+}
+
+// PATCH /users/{id}/api-keys/{keyId} (admin): give a key its own rate limit, for an integration that needs more (or
+// less) than the setting for keys. It applies within a second.
+func (h *handlers) updateAPIKey(w http.ResponseWriter, r *http.Request) {
+	id, ok := urlUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	kid, ok := urlUUID(w, r, "keyId")
+	if !ok {
+		return
+	}
+	var req apiKeyPatch
+	if !decode(w, r, &req) {
+		return
+	}
+	if !req.RateLimit.Set {
+		writeError(w, http.StatusBadRequest, "nothing to change: send rate_limit")
+		return
+	}
+	limit := pgtype.Int4{}
+	if v := req.RateLimit.Value; v != nil {
+		if *v != 0 && (*v < 10 || *v > 1_000_000) {
+			writeError(w, http.StatusUnprocessableEntity, "rate_limit must be between 10 and 1000000 requests a minute, 0 for no limit, or null for the setting")
+			return
+		}
+		limit = pgtype.Int4{Int32: *v, Valid: true}
+	}
+	if !h.tx(w, r, func(q *dbgen.Queries, _ auth.Principal) error {
+		found, err := q.SetAPIKeyRateLimit(r.Context(), dbgen.SetAPIKeyRateLimitParams{UserID: id, ID: kid, RateLimit: limit})
+		if err == nil && !found {
 			return notFound()
 		}
 		return err

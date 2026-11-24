@@ -21,6 +21,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/notify"
+	"github.com/servicelater/servicelater/backend/internal/ratelimit"
 	"github.com/servicelater/servicelater/backend/internal/secrets"
 	"github.com/servicelater/servicelater/backend/internal/settings"
 )
@@ -401,10 +402,9 @@ func (h *handlers) listChannelDeliveries(w http.ResponseWriter, r *http.Request)
 
 // ---- a person's phone ----
 
-const (
-	codeTTL        = 10 * time.Minute
-	maxCodesAnHour = 5
-)
+// How long a code lasts. How many a person may be sent an hour is the sms_codes_per_hour setting (Admin → Rate
+// limits).
+const codeTTL = 10 * time.Minute
 
 func codeHash(userID uuid.UUID, code string) []byte {
 	sum := sha256.Sum256([]byte(userID.String() + ":" + code))
@@ -429,15 +429,20 @@ func (h *handlers) putMyPhone(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := auth.PrincipalFrom(r.Context())
 	var tries int32
+	var limits settings.Limits
 	if err := db.WithSystem(r.Context(), h.pool, func(tx pgx.Tx) error {
+		q := dbgen.New(tx)
 		var err error
-		tries, err = dbgen.New(tx).HitRateLimit(r.Context(), dbgen.HitRateLimitParams{Key: "sms-code:" + p.UserID.String(), WindowSecs: 3600})
+		if limits, err = ratelimit.Load(r.Context(), q); err != nil {
+			return err
+		}
+		tries, err = q.HitRateLimit(r.Context(), dbgen.HitRateLimitParams{Key: "sms-code:" + p.UserID.String(), WindowSecs: 3600})
 		return err
 	}); err != nil {
 		writeDBError(w, err)
 		return
 	}
-	if tries > maxCodesAnHour {
+	if int(tries) > limits.SMSCodesPerHour {
 		w.Header().Set("Retry-After", "3600")
 		writeError(w, http.StatusTooManyRequests, "too many codes sent this hour; try again later")
 		return

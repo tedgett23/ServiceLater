@@ -18,11 +18,11 @@ import (
 
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
+	"github.com/servicelater/servicelater/backend/internal/ratelimit"
+	"github.com/servicelater/servicelater/backend/internal/settings"
 )
 
 const (
-	loginMaxAttempts = 10
-	loginWindow      = 15 * time.Minute
 	// A refresh token presented again shortly after rotation is a parallel request (two tabs), not theft.
 	reuseGrace = 10 * time.Second
 )
@@ -74,15 +74,21 @@ func (s *Service) Login(ctx context.Context, email, password, clientKey string) 
 
 	// Count the attempt in its own committed transaction so failed logins still consume the budget.
 	var attempts int32
+	var limits settings.Limits
 	err := db.WithSystem(ctx, s.pool, func(tx pgx.Tx) error {
+		q := dbgen.New(tx)
 		var err error
-		attempts, err = dbgen.New(tx).HitRateLimit(ctx, dbgen.HitRateLimitParams{Key: key, WindowSecs: loginWindow.Seconds()})
+		if limits, err = ratelimit.Load(ctx, q); err != nil {
+			return err
+		}
+		window := time.Duration(limits.SignInWindowMinutes) * time.Minute
+		attempts, err = q.HitRateLimit(ctx, dbgen.HitRateLimitParams{Key: key, WindowSecs: window.Seconds()})
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
-	if attempts > loginMaxAttempts {
+	if int(attempts) > limits.SignInAttempts {
 		return nil, ErrRateLimited
 	}
 

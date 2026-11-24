@@ -63,6 +63,18 @@ in apps-local are kept. Upgrading a split deployment: start the new api and work
 replaced. **Back up the database first** (`pg_dump`); migrations can be rolled back (`goose down`) but a backup is
 the plan.
 
+## Rate limits
+
+Admin → Rate limits sets how much one caller may do: API requests a minute for a person and for an API key (a key
+may have its own limit on its service account's page), sign-in attempts and their window, calls a webhook takes a
+minute, SQL queries an hour and at once, SMS codes an hour, and live connections per person. Each api server counts
+API requests in memory and shares its counts through Postgres once a second (the unlogged `rate_counts` table), so
+the limit holds across replicas to within a second's traffic, and a request costs no database work for it. Responses
+carry `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; a refused one is 429 with `Retry-After`.
+Requests with no session (signing in, webhooks, signed file links) are limited by their own settings, not per address:
+put a per-address limit in the proxy or load balancer in front if you need one. `SL_MAX_LIVE_CONNS` is no longer
+read (the server warns if it is set).
+
 ## Backups
 
 The database (`pg_dump -Fc`), the attachments volume (unless they are in S3), apps-local, and the secrets key.
