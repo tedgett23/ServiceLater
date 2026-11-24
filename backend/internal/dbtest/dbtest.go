@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,20 +29,13 @@ func Pool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	// Tests sign many people up and in; production-strength hashing made that most of the suite's time.
 	auth.UseFastHashing()
-	url := os.Getenv("SL_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("SL_TEST_DATABASE_URL not set")
-	}
 	ctx := context.Background()
-	pool, err := db.Connect(ctx, url)
+	pool, err := db.Connect(ctx, DSN(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
 	if err := db.Migrate(ctx, pool); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Migrate(ctx, pool); err != nil { // idempotent
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, "TRUNCATE tasks, sessions, rate_limits, user_credentials, users, apps, jobs, action_runs, workflow_executions, workflow_schedules, groups, sso_providers CASCADE"); err != nil {
@@ -77,7 +71,24 @@ func DSN(t testing.TB) string {
 	if dsn == "" {
 		t.Skip("SL_TEST_DATABASE_URL not set")
 	}
+	// This same URL is also used by CLI tests; validate it before any migration or reset.
+	if !scratchURL(dsn) {
+		t.Fatal("SL_TEST_DATABASE_URL must resolve to the named scratch database ending in _test")
+	}
 	return dsn
+}
+
+func scratchURL(dsn string) bool {
+	u, err := url.Parse(dsn)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") || !strings.HasSuffix(u.Path, "_test") {
+		return false
+	}
+	q := u.Query()
+	if q.Has("dbname") || q.Has("database") || q.Has("service") {
+		return false // FreshDatabase replaces the path; never allow other settings to override it.
+	}
+	cfg, err := pgx.ParseConfig(dsn)
+	return err == nil && cfg.Database == strings.TrimPrefix(u.Path, "/")
 }
 
 // AppsDir is the repository's first-party apps folder.

@@ -90,6 +90,17 @@ test('the workbench fits a phone screen', async ({ browser }) => {
 	expect(overflow).toBeLessThanOrEqual(0);
 });
 
+test('a quoted comment marker does not hide the next parameter', async ({ browser }) => {
+	const { page } = await as(browser, 'admin');
+	await page.goto('/queries');
+	await page.getByRole('textbox', { name: 'SQL query' }).click();
+	await page.keyboard.press('ControlOrMeta+a');
+	await page.keyboard.insertText("SELECT '--' AS marker, $1::text AS supplied");
+	await page.getByLabel('$1', { exact: true }).fill('works');
+	await page.getByRole('button', { name: /^Run/ }).click();
+	await expect(page.getByRole('cell', { name: 'works', exact: true })).toBeVisible();
+});
+
 test('a result is drawn as the chart that fits it, and a view keeps its chart', async ({ browser }) => {
 	const { page, context } = await as(browser, 'admin');
 	const id = uid();

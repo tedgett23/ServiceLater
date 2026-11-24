@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { ApiError } from '$lib/api';
 	import { session } from '$lib/session.svelte';
@@ -37,7 +36,8 @@
 	// Only follow same-site paths, so a crafted ?next= can't bounce people to another origin.
 	function destination() {
 		const next = page.url.searchParams.get('next') ?? '';
-		return next.startsWith('/') && !next.startsWith('//') ? next : '/';
+		if (!next.startsWith('/') || next.startsWith('//') || /[\\\t\r\n]/.test(next)) return '/';
+		return next;
 	}
 
 	async function submit(e: SubmitEvent) {
@@ -46,7 +46,7 @@
 		error = '';
 		try {
 			await session.login(email, password);
-			await goto(destination());
+			window.location.replace(destination());
 		} catch (err) {
 			if (err instanceof ApiError && err.status === 429) {
 				error = 'Too many sign-in attempts. Wait a few minutes and try again.';

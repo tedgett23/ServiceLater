@@ -77,18 +77,6 @@ export const saveView = (name: string, body: { sql: string; description: string;
 
 export const removeView = (name: string) => api(`/api/v1/views/${encodeURIComponent(name)}`, { method: 'DELETE' });
 
-/** How many parameters ($1, $2...) a query uses: the highest number outside quotes and comments. */
-export function paramCount(sql: string): number {
-	const bare = sql
-		.replace(/--[^\n]*/g, '')
-		.replace(/\/\*[\s\S]*?\*\//g, '')
-		.replace(/'(?:[^']|'')*'/g, "''")
-		.replace(/"(?:[^"]|"")*"/g, '""');
-	let n = 0;
-	for (const m of bare.matchAll(/\$(\d+)/g)) n = Math.max(n, Number(m[1]));
-	return Math.min(n, 20);
-}
-
 /** A cell as text: null stays visible, JSON values are written out. */
 export function cellText(v: unknown): string {
 	if (v === null || v === undefined) return 'null';

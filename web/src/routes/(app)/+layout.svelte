@@ -10,7 +10,7 @@
 	import { queue, queueViews } from '$lib/queue.svelte';
 	import { adminGroups } from '$lib/adminNav';
 	import { realtime } from '$lib/realtime.svelte';
-	import { session } from '$lib/session.svelte';
+	import { session, watchSession } from '$lib/session.svelte';
 	import { theme } from '$lib/theme.svelte';
 	import { api } from '$lib/api';
 	import type { Account } from '$lib/types';
@@ -72,6 +72,7 @@
 		if (bell) bell.open = false;
 	}
 
+	onMount(watchSession);
 	onMount(() => {
 		// Anyone can be named an approver, not only staff, so this loads regardless of role; the Approvals link only
 		// shows up when there is actually something for this person to do. Everyone has the knowledge base, so everyone

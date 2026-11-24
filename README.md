@@ -31,7 +31,7 @@ TLS is off by default (terminate at a load balancer or ingress). `SL_TLS=auto` u
 
 ## Database
 
-Postgres 17. The migrating DB user needs `CREATEROLE` (migration `00001` creates the `servicelater_app` role that RLS applies to; the Compose `POSTGRES_USER` is a superuser and already qualifies). Tests use a scratch database, `servicelater_test` by default (`make test`). The migration test also creates a throwaway database per run, so the role needs `CREATEDB` too (`ALTER ROLE servicelater CREATEDB`); it skips itself without it.
+Postgres 17. The migrating DB user needs `CREATEROLE` (migration `00001` creates the `servicelater_app` role that RLS applies to; the Compose `POSTGRES_USER` is a superuser and already qualifies). Go tests truncate a scratch database, `servicelater_test` by default (`make test`); an override in `SL_TEST_DATABASE_URL` must name a database ending in `_test`. The migration test also creates a throwaway database per run, so the role needs `CREATEDB` too (`ALTER ROLE servicelater CREATEDB`); it skips itself without it.
 
 ## Auth
 
@@ -76,11 +76,10 @@ A SvelteKit SPA: sign-in page, then a master-detail ticket queue (list on the le
 
 `web/e2e` holds Playwright tests that drive the real production binary (UI embedded) in a real browser against a scratch database: sign-in and session refresh, working a ticket as an agent, what a requester can and cannot see or do, live updates between two browsers (including a dropped connection), and responsive and dark-mode regressions.
 
-    createdb servicelater_e2e            # once; owner must be the servicelater role
     cd web && npx playwright install chromium   # once
     make e2e                             # builds, then runs the suite
 
-The scratch database is `servicelater_e2e` (override with `SL_E2E_DATABASE_URL`). It is wiped on every run, and the test users are created with `servicelater user create`. Run a single file with `cd web && npx playwright test e2e/live.spec.ts`, or watch it in a browser with `--headed` / `--ui`. Failures keep a screenshot and a trace (`npx playwright show-trace <trace.zip>`).
+Playwright creates and drops a new `sl_e2e_…` database for each run using the PostgreSQL client tools and a role with `CREATEDB` and `CREATEROLE`. `SL_E2E_DATABASE_URL` selects the maintenance connection (default: the `postgres` database); the application never runs against that database. Run a single file with `cd web && npx playwright test e2e/live.spec.ts`, or watch it with `--headed` / `--ui`. Failures keep a screenshot and a trace (`npx playwright show-trace <trace.zip>`). For frontend logic alone, `cd web && npm run test:unit` needs neither PostgreSQL nor a browser (Node 24+).
 
 ## CLI
 

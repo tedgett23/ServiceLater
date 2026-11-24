@@ -213,6 +213,9 @@
 			</div>
 		{/if}
 	{:else if cats.length}
+		{#if rows.length > cats.length}
+			<p class="note">Showing the first {cats.length} rows in query order. {rows.length - cats.length} more in Results.</p>
+		{/if}
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 		<div
 			class="bars"
@@ -272,7 +275,6 @@
 									<span class="row"><span class="stroke" style:background={sr.color}></span><b>{whole(c.values[s])}</b> {sr.key}</span>
 								{/each}
 								{#if stacked && series.length > 1}<span class="row total"><b>{whole(totalOf(c))}</b> in all</span>{/if}
-								{#if c.folded}<span class="row total">The sum of {c.folded.toLocaleString()} rows</span>{/if}
 							</div>
 						{/if}
 					</div>

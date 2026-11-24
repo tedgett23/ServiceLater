@@ -7,7 +7,6 @@
 		cellText,
 		loadRuns,
 		loadSchema,
-		paramCount,
 		problemOf,
 		removeView,
 		runQuery,
@@ -20,6 +19,8 @@
 		type SavedView
 	} from '$lib/queries';
 	import type { SchemaView, SqlView } from '$lib/sqlEditor';
+	import { paramCount } from '$lib/sqlParams';
+	import { session } from '$lib/session.svelte';
 	import ResultChart from '$lib/charts/ResultChart.svelte';
 	import { fits, guessChart, isNumeric, MAX_SERIES, type ChartSpec, type ChartType } from '$lib/charts/resultChart';
 
@@ -29,7 +30,7 @@
 	 * over what they may see. "Save as view" keeps the query under a name, private or shared, for other queries and
 	 * GET/QUERY /api/v1/views/{name}/rows. The draft is kept in this browser.
 	 */
-	const DRAFT = 'queries.draft';
+	const DRAFT = `queries.draft.${session.user!.id}`;
 	const starter = "SELECT reference, title, status, priority\nFROM records\nWHERE state_category IN ('open', 'waiting')\nORDER BY priority, created_at\nLIMIT 50";
 
 	let text = $state(readDraft());
@@ -285,7 +286,6 @@
 	const chartLabel = $derived(
 		chart ? (chart.type === 'figure' ? chart.y[0] : `${chart.y.join(', ')} by ${chart.x}`) : ''
 	);
-	const numeric = (type: string) => /^(int[248]|float[48]|numeric)$/.test(type);
 	const outcomeLabel = { ok: 'OK', refused: 'Refused', failed: 'Failed', timeout: 'Timed out' } as const;
 </script>
 
@@ -426,7 +426,7 @@
 						<thead>
 							<tr>
 								{#each result.columns as c, i (i)}
-									<th class:num={numeric(c.type)} scope="col">{c.name} <span class="type">{c.type}</span></th>
+									<th class:num={isNumeric(c)} scope="col">{c.name} <span class="type">{c.type}</span></th>
 								{/each}
 							</tr>
 						</thead>
@@ -435,7 +435,7 @@
 								<tr>
 									{#each row as v, i (i)}
 										{@const link = linkOf(result.columns[i].name, v)}
-										<td class:num={numeric(result.columns[i].type)} class:null={v === null}>
+										<td class:num={isNumeric(result.columns[i])} class:null={v === null}>
 											{#if link}<a class="ref" href={link}>{v}</a>{:else}{cellText(v)}{/if}
 										</td>
 									{/each}
