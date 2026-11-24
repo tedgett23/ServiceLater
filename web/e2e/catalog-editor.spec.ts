@@ -19,12 +19,20 @@ test('an admin changes a shipped item, and undoes it', async ({ browser }) => {
 		await expect(page.locator('pre').first()).toContainText('do_you_need_a_bag');
 
 		const lena = await as(browser, 'lena');
+		// Publishing commits before the reader's registry receives its NOTIFY. The order page fetches once on mount.
+		const hasBagQuestion = async () => {
+			const item = await lena.context.request.get('/api/v1/catalog/new-laptop');
+			expect(item.ok()).toBe(true);
+			return (await item.json()).form.create.includes('do_you_need_a_bag');
+		};
+		await expect.poll(hasBagQuestion).toBe(true);
 		await lena.page.goto('/catalog/new-laptop');
 		await expect(lena.page.getByLabel('Do you need a bag?')).toBeVisible();
 
 		await page.getByRole('button', { name: 'Undo the changes made here' }).click();
 		await page.getByRole('button', { name: 'Undo changes' }).click();
 		await expect(page.getByText(/changed here by/)).toHaveCount(0);
+		await expect.poll(hasBagQuestion).toBe(false);
 		await lena.page.reload();
 		await expect(lena.page.getByLabel('Model')).toBeVisible();
 		await expect(lena.page.getByLabel('Do you need a bag?')).toHaveCount(0);

@@ -1,4 +1,4 @@
-import { expect, freshLogin, test } from './helpers';
+import { as, createTicket, expect, freshLogin, row, test, uid } from './helpers';
 import { PASSWORD, USERS } from './users';
 
 // These tests sign in for themselves, so they start with no saved session.
@@ -44,6 +44,38 @@ test('signing out closes the app again', async ({ browser }) => {
 	await page.goto('/tickets');
 	await expect(page).toHaveURL(/\/login\?next=/);
 	await context.close();
+});
+
+// Regressed: the SPA reused its first user's queue and bell after switching accounts in the same tab.
+test('switching accounts in one tab replaces the queue and notifications', async ({ browser }) => {
+	const { context, page } = await freshLogin(browser, 'agent');
+	const second = await as(browser, 'agent2');
+	const admin = await as(browser, 'admin');
+	const tickets = [];
+	for (const who of [context, second.context]) {
+		const me = await (await who.request.get('/api/v1/auth/me')).json();
+		const ticket = await createTicket(admin.context, { title: `Account switch ${uid()}` });
+		expect((await admin.context.request.patch(`/api/v1/tickets/${ticket.id}`, { data: { assignee_id: me.id } })).ok()).toBe(true);
+		tickets.push(ticket);
+	}
+	await page.goto('/tickets');
+	await expect(row(page, tickets[0].title)).toBeVisible();
+	await page.locator('.bell summary').click();
+	await expect(page.locator('.bell')).toContainText(tickets[0].title);
+	await page.locator('.bell summary').click();
+	const otherTab = await context.newPage();
+	await otherTab.goto('/tickets');
+	await expect(row(otherTab, tickets[0].title)).toBeVisible();
+	await page.getByRole('button', { name: 'Sign out' }).click();
+	await expect(otherTab).toHaveURL(/\/login/);
+	await page.getByLabel('Email').fill(USERS.agent2.email);
+	await page.getByLabel('Password').fill(PASSWORD);
+	await page.getByRole('button', { name: 'Sign in' }).click();
+	await expect(row(page, tickets[1].title)).toBeVisible();
+	await expect(row(page, tickets[0].title)).toHaveCount(0);
+	await page.locator('.bell summary').click();
+	await expect(page.locator('.bell')).toContainText(tickets[1].title);
+	await expect(page.locator('.bell')).not.toContainText(tickets[0].title);
 });
 
 test('an expired access token refreshes silently, with no sign-in screen', async ({ browser }) => {

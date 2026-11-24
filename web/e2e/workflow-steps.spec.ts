@@ -49,6 +49,8 @@ test('a for each step runs a workflow per item, and the viewer shows the runs it
 		await expect(page.locator('.activity')).toContainText(`item 2 (${id})`);
 
 		await page.goto(`/runs/${run.id}`);
+		// Regressed: navigating from a finished parent reused its page; its stopped poll never loaded the child.
+		await expect(page.locator('header .meta')).toContainText('Finished');
 		const children = page.getByRole('region', { name: 'Runs it started' });
 		await expect(children.getByRole('link', { name: child })).toHaveCount(2);
 		await children.getByRole('link', { name: child }).first().click();

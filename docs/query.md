@@ -104,7 +104,7 @@ names everywhere (`int2`, `timestamptz`, `text[]`). Tests: `web/e2e/queries.spec
 **Chart** (`lib/charts/ResultChart.svelte`, `lib/charts/resultChart.ts`): line, bars, stacked bars or a single figure,
 picked to fit the result (a time column and numbers: a line; text and numbers: bars; one number: a figure) and picked
 again when the columns change; up to four numeric columns, coloured series-1..4 in their result order, never cycled.
-Bars past 50 fold into "Other"; zero draws nothing; hover or the arrow keys read exact values; dates are drawn in UTC.
+Bar charts show the first 50 rows in query order and say how many more are in Results. Zero draws nothing; hover or the arrow keys read exact values; dates are drawn in UTC.
 A saved view keeps its chart (`saved_views.chart`, `00020_saved_view_charts`; `query.Chart` checks it against the
 view's columns on every save).
 

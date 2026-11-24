@@ -20,7 +20,7 @@ build:
 
 test:
 	cd backend && SL_TEST_DATABASE_URL=$${SL_TEST_DATABASE_URL:-postgres://servicelater:servicelater@localhost:5432/servicelater_test?sslmode=disable} go test -p 1 ./...
-	cd web && npm run check
+	cd web && npm run test:unit && npm run check
 
 # Browser tests against the real binary and a scratch database (see web/e2e). Needs Playwright's Chromium:
 #   cd web && npx playwright install chromium

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { AUTH_DIR } from '../playwright.config';
 
 export const PASSWORD = 'e2e-password-123';
 
@@ -13,4 +14,4 @@ export const USERS = {
 export type Who = keyof typeof USERS;
 
 /** A saved signed-in browser session per user, created once in global setup. */
-export const stateFile = (who: Who) => path.join(import.meta.dirname, '.auth', `${who}.json`);
+export const stateFile = (who: Who) => path.join(AUTH_DIR, `${who}.json`);

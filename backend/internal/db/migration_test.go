@@ -10,8 +10,23 @@ import (
 	"github.com/pressly/goose/v3"
 
 	"github.com/servicelater/servicelater/backend/db/migrations"
+	sldb "github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/dbtest"
 )
+
+func TestMigrateIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	pool, err := sldb.Connect(ctx, dbtest.FreshDatabase(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	for range 2 {
+		if err := sldb.Migrate(ctx, pool); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 
 // migrator gives a test control over which migration version a fresh database is at.
 func migrator(t *testing.T) (*goose.Provider, *sql.DB) {

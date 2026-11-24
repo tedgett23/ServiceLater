@@ -21,7 +21,8 @@
 	import { realtime } from '$lib/realtime.svelte';
 	import { session } from '$lib/session.svelte';
 	import { staff } from '$lib/staff.svelte';
-	import type { Attachment, Comment, FieldValue, FormField, HistoryEntry, Status as StatusT, Ticket } from '$lib/types';
+	import type { Comment, FieldValue, FormField, HistoryEntry, Status as StatusT, Ticket } from '$lib/types';
+	import { activityFeed, type ActivityMode as Show } from '$lib/activity';
 	import { long, what, who } from '$lib/history';
 	import { can, canRecord, P } from '$lib/types';
 	import Avatar from './Avatar.svelte';
@@ -209,7 +210,6 @@
 	// order they happened. The choice is remembered in this browser. Files are part of the conversation: each sits
 	// where it arrived among the comments, and one removed since is still accounted for (attached, then removed), so a
 	// comment about "the screenshot" never points at a gap.
-	type Show = 'comments' | 'history' | 'all';
 	function remembered(): Show {
 		try {
 			const v = localStorage.getItem('activity.show');
@@ -241,23 +241,7 @@
 		void ticket;
 		void untrack(loadHistory);
 	});
-	type ActivityItem = { key: string; at: string; comment?: Comment; change?: HistoryEntry; file?: Attachment };
-	const activity = $derived.by((): ActivityItem[] => {
-		const files = ticket.attachments ?? [];
-		const here = new Set(files.map((f) => f.id));
-		const fileOf = (e: HistoryEntry) => (e.new as { id?: string } | null)?.id ?? '';
-		// A file still on the record is shown as itself; its "attached" line would say the same thing twice.
-		const shown = history.filter((e) => !(e.field === 'attachment' && e.action === 'linked' && here.has(fileOf(e))));
-		const hs: ActivityItem[] = (show === 'comments' ? shown.filter((e) => e.field === 'attachment') : shown).map((e) => ({
-			key: `h${e.id}`,
-			at: e.at,
-			change: e
-		}));
-		if (show === 'history') return hs;
-		const cs: ActivityItem[] = comments.map((c) => ({ key: `c${c.id}`, at: c.created_at, comment: c }));
-		const fs: ActivityItem[] = files.map((f) => ({ key: `f${f.id}`, at: f.attached_at ?? f.created_at, file: f }));
-		return [...cs, ...fs, ...hs].sort((a, b) => a.at.localeCompare(b.at));
-	});
+	const activity = $derived(activityFeed(show, comments, history, ticket.attachments ?? []));
 	$effect(() => (ticket.attachments ?? []).forEach(preview));
 
 	// Comments

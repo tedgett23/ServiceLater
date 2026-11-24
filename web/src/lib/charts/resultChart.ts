@@ -15,7 +15,7 @@ export interface ChartSpec {
 }
 
 export const MAX_SERIES = 4;
-/** Bars beyond this many are folded into one "Other". */
+/** Draw the first rows in query order; arbitrary measures cannot be summed safely. */
 export const MAX_BARS = 50;
 
 const NUMERIC = ['int2', 'int4', 'int8', 'float4', 'float8', 'numeric'];
@@ -61,23 +61,16 @@ export const COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 
 export interface Category {
 	label: string;
 	values: (number | null)[];
-	/** How many rows "Other" stands for. */
-	folded?: number;
 }
 
-/** Bars: one category per row in the query's own order, the rest past MAX_BARS summed into "Other". */
+/** Bars: one category per displayed row in the query's own order. */
 export function categories(columns: QueryColumn[], rows: unknown[][], spec: ChartSpec): Category[] {
 	const xi = columns.findIndex((c) => c.name === spec.x);
 	const yi = spec.y.map((y) => columns.findIndex((c) => c.name === y));
-	const all = rows.map((r) => ({
+	return rows.slice(0, MAX_BARS).map((r) => ({
 		label: r[xi] === null || r[xi] === undefined ? '(none)' : typeof r[xi] === 'object' ? JSON.stringify(r[xi]) : String(r[xi]),
 		values: yi.map((i) => num(r[i]))
 	}));
-	if (all.length <= MAX_BARS) return all;
-	const kept = all.slice(0, MAX_BARS - 1);
-	const rest = all.slice(MAX_BARS - 1);
-	const other = spec.y.map((_, s) => rest.reduce((sum, c) => sum + (c.values[s] ?? 0), 0));
-	return [...kept, { label: `Other (${rest.length.toLocaleString()} more)`, values: other, folded: rest.length }];
 }
 
 export interface Point {
