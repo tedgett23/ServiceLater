@@ -43,7 +43,9 @@ func (s *Service) notifyFromRule(ctx context.Context, q *dbgen.Queries, timing s
 		}
 		add(id)
 	}
-	teams := slices.Contains(s.Apps.Notification(n.App, n.Template).Channels, apps.ChannelTeams)
+	// A channel post is read by everyone in the channel, not only those who may read the comment, so a notification
+	// about a comment never goes to Teams.
+	teams := slices.Contains(s.Apps.Notification(n.App, n.Template).Channels, apps.ChannelTeams) && n.CommentID == ""
 	for _, raw := range n.GroupIDs {
 		gid, err := uuid.Parse(raw)
 		if err != nil {
@@ -66,6 +68,14 @@ func (s *Service) notifyFromRule(ctx context.Context, q *dbgen.Queries, timing s
 	}
 	if len(ids) == 0 {
 		return nil
+	}
+	if n.CommentID != "" {
+		comment, err := uuid.Parse(n.CommentID)
+		if err != nil {
+			return err
+		}
+		_, err = q.SendCommentNotification(ctx, dbgen.SendCommentNotificationParams{UserIds: ids, TaskID: t.ID, CommentID: comment, App: n.App, Template: n.Template})
+		return err
 	}
 	_, err := q.SendNotification(ctx, dbgen.SendNotificationParams{UserIds: ids, TaskID: t.ID, App: n.App, Template: n.Template})
 	return err

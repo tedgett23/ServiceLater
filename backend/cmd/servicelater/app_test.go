@@ -56,10 +56,10 @@ func TestValidate(t *testing.T) {
 func TestPack(t *testing.T) {
 	dir := t.TempDir()
 	out, err := cli(t, "pack", "-o", dir, firstParty("incident-management"))
-	if err != nil || !strings.Contains(out, "incident-management-0.4.0.swapp") {
+	if err != nil || !strings.Contains(out, "incident-management-0.5.0.swapp") {
 		t.Fatalf("pack: %v\n%s", err, out)
 	}
-	if _, err := cli(t, "validate", filepath.Join(dir, "incident-management-0.4.0.swapp")); err != nil {
+	if _, err := cli(t, "validate", filepath.Join(dir, "incident-management-0.5.0.swapp")); err != nil {
 		t.Errorf("a packed app must validate: %v", err)
 	}
 }
@@ -79,7 +79,7 @@ func TestInstallOrdersDependenciesAndReportsThePlan(t *testing.T) {
 	}
 
 	out, _ = cli(t, "list")
-	if !strings.Contains(out, "core-itsm") || !strings.Contains(out, "incident-management") || !strings.Contains(out, "9 definitions") {
+	if !strings.Contains(out, "core-itsm") || !strings.Contains(out, "incident-management") || !strings.Contains(out, "13 definitions") {
 		t.Errorf("list:\n%s", out)
 	}
 
@@ -183,7 +183,7 @@ func TestOrderByDependenciesRejectsLoopsAndDuplicates(t *testing.T) {
 func TestSyncInstallsTheBundledApps(t *testing.T) {
 	scratch(t)
 	out, err := cli(t, "sync")
-	if err != nil || !regexp.MustCompile(`core-itsm [0-9.]+ \(new\)`).MatchString(out) || !strings.Contains(out, "incident-management 0.4.0 (new)") {
+	if err != nil || !regexp.MustCompile(`core-itsm [0-9.]+ \(new\)`).MatchString(out) || !strings.Contains(out, "incident-management 0.5.0 (new)") {
 		t.Fatalf("sync: %v\n%s", err, out)
 	}
 	out, _ = cli(t, "sync")

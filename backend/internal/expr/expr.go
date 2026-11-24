@@ -284,6 +284,17 @@ func kindName(kind string) string {
 	return "text"
 }
 
+// Comment is what a rule sees as `comment` when its event is comment: the comment just added. For other events it is
+// empty (event == "comment" tells).
+type Comment struct {
+	ID       string `cel:"id"`
+	Body     string `cel:"body"`
+	Internal bool   `cel:"internal"`
+	AuthorID string `cel:"author_id"`
+	// Mentions are the ids of the people it @mentions, each of whom may read it.
+	Mentions []string `cel:"mentions"`
+}
+
 // User is what an expression sees as `user`: the person acting.
 type User struct {
 	ID    string `cel:"id"`
@@ -299,8 +310,10 @@ type Input struct {
 	Old    *Record
 	User   *User
 	Now    time.Time
-	// Event is what is happening to the record (create or update). Only rules see it; guards have no event.
+	// Event is what is happening to the record (create, update or comment). Only rules see it; guards have no event.
 	Event string
+	// Comment is the comment a comment event is about. Only rules see it.
+	Comment *Comment
 	// Vars are a workflow's variables. Only workflows see them.
 	Vars map[string]any
 	// Groups looks up the ids of a group's members by the group's name, for group('name'). Only workflows can use
@@ -426,7 +439,7 @@ func envFor(kind string, fields FieldTypes) (*Env, error) {
 }
 
 func buildEnv(kind string, fields FieldTypes) (*Env, error) {
-	base, err := cel.NewEnv(ext.NativeTypes(reflect.TypeOf(&Record{}), reflect.TypeOf(&CI{}), reflect.TypeOf(&User{}), ext.ParseStructTags(true)))
+	base, err := cel.NewEnv(ext.NativeTypes(reflect.TypeOf(&Record{}), reflect.TypeOf(&CI{}), reflect.TypeOf(&User{}), reflect.TypeOf(&Comment{}), ext.ParseStructTags(true)))
 	if err != nil {
 		return nil, err
 	}
@@ -445,6 +458,7 @@ func buildEnv(kind string, fields FieldTypes) (*Env, error) {
 		opts = append(opts,
 			cel.Variable("old", cel.ObjectType("expr.Record")),
 			cel.Variable("event", cel.StringType),
+			cel.Variable("comment", cel.ObjectType("expr.Comment")),
 			cel.Variable(lookupsVar, cel.MapType(cel.StringType, cel.IntType)))
 	case kindWorkflow:
 		opts = append(opts,
@@ -738,7 +752,11 @@ func (p *Program) eval(ctx context.Context, in Input) (ref.Val, error) {
 	if counts == nil {
 		counts = map[string]int64{}
 	}
-	vals := map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event, "vars": vars, lookupsVar: counts}
+	comment := in.Comment
+	if comment == nil {
+		comment = &Comment{Mentions: []string{}}
+	}
+	vals := map[string]any{"record": rec, "old": old, "user": user, "now": in.Now, "event": in.Event, "comment": comment, "vars": vars, lookupsVar: counts}
 	resolvers := map[string]func(context.Context, string) ([]string, error){lookups[0].variable: in.Groups, lookups[1].variable: in.Roles}
 	for _, l := range lookups {
 		found := map[string][]string{}

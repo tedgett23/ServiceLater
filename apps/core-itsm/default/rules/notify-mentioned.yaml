@@ -1,0 +1,11 @@
+# Tell the people a comment @mentions. Each of them may read it: the comment is refused otherwise.
+kind: rule
+name: notify-mentioned
+record_type: task
+timing: after
+on: [comment]
+on_error: skip
+run:
+  - action: notify
+    template: mentioned
+    to: [mentioned]

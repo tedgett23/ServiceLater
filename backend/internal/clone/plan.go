@@ -47,6 +47,16 @@ func task(col string) string {
 	return fmt.Sprintf("EXISTS (SELECT 1 FROM clone_tasks k WHERE k.id = t.%s)", col)
 }
 
+// commentKept is whether the comment a row points at is in the package: its record is, and an internal note only
+// with internal notes.
+func commentKept(p Profile, col string) string {
+	internal := " AND NOT c.internal"
+	if p.InternalNotes {
+		internal = ""
+	}
+	return fmt.Sprintf("EXISTS (SELECT 1 FROM task_comments c JOIN clone_tasks k ON k.id = c.task_id WHERE c.id = t.%s%s)", col, internal)
+}
+
 func taskOrNull(col string) string { return fmt.Sprintf("(t.%s IS NULL OR %s)", col, task(col)) }
 
 func user(col string) string {
@@ -165,9 +175,11 @@ var policies = map[string]policy{
 		}
 		return nil
 	}},
-	"task_cis":      {where: func(Profile) string { return task("task_id") }, cols: cols("created_by", clearUser("created_by"))},
-	"task_articles": {where: func(Profile) string { return task("task_id") }, cols: cols("created_by", clearUser("created_by"))},
-	"task_slas":     {where: func(Profile) string { return task("task_id") }},
+	// A mention comes with its comment, if the person mentioned comes too (it never brings anyone).
+	"task_comment_mentions": {where: func(p Profile) string { return commentKept(p, "comment_id") + " AND " + user("user_id") }},
+	"task_cis":              {where: func(Profile) string { return task("task_id") }, cols: cols("created_by", clearUser("created_by"))},
+	"task_articles":         {where: func(Profile) string { return task("task_id") }, cols: cols("created_by", clearUser("created_by"))},
+	"task_slas":             {where: func(Profile) string { return task("task_id") }},
 	"attachments": {where: func(p Profile) string {
 		if p.Attachments == AttachmentsNone {
 			return "false"

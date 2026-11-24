@@ -327,7 +327,8 @@ func prepare(ctx context.Context, tx pgx.Tx, o Options) (*Report, error) {
 	}
 	if p.Logs {
 		if _, err := tx.Exec(ctx, "INSERT INTO clone_notes SELECT t.id FROM notifications t WHERE "+user("user_id")+" AND "+taskOrNull("task_id")+
-			" AND (t.approval_id IS NULL OR EXISTS (SELECT 1 FROM workflow_approvals a JOIN clone_runs k ON k.id = a.execution_id WHERE a.id = t.approval_id))"); err != nil {
+			" AND (t.approval_id IS NULL OR EXISTS (SELECT 1 FROM workflow_approvals a JOIN clone_runs k ON k.id = a.execution_id WHERE a.id = t.approval_id))"+
+			" AND (t.comment_id IS NULL OR "+commentKept(p, "comment_id")+")"); err != nil {
 			return nil, err
 		}
 	}

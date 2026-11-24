@@ -1,0 +1,12 @@
+# Tell the requester when their incident is put on hold (waiting on them, or on someone else).
+kind: rule
+name: notify-requester-on-hold
+record_type: incident
+timing: after
+on: [update]
+when: record.state_category == "waiting" && old.state_category != "waiting"
+on_error: skip
+run:
+  - action: notify
+    template: incident-on-hold
+    to: [requester]

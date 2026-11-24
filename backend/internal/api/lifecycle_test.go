@@ -45,7 +45,7 @@ func TestLifecycleEndpoint(t *testing.T) {
 	w := lena.do(h, "GET", "/api/v1/lifecycles/incident", "") // any signed-in user may read it: the UI needs the labels
 	expect(t, w, 200, "requester")
 	lc := decodeBody[lifecycleResp](t, w)
-	if lc.RecordType != "incident" || lc.Initial != "new" || lc.App != "incident-management" || lc.Version != "0.4.0" {
+	if lc.RecordType != "incident" || lc.Initial != "new" || lc.App != "incident-management" || lc.Version != "0.5.0" {
 		t.Errorf("lifecycle: %+v", lc)
 	}
 	if len(lc.States) != 5 || lc.States[0].ID != "new" || lc.States[2].Category != "waiting" {

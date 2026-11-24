@@ -1,0 +1,12 @@
+# Tell the requester their incident is resolved, with the resolution notes. Resolving your own incident is silent.
+kind: rule
+name: notify-requester-resolved
+record_type: incident
+timing: after
+on: [update]
+when: record.state_category == "done" && old.state_category != "done"
+on_error: skip
+run:
+  - action: notify
+    template: incident-resolved
+    to: [requester]

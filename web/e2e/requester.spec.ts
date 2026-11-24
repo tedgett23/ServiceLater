@@ -10,7 +10,8 @@ test.describe('a requester', () => {
 
 		await openTicket(lena.page, t.number);
 		await expect(lena.page.getByText('Every 20 minutes.')).toBeVisible();
-		await expect(lena.page.getByText('Looking into it.')).toBeVisible();
+		// Scoped to the ticket: the bell has the reply too (core-itsm tells the requester of a public comment).
+		await expect(lena.page.getByRole('region', { name: 'Ticket', exact: true }).getByText('Looking into it.')).toBeVisible();
 		await expect(lena.page.getByText('Firmware rollback needed.')).toHaveCount(0);
 
 		// No staff controls: no action buttons, no pickers, no internal-note switch.

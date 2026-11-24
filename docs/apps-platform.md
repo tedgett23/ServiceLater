@@ -560,10 +560,11 @@ Who hears about what is app content, not code. It is split in two, so the wordin
 - **What it says** is a `notification` definition in `notifications/*.yaml`: a `title`, an optional `body`, and
   `channels`: `in_app` (always required) and optionally `email`; `sms` and `slack` are rejected as not supported yet. Placeholders come from a
   fixed list checked at install: `{{record.reference}}`, `record.title`, `record.type`, `record.status` (its label),
-  `record.priority`, `record.requester_name`, `record.assignee_name`, `record.assignment_group`, `{{actor.name}}`.
+  `record.priority`, `record.requester_name`, `record.assignee_name`, `record.assignment_group`, `record.resolution`,
+  `{{actor.name}}`, and `{{comment.body}}` (the comment a comment rule sent it about; empty otherwise).
 - **When, and to whom** is a rule (after or async) with a `notify` action: `template` (a template in the same app,
-  checked at install) and `to`, a list of `assignee`, `requester`, `assignment_group` (its active members) or an
-  `=expression` giving user ids.
+  checked at install) and `to`, a list of `assignee`, `requester`, `assignment_group` (its active members),
+  `mentioned` (in a rule `on: [comment]`: the people the comment mentions) or an `=expression` giving user ids.
 
 ```yaml
 # apps/core-itsm/default/notifications/ticket-assigned.yaml
@@ -586,9 +587,29 @@ run:
     to: [assignee]
 ```
 
-`core-itsm` ships two: `notify-assignee` (the new assignee) and `notify-group` (the assignment group's members, when a
-ticket lands there with nobody on it). An operator rewords a template or changes who is told in `local/`, like any
-other definition.
+`core-itsm` ships `notify-assignee` (the new assignee) and `notify-group` (the assignment group's members, when a
+ticket lands there with nobody on it), and the comment rules below. incident-management 0.5.0 tells the requester when
+their incident is put on hold (`notify-requester-on-hold`) and when it is resolved, with the resolution notes
+(`notify-requester-resolved`). An operator rewords a template or changes who is told in `local/`, like any other
+definition.
+
+**Comments and @mentions (2026-11-24, `00025_comment_notifications`).** A person's comment, in the app or by replying
+to a notification email, is an event: after rules `on: [comment]` run in the comment's transaction (only after rules:
+before a comment there is nothing to set) and read the comment as `comment` (`id`, `body`, `internal`, `author_id`,
+`mentions`, the ids of the people it mentions; empty for other events). Comments that apps write (rules, workflows,
+scripts) are not events: an app says whom to tell about what it does itself. All of a person's comments go through
+`records.Service.Comment`. A comment may mention up to 20 people (`POST /tickets/{id}/comments` `mentions`, kept in
+`task_comment_mentions`; the body names each as @ and their name), and each must be able to read it: see the record,
+and for an internal note hold `comments:internal` (otherwise 422, naming them). The comment box offers people as you
+type @ (`GET /tickets/{id}/mentionable?q=&internal=`, `users:read`: only people who may read the comment), and
+comments show their mentions highlighted (yours in yellow). A notification about a comment stores the comment
+(`notifications.comment_id`, sent by `app_notify_comment`), which drops anyone who may not read it, so an internal note
+never reaches a requester; its text is filled in when read, and the notification drops out if the reader can no
+longer read the comment. Comment notifications never post to Teams (the whole channel would read them). core-itsm
+0.7.0 ships `mentioned` and `comment-added` and four rules: `notify-mentioned` (the people mentioned),
+`comment-to-assignee` (unless mentioned), `comment-to-requester` (public comments only, unless mentioned) and
+`comment-to-group` (the requester's comment on a ticket nobody has taken). A reply to the email becomes a comment and
+tells the assignee in turn.
 
 What the platform enforces whatever a rule says (`app_notify`, `00009_notifications`): nobody is told about their own change,
 nobody deactivated, and nobody who cannot see the record (staff, or its requester), so an end user in a group never
@@ -639,7 +660,7 @@ run and marked read once handled; a database fault leaves it unread for the next
 
 - Opening a ticket marks every notification about it read. Whether a kind clears on view, on action, or only when
   dismissed should be part of the template.
-- The placeholder list and the fixed recipient kinds (`assignee`, `requester`, `assignment_group`) are code. Adding
+- The placeholder list and the fixed recipient kinds (`assignee`, `requester`, `assignment_group`, `mentioned`) are code. Adding
   one is a platform change, not an app change.
 - Per-person preferences are one switch per channel (email, SMS); muting a kind or choosing a channel per kind
   belongs in config, not in each rule.
@@ -1953,8 +1974,9 @@ A key service (KMS, Vault) is not supported; the keyring is the seam where one w
     Business calendars are the same (`business_calendars`, `calendars:manage`, §6.6), and so are configuration items
     (`cis`, `cmdb:manage`, §8.2), whose classes and relationship types are app definitions.
 12. **SLAs.** Built as a definition kind (§6.6). Still open: reporting, reset conditions and pause reasons.
-13. **Comment events.** Rules on comments ("a reply reopens the ticket") need `record_type: comment` and access to
-    the parent record.
+13. ~~Comment events.~~ **Partly resolved (2026-11-24, §6.5).** After rules `on: [comment]` on the record's type see
+    the record and the comment, and notify. Still open: before and async comment rules, and changing the record from
+    one ("a reply reopens the ticket" needs an async rule's `record.update`).
 14. ~~Bundled first-party apps.~~ **Resolved (D16).** They are embedded and installed at startup; local changes live
     outside the binary (§4.5).
 15. **Signing and marketplace.** Out of scope for v1; worth deciding the archive format so signatures can be added.

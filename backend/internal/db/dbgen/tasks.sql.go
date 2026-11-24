@@ -12,6 +12,21 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const addCommentMentions = `-- name: AddCommentMentions :exec
+INSERT INTO task_comment_mentions (comment_id, user_id)
+SELECT $1, unnest($2::uuid[])
+`
+
+type AddCommentMentionsParams struct {
+	CommentID uuid.UUID   `json:"comment_id"`
+	UserIds   []uuid.UUID `json:"user_ids"`
+}
+
+func (q *Queries) AddCommentMentions(ctx context.Context, arg AddCommentMentionsParams) error {
+	_, err := q.db.Exec(ctx, addCommentMentions, arg.CommentID, arg.UserIds)
+	return err
+}
+
 const countQueueViews = `-- name: CountQueueViews :one
 SELECT count(*) AS open,
        count(*) FILTER (WHERE t.assignee_id = app_current_user_id()) AS mine,
@@ -564,6 +579,40 @@ func (q *Queries) ListChildTasks(ctx context.Context, parentID uuid.NullUUID) ([
 	return items, nil
 }
 
+const listCommentMentions = `-- name: ListCommentMentions :many
+SELECT m.comment_id, m.user_id, u.name
+FROM task_comment_mentions m JOIN task_comments c ON c.id = m.comment_id JOIN users u ON u.id = m.user_id
+WHERE c.task_id = $1
+ORDER BY u.name, u.id
+`
+
+type ListCommentMentionsRow struct {
+	CommentID uuid.UUID `json:"comment_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Name      string    `json:"name"`
+}
+
+// The people a record's comments mention, as the reader may see the comments.
+func (q *Queries) ListCommentMentions(ctx context.Context, taskID uuid.UUID) ([]ListCommentMentionsRow, error) {
+	rows, err := q.db.Query(ctx, listCommentMentions, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListCommentMentionsRow
+	for rows.Next() {
+		var i ListCommentMentionsRow
+		if err := rows.Scan(&i.CommentID, &i.UserID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listComments = `-- name: ListComments :many
 SELECT c.id, c.task_id, c.author_id, c.on_behalf_of, c.body, c.internal, c.created_at, u.name AS author_name, b.name AS on_behalf_of_name
 FROM task_comments c JOIN users u ON u.id = c.author_id LEFT JOIN users b ON b.id = c.on_behalf_of
@@ -1061,6 +1110,95 @@ SELECT app_mark_saving($1::uuid)
 func (q *Queries) MarkSaving(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, markSaving, id)
 	return err
+}
+
+const mentionCandidates = `-- name: MentionCandidates :many
+SELECT u.id, u.name, u.email
+FROM users u, tasks t
+WHERE t.id = $1
+  AND (u.name ILIKE '%' || $2::text || '%' ESCAPE '\' OR u.email ILIKE '%' || $2::text || '%' ESCAPE '\')
+  AND u.app_name IS NULL AND u.deactivated_at IS NULL
+  AND app_user_sees_task(u.id, t.type, t.requester_id, t.assignee_id, t.assignment_group_id)
+  AND (NOT $3::boolean OR app_user_can(u.id, 'comments:internal'))
+ORDER BY u.name, u.id
+LIMIT 6
+`
+
+type MentionCandidatesParams struct {
+	TaskID   uuid.UUID `json:"task_id"`
+	Q        string    `json:"q"`
+	Internal bool      `json:"internal"`
+}
+
+type MentionCandidatesRow struct {
+	ID    uuid.UUID `json:"id"`
+	Name  string    `json:"name"`
+	Email string    `json:"email"`
+}
+
+// People whose name or email contains q and who may read a comment on the record: whom the comment box offers to
+// mention. q is escaped for LIKE by the caller.
+func (q *Queries) MentionCandidates(ctx context.Context, arg MentionCandidatesParams) ([]MentionCandidatesRow, error) {
+	rows, err := q.db.Query(ctx, mentionCandidates, arg.TaskID, arg.Q, arg.Internal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MentionCandidatesRow
+	for rows.Next() {
+		var i MentionCandidatesRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.Email); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const mentionablePeople = `-- name: MentionablePeople :many
+SELECT u.id, u.name
+FROM users u, tasks t
+WHERE t.id = $1 AND u.id = ANY ($2::uuid[])
+  AND u.app_name IS NULL AND u.deactivated_at IS NULL
+  AND app_user_sees_task(u.id, t.type, t.requester_id, t.assignee_id, t.assignment_group_id)
+  AND (NOT $3::boolean OR app_user_can(u.id, 'comments:internal'))
+ORDER BY u.name, u.id
+`
+
+type MentionablePeopleParams struct {
+	TaskID   uuid.UUID   `json:"task_id"`
+	UserIds  []uuid.UUID `json:"user_ids"`
+	Internal bool        `json:"internal"`
+}
+
+type MentionablePeopleRow struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+}
+
+// Who of these people may read a comment on the record (internal notes only with comments:internal): those a
+// comment may mention. Nobody deactivated, and no app.
+func (q *Queries) MentionablePeople(ctx context.Context, arg MentionablePeopleParams) ([]MentionablePeopleRow, error) {
+	rows, err := q.db.Query(ctx, mentionablePeople, arg.TaskID, arg.UserIds, arg.Internal)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MentionablePeopleRow
+	for rows.Next() {
+		var i MentionablePeopleRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const retireAppTaskTypes = `-- name: RetireAppTaskTypes :many

@@ -47,8 +47,10 @@ type Notification struct {
 // instead of reaching someone as a blank.
 var Placeholders = []string{
 	"record.reference", "record.title", "record.type", "record.status", "record.priority",
-	"record.requester_name", "record.assignee_name", "record.assignment_group",
+	"record.requester_name", "record.assignee_name", "record.assignment_group", "record.resolution",
 	"actor.name",
+	// The comment a rule on: [comment] sent it about (empty otherwise).
+	"comment.body",
 }
 
 var placeholderRE = regexp.MustCompile(`\{\{\s*([^{}]*?)\s*\}\}`)

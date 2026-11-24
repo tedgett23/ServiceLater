@@ -233,6 +233,7 @@ func NewRouter(d Deps) http.Handler {
 				r.Route("/{id}", func(r chi.Router) {
 					r.Get("/", h.getTicket)
 					r.Get("/comments", h.listComments)
+					r.With(auth.RequirePermission(authz.UsersRead)).Get("/mentionable", h.listMentionable)
 					r.Get("/history", h.getTicketHistory)
 					r.Get("/suggestions", h.ticketSuggestions)
 					r.Post("/comments", h.createComment)

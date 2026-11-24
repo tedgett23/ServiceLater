@@ -86,7 +86,19 @@ func (rd *Renderer) Render(ctx context.Context, n dbgen.Notification) (Message, 
 				return out, false, err
 			}
 		}
-		out.Title, out.Body = tpl.Render(rd.values(t, actor))
+		values := rd.values(t, actor)
+		if n.CommentID.Valid {
+			// About one comment: dropped if this person cannot read it (an internal note they lost access to).
+			c, err := rd.q.GetCommentView(ctx, n.CommentID.UUID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return out, false, nil
+			}
+			if err != nil {
+				return out, false, err
+			}
+			values["comment.body"] = c.TaskComment.Body
+		}
+		out.Title, out.Body = tpl.Render(values)
 		return out, true, nil
 	}
 	out.Title, out.Link = "Something changed", "/tickets"
@@ -133,6 +145,6 @@ func (rd *Renderer) values(t *records.Ticket, actor string) map[string]string {
 		"record.reference": t.Reference, "record.title": t.Title, "record.type": t.Type,
 		"record.status": rd.apps.Lifecycle(t.Type).Label(t.Status), "record.priority": strconv.Itoa(int(t.Priority)),
 		"record.requester_name": t.Requester, "record.assignee_name": deref(t.Assignee),
-		"record.assignment_group": deref(t.AssignmentGroup), "actor.name": actor,
+		"record.assignment_group": deref(t.AssignmentGroup), "record.resolution": t.Resolution, "actor.name": actor,
 	}
 }

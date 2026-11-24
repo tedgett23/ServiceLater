@@ -70,6 +70,9 @@ type Notify struct {
 	Template string
 	UserIDs  []string
 	GroupIDs []string
+	// CommentID is the comment a comment rule's notification is about ("" otherwise): recipients who may not read it
+	// are dropped, and its text is filled in when they read the notification.
+	CommentID string
 }
 
 // Linked is a linked.update an async rule asked for: change each open record linked to this one (Linked names the
@@ -238,6 +241,9 @@ func perform(ctx context.Context, r *apps.Rule, a *apps.Action, in expr.Input, f
 		return nil
 	case "notify":
 		n := Notify{App: r.App, Rule: r.Name, Template: a.Template}
+		if in.Comment != nil {
+			n.CommentID = in.Comment.ID
+		}
 		rec := in.Record
 		for i, to := range a.To {
 			switch to {
@@ -250,6 +256,10 @@ func perform(ctx context.Context, r *apps.Rule, a *apps.Action, in expr.Input, f
 			case "assignment_group":
 				if rec.AssignmentGroupID != nil {
 					n.GroupIDs = append(n.GroupIDs, *rec.AssignmentGroupID)
+				}
+			case apps.RecipientMentioned:
+				if in.Comment != nil {
+					n.UserIDs = append(n.UserIDs, in.Comment.Mentions...)
 				}
 			default:
 				p, err := a.Recipient(i)

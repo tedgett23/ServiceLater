@@ -13,6 +13,10 @@ UPDATE notifications SET read_at = now() WHERE id = sqlc.arg('id') AND read_at I
 -- name: SendNotification :one
 SELECT app_notify(sqlc.arg('user_ids')::uuid[], sqlc.arg('task_id')::uuid, sqlc.arg('app')::text, sqlc.arg('template')::text)::int AS sent;
 
+-- name: SendCommentNotification :one
+SELECT app_notify_comment(sqlc.arg('user_ids')::uuid[], sqlc.arg('task_id')::uuid, sqlc.arg('comment_id')::uuid,
+    sqlc.arg('app')::text, sqlc.arg('template')::text)::int AS sent;
+
 -- Opening a ticket answers what this person was told about it.
 -- name: MarkTaskNotificationsRead :execrows
 UPDATE notifications SET read_at = now()

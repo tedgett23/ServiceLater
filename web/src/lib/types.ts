@@ -311,6 +311,8 @@ export interface Comment {
 	body: string;
 	internal: boolean;
 	created_at: string;
+	/** The people it @mentions; the body names each as @ and their name. */
+	mentions: { id: string; name: string }[];
 	pending?: boolean;
 }
 
@@ -319,6 +321,7 @@ export const P = {
 	commentsInternal: 'comments:internal',
 	workflowsReadAll: 'workflows:read_all',
 	usersManage: 'users:manage',
+	usersRead: 'users:read',
 	groupsManage: 'groups:manage',
 	restrictedRead: 'restricted:read',
 	rolesManage: 'roles:manage',

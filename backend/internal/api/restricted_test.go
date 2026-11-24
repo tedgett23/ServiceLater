@@ -136,6 +136,7 @@ func TestRealtimeKeepsRestrictedRecordsQuiet(t *testing.T) {
 	if e := hn.next(t, "comment.added"); e["ticket_id"] != tk.ID {
 		t.Errorf("HR hears of it: %v", e)
 	}
+	hn.next(t, "notification.changed") // and is told: nobody has the ticket yet (core-itsm's comment-to-group)
 	d.none(t, "the service desk must not hear of a restricted record")
 
 	expect(t, hannah.do(h, "PATCH", "/api/v1/tickets/"+tk.ID, `{"priority":2}`), 200, "hannah edits it")

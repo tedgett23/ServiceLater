@@ -23,7 +23,7 @@ func (q *Queries) CountMyUnreadNotifications(ctx context.Context, userID uuid.UU
 }
 
 const listMyNotifications = `-- name: ListMyNotifications :many
-SELECT id, user_id, kind, approval_id, task_id, app, template, actor_id, created_at, read_at FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2
+SELECT id, user_id, kind, approval_id, task_id, app, template, actor_id, created_at, read_at, comment_id FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2
 `
 
 type ListMyNotificationsParams struct {
@@ -51,6 +51,7 @@ func (q *Queries) ListMyNotifications(ctx context.Context, arg ListMyNotificatio
 			&i.ActorID,
 			&i.CreatedAt,
 			&i.ReadAt,
+			&i.CommentID,
 		); err != nil {
 			return nil, err
 		}
@@ -63,7 +64,7 @@ func (q *Queries) ListMyNotifications(ctx context.Context, arg ListMyNotificatio
 }
 
 const markNotificationRead = `-- name: MarkNotificationRead :one
-UPDATE notifications SET read_at = now() WHERE id = $1 AND read_at IS NULL RETURNING id, user_id, kind, approval_id, task_id, app, template, actor_id, created_at, read_at
+UPDATE notifications SET read_at = now() WHERE id = $1 AND read_at IS NULL RETURNING id, user_id, kind, approval_id, task_id, app, template, actor_id, created_at, read_at, comment_id
 `
 
 // Only an unread row of this person's own matches, so marking someone else's, or marking twice, finds nothing (RLS
@@ -82,6 +83,7 @@ func (q *Queries) MarkNotificationRead(ctx context.Context, id uuid.UUID) (Notif
 		&i.ActorID,
 		&i.CreatedAt,
 		&i.ReadAt,
+		&i.CommentID,
 	)
 	return i, err
 }
@@ -103,6 +105,32 @@ func (q *Queries) MarkTaskNotificationsRead(ctx context.Context, arg MarkTaskNot
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const sendCommentNotification = `-- name: SendCommentNotification :one
+SELECT app_notify_comment($1::uuid[], $2::uuid, $3::uuid,
+    $4::text, $5::text)::int AS sent
+`
+
+type SendCommentNotificationParams struct {
+	UserIds   []uuid.UUID `json:"user_ids"`
+	TaskID    uuid.UUID   `json:"task_id"`
+	CommentID uuid.UUID   `json:"comment_id"`
+	App       string      `json:"app"`
+	Template  string      `json:"template"`
+}
+
+func (q *Queries) SendCommentNotification(ctx context.Context, arg SendCommentNotificationParams) (int32, error) {
+	row := q.db.QueryRow(ctx, sendCommentNotification,
+		arg.UserIds,
+		arg.TaskID,
+		arg.CommentID,
+		arg.App,
+		arg.Template,
+	)
+	var sent int32
+	err := row.Scan(&sent)
+	return sent, err
 }
 
 const sendNotification = `-- name: SendNotification :one

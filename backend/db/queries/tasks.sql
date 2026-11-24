@@ -236,6 +236,41 @@ SELECT sqlc.embed(c), u.name AS author_name, b.name AS on_behalf_of_name
 FROM task_comments c JOIN users u ON u.id = c.author_id LEFT JOIN users b ON b.id = c.on_behalf_of
 WHERE c.id = $1;
 
+-- Who of these people may read a comment on the record (internal notes only with comments:internal): those a
+-- comment may mention. Nobody deactivated, and no app.
+-- name: MentionablePeople :many
+SELECT u.id, u.name
+FROM users u, tasks t
+WHERE t.id = sqlc.arg('task_id') AND u.id = ANY (sqlc.arg('user_ids')::uuid[])
+  AND u.app_name IS NULL AND u.deactivated_at IS NULL
+  AND app_user_sees_task(u.id, t.type, t.requester_id, t.assignee_id, t.assignment_group_id)
+  AND (NOT sqlc.arg('internal')::boolean OR app_user_can(u.id, 'comments:internal'))
+ORDER BY u.name, u.id;
+
+-- People whose name or email contains q and who may read a comment on the record: whom the comment box offers to
+-- mention. q is escaped for LIKE by the caller.
+-- name: MentionCandidates :many
+SELECT u.id, u.name, u.email
+FROM users u, tasks t
+WHERE t.id = sqlc.arg('task_id')
+  AND (u.name ILIKE '%' || sqlc.arg('q')::text || '%' ESCAPE '\' OR u.email ILIKE '%' || sqlc.arg('q')::text || '%' ESCAPE '\')
+  AND u.app_name IS NULL AND u.deactivated_at IS NULL
+  AND app_user_sees_task(u.id, t.type, t.requester_id, t.assignee_id, t.assignment_group_id)
+  AND (NOT sqlc.arg('internal')::boolean OR app_user_can(u.id, 'comments:internal'))
+ORDER BY u.name, u.id
+LIMIT 6;
+
+-- name: AddCommentMentions :exec
+INSERT INTO task_comment_mentions (comment_id, user_id)
+SELECT sqlc.arg('comment_id'), unnest(sqlc.arg('user_ids')::uuid[]);
+
+-- The people a record's comments mention, as the reader may see the comments.
+-- name: ListCommentMentions :many
+SELECT m.comment_id, m.user_id, u.name
+FROM task_comment_mentions m JOIN task_comments c ON c.id = m.comment_id JOIN users u ON u.id = m.user_id
+WHERE c.task_id = sqlc.arg('task_id')
+ORDER BY u.name, u.id;
+
 -- name: ListComments :many
 SELECT sqlc.embed(c), u.name AS author_name, b.name AS on_behalf_of_name
 FROM task_comments c JOIN users u ON u.id = c.author_id LEFT JOIN users b ON b.id = c.on_behalf_of
