@@ -922,3 +922,16 @@ type WorkflowStep struct {
 	DurationMs  int32              `json:"duration_ms"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
+
+type WorkflowWebhookDelivery struct {
+	ID          uuid.UUID          `json:"id"`
+	App         string             `json:"app"`
+	Workflow    string             `json:"workflow"`
+	DeliveryKey pgtype.Text        `json:"delivery_key"`
+	Outcome     string             `json:"outcome"`
+	Reason      string             `json:"reason"`
+	ExecutionID uuid.NullUUID      `json:"execution_id"`
+	Size        int32              `json:"size"`
+	Remote      string             `json:"remote"`
+	ReceivedAt  pgtype.Timestamptz `json:"received_at"`
+}

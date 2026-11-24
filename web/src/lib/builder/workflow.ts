@@ -84,6 +84,37 @@ export interface Schedule {
 	for_each?: RecordQuery;
 }
 
+/** When another system starts a workflow: POST /api/v1/hooks/<app>/<name>, proved by a token or a signature. */
+export interface Webhook {
+	secret: string;
+	auth: 'token' | 'hmac';
+	signature_header?: string;
+	signature_prefix?: string;
+	dedupe_header?: string;
+}
+
+/** One call to a webhook, as the server logged it (never its body). */
+export interface WebhookDelivery {
+	id: string;
+	delivery_key: string;
+	outcome: 'started' | 'duplicate' | 'refused';
+	reason: string;
+	run_id: string | null;
+	size: number;
+	remote: string;
+	received_at: string;
+}
+
+/** What the builder saves. */
+export interface WorkflowSave {
+	record_type: string;
+	start: string;
+	steps: Step[];
+	layout: Record<string, { x: number; y: number }>;
+	schedule: Schedule | null;
+	webhook: Webhook | null;
+}
+
 export interface WorkflowDef {
 	app: string;
 	name: string;
@@ -103,6 +134,9 @@ export interface WorkflowDef {
 	/** What the app may do: steps act as the app, so a step that reads or changes a record needs one of these. */
 	app_permissions: string[];
 	schedule?: Schedule | null;
+	webhook?: Webhook | null;
+	/** Whether the webhook's secret is set (Admin → Connections); until it is, every call is refused. */
+	webhook_secret_set?: boolean;
 	/** The app's workflows (what subflow and foreach run), its declared secrets and the hosts it may call. */
 	app_workflows?: string[];
 	app_secrets?: string[];

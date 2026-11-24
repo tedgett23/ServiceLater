@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { api, ApiError } from '$lib/api';
 	import WorkflowBuilder from '$lib/builder/WorkflowBuilder.svelte';
-	import type { Schedule, Step, WorkflowActivity, WorkflowDef } from '$lib/builder/workflow';
+	import type { WorkflowActivity, WorkflowDef, WorkflowSave } from '$lib/builder/workflow';
 	import { realtime } from '$lib/realtime.svelte';
 	import { when } from '$lib/format';
 	import { lifecycle } from '$lib/lifecycle.svelte';
@@ -99,7 +99,7 @@
 		void lifecycle.ensure();
 	});
 
-	async function save(body: { record_type: string; start: string; steps: Step[]; layout: Record<string, { x: number; y: number }>; schedule: Schedule | null }) {
+	async function save(body: WorkflowSave) {
 		error = '';
 		try {
 			def = await api<WorkflowDef>(path, { method: 'PUT', body });

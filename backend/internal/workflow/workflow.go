@@ -45,6 +45,7 @@ type StartParams struct {
 	RecordID *uuid.UUID
 	UserID   uuid.UUID // the person it runs as: their permissions, their RLS
 	Cause    ruleruns.Cause
+	Vars     map[string]any // its variables to begin with (a webhook's payload); none when nil
 }
 
 // Start creates an execution and queues its first run, inside the caller's transaction (q is built on it): if the
@@ -62,6 +63,11 @@ func Start(ctx context.Context, q *dbgen.Queries, p StartParams) (uuid.UUID, err
 	}
 	if p.RecordID != nil {
 		arg.RecordID = uuid.NullUUID{UUID: *p.RecordID, Valid: true}
+	}
+	if p.Vars != nil {
+		if arg.Vars, err = json.Marshal(p.Vars); err != nil {
+			return uuid.Nil, err
+		}
 	}
 	id, err := q.InsertExecution(ctx, arg)
 	if err != nil {

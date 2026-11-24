@@ -125,6 +125,16 @@ func WorkflowYAML(w *Workflow, replace bool) ([]byte, error) {
 		}
 		doc.Content = append(doc.Content, scalar("schedule"), n)
 	}
+	if h := w.Webhook; h != nil {
+		n := &yaml.Node{Kind: yaml.MappingNode}
+		for _, f := range []struct{ key, val string }{{"secret", h.Secret}, {"auth", h.Auth}, {"signature_header", h.SignatureHeader},
+			{"signature_prefix", h.SignaturePrefix}, {"dedupe_header", h.DedupeHeader}} {
+			if f.val != "" {
+				addScalar(n, f.key, f.val)
+			}
+		}
+		doc.Content = append(doc.Content, scalar("webhook"), n)
+	}
 	doc.Content = append(doc.Content, scalar("steps"), steps)
 	if len(w.Layout) > 0 {
 		layout := &yaml.Node{Kind: yaml.MappingNode}
@@ -201,7 +211,8 @@ func sameWorkflow(a, b []byte) bool {
 		}
 		steps := slices.Clone([]Step(f.Steps))
 		slices.SortFunc(steps, func(x, y Step) int { return strings.Compare(x.ID, y.ID) })
-		out, err := json.Marshal(Workflow{Name: f.Name, RecordType: f.RecordType, Start: f.Start, Steps: steps, Layout: f.Layout})
+		out, err := json.Marshal(Workflow{Name: f.Name, RecordType: f.RecordType, Start: f.Start, Steps: steps, Layout: f.Layout,
+			Schedule: f.Schedule, Webhook: f.Webhook})
 		return string(out), err == nil
 	}
 	x, ok1 := norm(a)

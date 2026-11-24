@@ -32,6 +32,11 @@ type workflowDefDTO struct {
 	Layout map[string]apps.Point `json:"layout"`
 	// Schedule starts it by the clock, if it has one.
 	Schedule *apps.Schedule `json:"schedule,omitempty"`
+	// Webhook starts it when another system calls POST /api/v1/hooks/{app}/{name}, if it has one.
+	Webhook *apps.Webhook `json:"webhook,omitempty"`
+	// WebhookSecretSet says whether the webhook's secret has been set (Admin → Connections); until it is, every call
+	// is refused.
+	WebhookSecretSet bool `json:"webhook_secret_set"`
 	// AppWorkflows are the app's workflows (what subflow and foreach may run); AppSecrets the secrets and AppHosts
 	// the hosts its http.request steps may use.
 	AppWorkflows []string `json:"app_workflows"`
@@ -65,6 +70,8 @@ type workflowSaveRequest struct {
 	Layout     map[string]apps.Point `json:"layout"`
 	// Schedule starts it by the clock: cron, timezone and, to run once per record, for_each.
 	Schedule *apps.Schedule `json:"schedule"`
+	// Webhook starts it when another system calls it: secret, auth (token or hmac) and header names.
+	Webhook *apps.Webhook `json:"webhook"`
 }
 
 // problemsError is an app that does not compile with an edit: every problem, as `servicelater app validate` would say.
@@ -152,7 +159,21 @@ func (h *handlers) toWorkflowDef(ctx context.Context, c *apps.Compiled, d apps.D
 	if out.Layout == nil {
 		out.Layout = map[string]apps.Point{}
 	}
-	out.Schedule = wf.Schedule
+	out.Schedule, out.Webhook = wf.Schedule, wf.Webhook
+	if wf.Webhook != nil && wf.Webhook.Secret != "" {
+		// Only whether it is set: the builder links to Connections, which those who manage settings use.
+		err := db.WithSystem(ctx, h.pool, func(tx pgx.Tx) error {
+			_, err := dbgen.New(tx).GetSecret(ctx, apps.AppSecretName(app, wf.Webhook.Secret))
+			out.WebhookSecretSet = err == nil
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil
+			}
+			return err
+		})
+		if err != nil {
+			return out, err
+		}
+	}
 	out.AppWorkflows, out.AppSecrets, out.AppHosts = []string{}, []string{}, apps.HTTPHosts(c.Manifest.Permissions)
 	if out.AppHosts == nil {
 		out.AppHosts = []string{}
@@ -248,7 +269,7 @@ func (h *handlers) putWorkflowDef(w http.ResponseWriter, r *http.Request) {
 		writeStudioError(w, err)
 		return
 	}
-	wf := &apps.Workflow{Name: name, RecordType: req.RecordType, Start: req.Start, Steps: req.Steps, Layout: req.Layout, Schedule: req.Schedule}
+	wf := &apps.Workflow{Name: name, RecordType: req.RecordType, Start: req.Start, Steps: req.Steps, Layout: req.Layout, Schedule: req.Schedule, Webhook: req.Webhook}
 	path := "workflows/" + name + ".yaml"
 	var current *apps.Workflow
 	if d, ok := s.definition(name); ok {

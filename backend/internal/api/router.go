@@ -124,6 +124,8 @@ func NewRouter(d Deps) http.Handler {
 		// Links handed out by /attachments/{id}/parts and /download: they carry a signed token, not a session.
 		r.Put("/attachments/{id}/parts/{n}", h.putAttachmentPart)
 		r.Get("/attachments/{id}/file", h.serveAttachment)
+		// Webhooks that start workflows: the caller proves itself with the webhook's secret, not a session.
+		r.Post("/hooks/{app}/{workflow}", h.receiveWebhook)
 
 		r.Route("/auth", func(r chi.Router) {
 			r.Post("/login", h.login)
@@ -241,6 +243,7 @@ func NewRouter(d Deps) http.Handler {
 				r.With(auth.RequirePermission(authz.WorkflowsReadAll, authz.WorkflowsEdit)).Get("/", h.listWorkflows)
 				r.With(auth.RequirePermission(authz.WorkflowsReadAll, authz.WorkflowsEdit)).Get("/{app}/{name}", h.getWorkflowDef)
 				r.With(auth.RequirePermission(authz.WorkflowsReadAll, authz.WorkflowsEdit)).Get("/{app}/{name}/activity", h.getWorkflowActivity)
+				r.With(auth.RequirePermission(authz.WorkflowsReadAll)).Get("/{app}/{name}/deliveries", h.listWebhookDeliveries)
 				r.With(auth.RequirePermission(authz.WorkflowsEdit)).Put("/{app}/{name}", h.putWorkflowDef)
 				r.With(auth.RequirePermission(authz.WorkflowsEdit)).Delete("/{app}/{name}/edits", h.resetWorkflowDef)
 			})

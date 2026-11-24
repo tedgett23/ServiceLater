@@ -6,10 +6,11 @@
 	import { lifecycle } from '$lib/lifecycle.svelte';
 	import StepNode from './StepNode.svelte';
 	import QueryEditor from './QueryEditor.svelte';
+	import WebhookSettings from './WebhookSettings.svelte';
 	import StepForm from './StepForm.svelte';
 	import { autoLayout, NODE_H, NODE_W } from './layout';
 	import { when } from '$lib/format';
-	import { exitsOf, freshId, linkOf, retarget, scriptTemplate, setLink, stepTypes, tidy, typeInfo, type Step, type StepType, type Schedule, type WorkflowActivity, type WorkflowDef } from './workflow';
+	import { exitsOf, freshId, linkOf, retarget, scriptTemplate, setLink, stepTypes, tidy, typeInfo, type Step, type StepType, type Schedule, type Webhook, type WorkflowActivity, type WorkflowDef, type WorkflowSave } from './workflow';
 
 	/**
 	 * The workflow builder: the steps as a diagram to drag, connect and delete, and the selected step's fields beside it.
@@ -30,7 +31,7 @@
 		canScript?: boolean;
 		/** Where the workflow's runs are, live; null hides it. */
 		activity?: WorkflowActivity | null;
-		onsave: (body: { record_type: string; start: string; steps: Step[]; layout: Record<string, { x: number; y: number }>; schedule: Schedule | null }) => Promise<boolean>;
+		onsave: (body: WorkflowSave) => Promise<boolean>;
 		/** More controls for the toolbar, before Save (the page's "Show where its runs are"). */
 		tools?: Snippet;
 	} = $props();
@@ -38,6 +39,7 @@
 	let steps = $state<Step[]>(untrack(() => structuredClone($state.snapshot(def.steps) as Step[])));
 	let start = $state(untrack(() => def.start));
 	let schedule = $state<Schedule | null>(untrack(() => (def.schedule ? structuredClone($state.snapshot(def.schedule) as Schedule) : null)));
+	let webhook = $state<Webhook | null>(untrack(() => (def.webhook ? structuredClone($state.snapshot(def.webhook) as Webhook) : null)));
 	let selectedId = $state<string | null>(null);
 	let dirty = $state(false);
 	let saving = $state(false);
@@ -192,7 +194,7 @@
 			if (moved || def.layout[n.id]) layout[n.id] = { x: Math.round(n.position.x), y: Math.round(n.position.y) };
 		}
 		try {
-			if (await onsave({ record_type: def.record_type, start, steps: steps.map(tidy), layout, schedule: schedule ?? null })) dirty = false;
+			if (await onsave({ record_type: def.record_type, start, steps: steps.map(tidy), layout, schedule: schedule ?? null, webhook: webhook ?? null })) dirty = false;
 		} finally {
 			saving = false;
 		}
@@ -351,6 +353,7 @@
 						<p class="hint">Scheduled runs act as the {def.app} app, for nobody{schedule.for_each ? '' : ', with no record'}.</p>
 					{/if}
 				</fieldset>
+				<WebhookSettings {def} {webhook} {editable} onchange={(h) => ((webhook = h), changed())} />
 				<p class="hint">
 					Its steps act as the {def.app} app for whoever started it, so they can do only what the app may:
 					{def.app_permissions?.length ? def.app_permissions.join(', ') : 'nothing on records'}.

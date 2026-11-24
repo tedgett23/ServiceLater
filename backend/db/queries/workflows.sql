@@ -1,7 +1,8 @@
 -- name: InsertExecution :one
-INSERT INTO workflow_executions (app, workflow, app_version, definition, record_id, started_by, cause, current_step, run_as)
+INSERT INTO workflow_executions (app, workflow, app_version, definition, record_id, started_by, cause, current_step, run_as, vars)
 VALUES (sqlc.arg('app'), sqlc.arg('workflow'), sqlc.arg('app_version'), sqlc.arg('definition'), sqlc.narg('record_id'),
-        sqlc.arg('started_by'), sqlc.arg('cause'), sqlc.arg('current_step'), app_principal(sqlc.arg('app')))
+        sqlc.arg('started_by'), sqlc.arg('cause'), sqlc.arg('current_step'), app_principal(sqlc.arg('app')),
+        coalesce(sqlc.narg('vars')::jsonb, '{}'))
 RETURNING id;
 
 -- name: GetExecution :one
@@ -141,3 +142,31 @@ WHERE parent_id = $1 AND parent_step = $2 AND status IN ('queued', 'running', 'w
 -- Every child run a run's steps started, in order, as the reader may see them.
 SELECT id, workflow, status, parent_step, parent_index FROM workflow_executions
 WHERE parent_id = $1 ORDER BY parent_step, parent_index;
+
+-- name: InsertWebhookDelivery :one
+-- Records a call to a webhook. A started one whose key an earlier started call already used returns nothing: the
+-- caller then looks up that call's run (FindWebhookDelivery) and answers with it.
+INSERT INTO workflow_webhook_deliveries (app, workflow, delivery_key, outcome, reason, execution_id, size, remote)
+VALUES (sqlc.arg('app'), sqlc.arg('workflow'), sqlc.narg('delivery_key'), sqlc.arg('outcome'), sqlc.arg('reason'),
+        sqlc.narg('execution_id'), sqlc.arg('size'), sqlc.arg('remote'))
+ON CONFLICT (app, workflow, delivery_key) WHERE outcome = 'started' AND delivery_key IS NOT NULL DO NOTHING
+RETURNING id;
+
+-- name: SetWebhookDeliveryRun :exec
+UPDATE workflow_webhook_deliveries SET execution_id = $2 WHERE id = $1;
+
+-- name: FindWebhookDelivery :one
+-- The run an earlier call with this key started.
+SELECT execution_id FROM workflow_webhook_deliveries
+WHERE app = $1 AND workflow = $2 AND delivery_key = $3 AND outcome = 'started';
+
+-- name: ListWebhookDeliveries :many
+-- A webhook's latest calls, newest first, for the builder (as the reader: workflows:read_all).
+SELECT id, delivery_key, outcome, reason, execution_id, size, remote, received_at
+FROM workflow_webhook_deliveries
+WHERE app = $1 AND workflow = $2
+ORDER BY received_at DESC
+LIMIT 50;
+
+-- name: DeleteOldWebhookDeliveries :execrows
+DELETE FROM workflow_webhook_deliveries WHERE received_at < now() - interval '30 days';

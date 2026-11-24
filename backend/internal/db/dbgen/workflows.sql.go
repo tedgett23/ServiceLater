@@ -91,6 +91,18 @@ func (q *Queries) CountExecutionsByStatus(ctx context.Context) ([]CountExecution
 	return items, nil
 }
 
+const deleteOldWebhookDeliveries = `-- name: DeleteOldWebhookDeliveries :execrows
+DELETE FROM workflow_webhook_deliveries WHERE received_at < now() - interval '30 days'
+`
+
+func (q *Queries) DeleteOldWebhookDeliveries(ctx context.Context) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteOldWebhookDeliveries)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const findRecords = `-- name: FindRecords :many
 SELECT id::uuid AS id FROM app_find_records($1::text, $2::jsonb, $3::integer) AS f(id)
 `
@@ -120,6 +132,25 @@ func (q *Queries) FindRecords(ctx context.Context, arg FindRecordsParams) ([]uui
 		return nil, err
 	}
 	return items, nil
+}
+
+const findWebhookDelivery = `-- name: FindWebhookDelivery :one
+SELECT execution_id FROM workflow_webhook_deliveries
+WHERE app = $1 AND workflow = $2 AND delivery_key = $3 AND outcome = 'started'
+`
+
+type FindWebhookDeliveryParams struct {
+	App         string      `json:"app"`
+	Workflow    string      `json:"workflow"`
+	DeliveryKey pgtype.Text `json:"delivery_key"`
+}
+
+// The run an earlier call with this key started.
+func (q *Queries) FindWebhookDelivery(ctx context.Context, arg FindWebhookDeliveryParams) (uuid.NullUUID, error) {
+	row := q.db.QueryRow(ctx, findWebhookDelivery, arg.App, arg.Workflow, arg.DeliveryKey)
+	var execution_id uuid.NullUUID
+	err := row.Scan(&execution_id)
+	return execution_id, err
 }
 
 const getExecution = `-- name: GetExecution :one
@@ -325,9 +356,10 @@ func (q *Queries) InsertChildExecution(ctx context.Context, arg InsertChildExecu
 }
 
 const insertExecution = `-- name: InsertExecution :one
-INSERT INTO workflow_executions (app, workflow, app_version, definition, record_id, started_by, cause, current_step, run_as)
+INSERT INTO workflow_executions (app, workflow, app_version, definition, record_id, started_by, cause, current_step, run_as, vars)
 VALUES ($1, $2, $3, $4, $5,
-        $6, $7, $8, app_principal($1))
+        $6, $7, $8, app_principal($1),
+        coalesce($9::jsonb, '{}'))
 RETURNING id
 `
 
@@ -340,6 +372,7 @@ type InsertExecutionParams struct {
 	StartedBy   uuid.UUID     `json:"started_by"`
 	Cause       []byte        `json:"cause"`
 	CurrentStep string        `json:"current_step"`
+	Vars        []byte        `json:"vars"`
 }
 
 func (q *Queries) InsertExecution(ctx context.Context, arg InsertExecutionParams) (uuid.UUID, error) {
@@ -352,6 +385,7 @@ func (q *Queries) InsertExecution(ctx context.Context, arg InsertExecutionParams
 		arg.StartedBy,
 		arg.Cause,
 		arg.CurrentStep,
+		arg.Vars,
 	)
 	var id uuid.UUID
 	err := row.Scan(&id)
@@ -387,6 +421,43 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 		arg.DurationMs,
 	)
 	return err
+}
+
+const insertWebhookDelivery = `-- name: InsertWebhookDelivery :one
+INSERT INTO workflow_webhook_deliveries (app, workflow, delivery_key, outcome, reason, execution_id, size, remote)
+VALUES ($1, $2, $3, $4, $5,
+        $6, $7, $8)
+ON CONFLICT (app, workflow, delivery_key) WHERE outcome = 'started' AND delivery_key IS NOT NULL DO NOTHING
+RETURNING id
+`
+
+type InsertWebhookDeliveryParams struct {
+	App         string        `json:"app"`
+	Workflow    string        `json:"workflow"`
+	DeliveryKey pgtype.Text   `json:"delivery_key"`
+	Outcome     string        `json:"outcome"`
+	Reason      string        `json:"reason"`
+	ExecutionID uuid.NullUUID `json:"execution_id"`
+	Size        int32         `json:"size"`
+	Remote      string        `json:"remote"`
+}
+
+// Records a call to a webhook. A started one whose key an earlier started call already used returns nothing: the
+// caller then looks up that call's run (FindWebhookDelivery) and answers with it.
+func (q *Queries) InsertWebhookDelivery(ctx context.Context, arg InsertWebhookDeliveryParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, insertWebhookDelivery,
+		arg.App,
+		arg.Workflow,
+		arg.DeliveryKey,
+		arg.Outcome,
+		arg.Reason,
+		arg.ExecutionID,
+		arg.Size,
+		arg.Remote,
+	)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const listChildExecutions = `-- name: ListChildExecutions :many
@@ -661,6 +732,60 @@ func (q *Queries) ListSteps(ctx context.Context, executionID uuid.UUID) ([]Workf
 	return items, nil
 }
 
+const listWebhookDeliveries = `-- name: ListWebhookDeliveries :many
+SELECT id, delivery_key, outcome, reason, execution_id, size, remote, received_at
+FROM workflow_webhook_deliveries
+WHERE app = $1 AND workflow = $2
+ORDER BY received_at DESC
+LIMIT 50
+`
+
+type ListWebhookDeliveriesParams struct {
+	App      string `json:"app"`
+	Workflow string `json:"workflow"`
+}
+
+type ListWebhookDeliveriesRow struct {
+	ID          uuid.UUID          `json:"id"`
+	DeliveryKey pgtype.Text        `json:"delivery_key"`
+	Outcome     string             `json:"outcome"`
+	Reason      string             `json:"reason"`
+	ExecutionID uuid.NullUUID      `json:"execution_id"`
+	Size        int32              `json:"size"`
+	Remote      string             `json:"remote"`
+	ReceivedAt  pgtype.Timestamptz `json:"received_at"`
+}
+
+// A webhook's latest calls, newest first, for the builder (as the reader: workflows:read_all).
+func (q *Queries) ListWebhookDeliveries(ctx context.Context, arg ListWebhookDeliveriesParams) ([]ListWebhookDeliveriesRow, error) {
+	rows, err := q.db.Query(ctx, listWebhookDeliveries, arg.App, arg.Workflow)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListWebhookDeliveriesRow
+	for rows.Next() {
+		var i ListWebhookDeliveriesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeliveryKey,
+			&i.Outcome,
+			&i.Reason,
+			&i.ExecutionID,
+			&i.Size,
+			&i.Remote,
+			&i.ReceivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const purgeExecutions = `-- name: PurgeExecutions :execrows
 DELETE FROM workflow_executions WHERE finished_at < now() - make_interval(secs => $1::float8)
 `
@@ -709,6 +834,20 @@ func (q *Queries) SaveExecution(ctx context.Context, arg SaveExecutionParams) er
 		arg.Error,
 		arg.ID,
 	)
+	return err
+}
+
+const setWebhookDeliveryRun = `-- name: SetWebhookDeliveryRun :exec
+UPDATE workflow_webhook_deliveries SET execution_id = $2 WHERE id = $1
+`
+
+type SetWebhookDeliveryRunParams struct {
+	ID          uuid.UUID     `json:"id"`
+	ExecutionID uuid.NullUUID `json:"execution_id"`
+}
+
+func (q *Queries) SetWebhookDeliveryRun(ctx context.Context, arg SetWebhookDeliveryRunParams) error {
+	_, err := q.db.Exec(ctx, setWebhookDeliveryRun, arg.ID, arg.ExecutionID)
 	return err
 }
 

@@ -174,6 +174,8 @@ type Workflow struct {
 	Fields expr.FieldTypes `json:"fields,omitempty"`
 	// Schedule starts the workflow on its own, by the clock (as the app): once, or once per record a query finds.
 	Schedule *Schedule `json:"schedule,omitempty"`
+	// Webhook starts the workflow when another system calls it (as the app), with the body as vars.payload.
+	Webhook *Webhook `json:"webhook,omitempty"`
 	// Layout is where each step sits in the builder's diagram. The engine ignores it; without it the diagram is laid
 	// out from the graph.
 	Layout map[string]Point `json:"layout,omitempty"`
@@ -196,6 +198,7 @@ type workflowFile struct {
 	Steps      orderedSteps     `yaml:"steps"`
 	Layout     map[string]Point `yaml:"layout"`
 	Schedule   *Schedule        `yaml:"schedule"`
+	Webhook    *Webhook         `yaml:"webhook"`
 }
 
 // Point is a position in the builder's diagram.
@@ -311,7 +314,7 @@ func parseWorkflow(file string, data []byte, forms formSet, scripts map[string]s
 		p.add(file, "kind must be workflow in this folder, got %q", f.Kind)
 		return nil
 	}
-	w := &Workflow{Name: f.Name, RecordType: f.RecordType, Start: f.Start, Steps: f.Steps, Schedule: f.Schedule, Fields: forms.fieldsUsed(f.RecordType, data)}
+	w := &Workflow{Name: f.Name, RecordType: f.RecordType, Start: f.Start, Steps: f.Steps, Schedule: f.Schedule, Webhook: f.Webhook, Fields: forms.fieldsUsed(f.RecordType, data)}
 	var sources []string
 	for _, st := range w.Steps {
 		sources = append(sources, st.Script)
@@ -346,6 +349,11 @@ func (w *Workflow) validate(file string, p *Problems) {
 	}
 	for _, msg := range w.scheduleProblems() {
 		p.add(file, "schedule: %s", msg)
+	}
+	if w.Webhook != nil {
+		for _, msg := range w.Webhook.problems() {
+			p.add(file, "webhook: %s", msg)
+		}
 	}
 }
 
