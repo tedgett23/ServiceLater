@@ -693,6 +693,7 @@ type SavedView struct {
 	OwnerID     uuid.UUID          `json:"owner_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+	Chart       []byte             `json:"chart"`
 }
 
 type Secret struct {

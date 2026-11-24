@@ -41,6 +41,20 @@ func TestSavedViews(t *testing.T) {
 		t.Fatalf("where: %+v", p)
 	}
 
+	// A chart is kept with it, checked against its columns.
+	w = ann.do(h, "PUT", "/api/v1/views/by_priority", `{"sql":"SELECT priority, count(*) AS n FROM records GROUP BY 1","chart":{"type":"bars","x":"priority","y":["n"]}}`)
+	expect(t, w, 201, "a view with a chart")
+	if c := decodeBody[struct {
+		Chart struct {
+			Type, X string
+			Y       []string
+		}
+	}](t, w).Chart; c.Type != "bars" || c.X != "priority" || len(c.Y) != 1 {
+		t.Fatalf("chart: %+v", c)
+	}
+	expect(t, ann.do(h, "PUT", "/api/v1/views/by_priority", `{"sql":"SELECT priority, count(*) AS n FROM records GROUP BY 1","chart":{"type":"bars","x":"priority","y":["title"]}}`), 422, "a chart of a column it does not have")
+	expect(t, ann.do(h, "DELETE", "/api/v1/views/by_priority", ""), 204, "removing it")
+
 	// Another person: reads it as themselves, cannot change it, cannot take its name.
 	expect(t, admin.do(h, "PUT", "/api/v1/views/incidents_by_title", `{"sql":"SELECT 1 AS x"}`), 403, "someone else's view")
 	expect(t, ann.do(h, "PUT", "/api/v1/views/admins_private", `{"sql":"SELECT 1 AS x"}`), 201, "ann's private view")

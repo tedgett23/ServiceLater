@@ -3,7 +3,7 @@
  * columns (with what each column holds), Ctrl/Cmd+Enter to run, and the server's problems marked where they are.
  * Imported only on the workbench, so other pages never load it.
  */
-import { autocompletion, type Completion } from '@codemirror/autocomplete';
+import { autocompletion, closeCompletion, type Completion } from '@codemirror/autocomplete';
 import { PostgreSQL, sql } from '@codemirror/lang-sql';
 import { syntaxHighlighting } from '@codemirror/language';
 import { lintGutter, setDiagnostics } from '@codemirror/lint';
@@ -60,7 +60,8 @@ export function createSqlEditor(
 					keymap.of([
 						{
 							key: 'Mod-Enter',
-							run: () => {
+							run: (v) => {
+								closeCompletion(v);
 								onrun();
 								return true;
 							}
