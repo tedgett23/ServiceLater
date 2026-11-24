@@ -94,7 +94,11 @@ func (h *handlers) maintenance(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if h.instance.InMaintenance() && (r.Method != http.MethodGet || !strings.HasSuffix(r.URL.Path, "/api/v1/instance")) {
 			w.Header().Set("Retry-After", "30")
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "ServiceLater is restoring a snapshot: try again in a few minutes", "maintenance": true})
+			msg := "ServiceLater is restoring a snapshot: try again in a few minutes"
+			if m := h.instance.State().Maintenance; m != nil && m.Operation == "clone" {
+				msg = "ServiceLater is loading a clone: try again in a few minutes"
+			}
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": msg, "maintenance": true})
 			return
 		}
 		next.ServeHTTP(w, r)

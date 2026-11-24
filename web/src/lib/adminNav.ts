@@ -44,6 +44,7 @@ export function adminGroups(user: User | null | undefined): { label: string; pag
 				can(user, P.settingsManage) && { href: '/admin/instance', label: 'Instance' },
 				can(user, P.instanceBackup) && { href: '/admin/backups', label: 'Backups' },
 				can(user, P.instanceClone) && { href: '/admin/clones', label: 'Clones' },
+				can(user, P.instanceClone) && { href: '/admin/clone-in', label: 'Clone in' },
 				{ href: '/docs/api', label: 'API reference' }
 			]
 		}

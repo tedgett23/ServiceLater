@@ -80,6 +80,10 @@ func TestAWebhookStartsItsWorkflow(t *testing.T) {
 	expect(t, call(h, "/api/v1/hooks/hooks/alert", `{}`, map[string]string{"Authorization": "Bearer wrong"}), 401, "a wrong token")
 	expect(t, call(h, "/api/v1/hooks/hooks/alert", `not json`, map[string]string{"Authorization": "Bearer t0ken"}), 400, "a body that is not JSON")
 	expect(t, call(h, "/api/v1/hooks/hooks/alert", `{"a":"`+strings.Repeat("x", apps.MaxWebhookBody)+`"}`, map[string]string{"Authorization": "Bearer t0ken"}), 413, "a body too large")
+	// After a clone, until an admin lifts the hold, webhooks answer 503.
+	expect(t, admin.do(h, "PUT", "/api/v1/clone-in/settings", `{"hold_webhooks":true}`), 200, "holding webhooks")
+	expect(t, call(h, "/api/v1/hooks/hooks/alert", `{}`, map[string]string{"Authorization": "Bearer t0ken"}), 503, "held after a clone")
+	expect(t, admin.do(h, "PUT", "/api/v1/clone-in/settings", `{"hold_webhooks":false}`), 200, "lifting the hold")
 	w := call(h, "/api/v1/hooks/hooks/alert", `{"title":"disk full","count":3}`, map[string]string{"Authorization": "Bearer t0ken"})
 	expect(t, w, 202, "the right token")
 	run, _ := runOf(t, w)

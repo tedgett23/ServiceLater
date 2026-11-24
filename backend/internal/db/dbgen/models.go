@@ -161,6 +161,33 @@ type CiRelationship struct {
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
+type CloneKeepPerson struct {
+	UserID  uuid.UUID          `json:"user_id"`
+	AddedAt pgtype.Timestamptz `json:"added_at"`
+}
+
+type CloneLoad struct {
+	ID              uuid.UUID          `json:"id"`
+	Status          string             `json:"status"`
+	Error           string             `json:"error"`
+	Destination     string             `json:"destination"`
+	Key             string             `json:"key"`
+	Size            int64              `json:"size"`
+	Source          []byte             `json:"source"`
+	KeepStudio      bool               `json:"keep_studio"`
+	KeepPeople      bool               `json:"keep_people"`
+	PassphraseKeyID string             `json:"passphrase_key_id"`
+	PassphraseNonce []byte             `json:"passphrase_nonce"`
+	Passphrase      []byte             `json:"passphrase"`
+	Report          []byte             `json:"report"`
+	RequestedBy     uuid.NullUUID      `json:"requested_by"`
+	RequestedByName string             `json:"requested_by_name"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
+	HeartbeatAt     pgtype.Timestamptz `json:"heartbeat_at"`
+}
+
 type ClonePackage struct {
 	ID              uuid.UUID          `json:"id"`
 	Profile         string             `json:"profile"`

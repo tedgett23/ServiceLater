@@ -14,6 +14,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/db"
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/expr"
+	"github.com/servicelater/servicelater/backend/internal/settings"
 	"github.com/servicelater/servicelater/backend/internal/workflow"
 )
 
@@ -39,6 +40,19 @@ func (e *Engine) RunSchedules(ctx context.Context, every time.Duration) {
 // next one, so installing or upgrading an app never fires a backlog.
 func (e *Engine) ScheduleTick(ctx context.Context, now time.Time) (int, error) {
 	started := 0
+	var hold settings.Clone
+	if err := db.WithSystem(ctx, e.Pool, func(tx pgx.Tx) error {
+		var err error
+		hold, err = settings.ReadClone(ctx, dbgen.New(tx))
+		return err
+	}); err != nil {
+		return 0, err
+	}
+	if hold.HoldSchedules {
+		// The safety switch after a clone. Schedules start counting again when it is lifted: the first look after
+		// that only notes the time, like a schedule seen for the first time (a clone empties their marks).
+		return 0, nil
+	}
 	for _, wf := range e.Svc.Apps.Workflows() {
 		if wf.Schedule == nil {
 			continue

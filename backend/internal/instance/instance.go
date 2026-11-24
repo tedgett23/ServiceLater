@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/servicelater/servicelater/backend/internal/db"
@@ -18,8 +19,10 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/settings"
 )
 
-// Maintenance is a restore waiting or running: while there is one, the API answers 503 and the worker takes no jobs.
+// Maintenance is a restore or a clone waiting or running: while there is one, the API answers 503 and the worker
+// takes no jobs.
 type Maintenance struct {
+	// Operation is restore or clone.
 	Operation string    `json:"operation"`
 	Status    string    `json:"status"`
 	Since     time.Time `json:"since"`
@@ -57,12 +60,36 @@ func (w *Watcher) State() State {
 // InMaintenance reports whether a restore is waiting or running.
 func (w *Watcher) InMaintenance() bool { return w.State().Maintenance != nil }
 
-// Sync loads the instance settings and any active restore.
+// Sync loads any active restore or clone, and the instance settings. The settings table is locked while a restore or
+// a clone replaces it, so they are read with a short lock timeout and, while it is locked, the last ones read stand:
+// the maintenance state never waits for the restore it reports.
 func (w *Watcher) Sync(ctx context.Context) error {
-	var st State
+	var m *Maintenance
 	err := db.WithSystem(ctx, w.pool, func(tx pgx.Tx) error {
-		q := dbgen.New(tx)
-		rows, err := q.GetSystemSettings(ctx, settings.InstancePrefix)
+		r, err := dbgen.New(tx).ActiveRestore(ctx)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		since := r.CreatedAt.Time
+		if r.StartedAt.Valid {
+			since = r.StartedAt.Time
+		}
+		m = &Maintenance{Operation: r.Operation, Status: r.Status, Since: since, By: r.RequestedByName}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	var in settings.Instance
+	read := true
+	err = db.WithSystem(ctx, w.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, "SET LOCAL lock_timeout = '200ms'"); err != nil {
+			return err
+		}
+		rows, err := dbgen.New(tx).GetSystemSettings(ctx, settings.InstancePrefix)
 		if err != nil {
 			return err
 		}
@@ -70,26 +97,21 @@ func (w *Watcher) Sync(ctx context.Context) error {
 		for _, r := range rows {
 			stored[r.Name] = r.Value
 		}
-		st.Instance = settings.InstanceFrom(stored)
-		r, err := q.ActiveRestore(ctx)
-		if err == nil {
-			since := r.CreatedAt.Time
-			if r.StartedAt.Valid {
-				since = r.StartedAt.Time
-			}
-			st.Maintenance = &Maintenance{Operation: "restore", Status: r.Status, Since: since, By: r.RequestedByName}
-			return nil
-		}
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		return err
+		in = settings.InstanceFrom(stored)
+		return nil
 	})
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "55P03" && m != nil { // lock_not_available, during a restore or clone
+		read, err = false, nil
+	}
 	if err != nil {
 		return err
 	}
 	w.mu.Lock()
-	w.state = st
+	if read {
+		w.state.Instance = in
+	}
+	w.state.Maintenance = m
 	w.mu.Unlock()
 	return nil
 }

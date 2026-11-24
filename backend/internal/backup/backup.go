@@ -53,6 +53,8 @@ type Service struct {
 	Heartbeat time.Duration
 	// Registry gives clone packages the forms' masked fields and compiles their exclusions.
 	Registry *apps.Registry
+	// SyncApps brings the bundled apps to this binary's versions, as at startup, once a clone is loaded.
+	SyncApps func(context.Context)
 }
 
 func (s *Service) now() time.Time {
@@ -128,6 +130,9 @@ func (s *Service) Tick(ctx context.Context) error {
 		if err := q.FailStaleClonePackages(ctx); err != nil {
 			return err
 		}
+		if err := q.FailStaleCloneLoads(ctx); err != nil {
+			return err
+		}
 		return q.FailUnclaimedRestores(ctx)
 	}); err != nil {
 		return err
@@ -137,6 +142,9 @@ func (s *Service) Tick(ctx context.Context) error {
 	}
 	ran, err := s.runRestore(ctx)
 	if err != nil || ran {
+		return err
+	}
+	if ran, err = s.runLoad(ctx); err != nil || ran {
 		return err
 	}
 	if ran, err = s.runSnapshot(ctx); err != nil || ran {

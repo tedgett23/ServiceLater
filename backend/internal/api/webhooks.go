@@ -25,6 +25,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/ratelimit"
 	"github.com/servicelater/servicelater/backend/internal/secrets"
+	"github.com/servicelater/servicelater/backend/internal/settings"
 	"github.com/servicelater/servicelater/backend/internal/workflow"
 )
 
@@ -58,8 +59,13 @@ func (h *handlers) receiveWebhook(w http.ResponseWriter, r *http.Request) {
 
 	var calls int32
 	var limit int
+	var hold settings.Clone
 	if err := db.WithSystem(ctx, h.pool, func(tx pgx.Tx) error {
 		q := dbgen.New(tx)
+		var err error
+		if hold, err = settings.ReadClone(ctx, q); err != nil || hold.HoldWebhooks {
+			return err
+		}
 		limits, err := ratelimit.Load(ctx, q)
 		if err != nil {
 			return err
@@ -71,6 +77,12 @@ func (h *handlers) receiveWebhook(w http.ResponseWriter, r *http.Request) {
 		return err
 	}); err != nil {
 		writeDBError(w, err)
+		return
+	}
+	if hold.HoldWebhooks {
+		// The safety switch after a clone: production's partners may still be calling this copy.
+		w.Header().Set("Retry-After", "3600")
+		writeError(w, http.StatusServiceUnavailable, "webhooks are off on this instance since it was cloned")
 		return
 	}
 	if limit > 0 && int(calls) > limit {

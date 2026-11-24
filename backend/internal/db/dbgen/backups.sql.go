@@ -13,27 +13,35 @@ import (
 )
 
 const activeRestore = `-- name: ActiveRestore :one
-SELECT r.id, r.status, r.created_at, r.started_at, r.requested_by_name
-FROM snapshot_restores r
-WHERE (r.status = 'pending' AND r.created_at > now() - interval '2 minutes')
-   OR (r.status = 'running' AND r.heartbeat_at > now() - interval '1 minute')
-ORDER BY r.created_at LIMIT 1
+SELECT x.id, x.operation, x.status, x.created_at, x.started_at, x.requested_by_name FROM (
+    SELECT r.id, 'restore'::text AS operation, r.status, r.created_at, r.started_at, r.requested_by_name
+    FROM snapshot_restores r
+    WHERE (r.status = 'pending' AND r.created_at > now() - interval '2 minutes')
+       OR (r.status = 'running' AND r.heartbeat_at > now() - interval '1 minute')
+    UNION ALL
+    SELECT c.id, 'clone'::text, c.status, c.created_at, c.started_at, c.requested_by_name
+    FROM clone_loads c
+    WHERE (c.status = 'pending' AND c.created_at > now() - interval '2 minutes')
+       OR (c.status = 'running' AND c.heartbeat_at > now() - interval '1 minute')
+) x ORDER BY x.created_at LIMIT 1
 `
 
 type ActiveRestoreRow struct {
 	ID              uuid.UUID          `json:"id"`
+	Operation       string             `json:"operation"`
 	Status          string             `json:"status"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	StartedAt       pgtype.Timestamptz `json:"started_at"`
 	RequestedByName string             `json:"requested_by_name"`
 }
 
-// The restore waiting or running, if any: while there is one the instance is in maintenance.
+// The restore or clone waiting or running, if any: while there is one the instance is in maintenance.
 func (q *Queries) ActiveRestore(ctx context.Context) (ActiveRestoreRow, error) {
 	row := q.db.QueryRow(ctx, activeRestore)
 	var i ActiveRestoreRow
 	err := row.Scan(
 		&i.ID,
+		&i.Operation,
 		&i.Status,
 		&i.CreatedAt,
 		&i.StartedAt,

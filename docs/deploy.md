@@ -109,7 +109,11 @@ again). A snapshot from an older version is migrated up after loading; one from 
   development, filtered and optionally masked by a profile, encrypted with a passphrase you choose. They are made by
   the worker into the same folder (`.slclone` files) or under `<prefix>clones/` in S3, and stay until deleted.
   `servicelater clone package -profile uat -passphrase-file f` and `servicelater clone verify -passphrase-file f
-  <file>` do the same from the command line. Loading one into the target instance is not built yet.
+  <file>` do the same from the command line. Load one into a UAT or development instance under Admin → Clone in:
+  upload, preview with the passphrase, apply. It replaces that instance's records (it is unavailable meanwhile and
+  everyone signs in again), keeps its settings, secrets, single sign-on and the people on its keep list, and turns
+  off outbound email, SMS, Teams, incoming mail, workflow calls, schedules and webhooks until you turn each back on.
+  An instance marked production refuses clones unless you allow it there.
 
 ### The database host's backups (managed Postgres)
 

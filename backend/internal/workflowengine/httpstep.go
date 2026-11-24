@@ -24,6 +24,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/db/dbgen"
 	"github.com/servicelater/servicelater/backend/internal/expr"
 	"github.com/servicelater/servicelater/backend/internal/secrets"
+	"github.com/servicelater/servicelater/backend/internal/settings"
 )
 
 const (
@@ -83,14 +84,31 @@ func (e *Engine) httpClient() *http.Client {
 // so the other side can tell a retry of this step (a job retried after a crash) from a new call.
 func (e *Engine) doHTTP(ctx context.Context, ex dbgen.WorkflowExecution, st *apps.Step, in expr.Input, out outcome) (outcome, error) {
 	var manifest apps.Manifest
+	var hold settings.Clone
 	if err := db.WithSystem(ctx, e.Pool, func(tx pgx.Tx) error {
-		a, err := dbgen.New(tx).GetApp(ctx, ex.App)
+		q := dbgen.New(tx)
+		a, err := q.GetApp(ctx, ex.App)
 		if err != nil {
+			return err
+		}
+		if hold, err = settings.ReadClone(ctx, q); err != nil {
 			return err
 		}
 		return json.Unmarshal(a.Manifest, &manifest)
 	}); err != nil {
 		return out, fmt.Errorf("reading the %s app's manifest: %w", ex.App, err)
+	}
+	if hold.HoldHTTP {
+		// The safety switch after a clone: production's data must not reach production's partners from here. It fails
+		// like a call that could not be made, so on_error carries the run on.
+		reason := "outbound calls are off after a clone: an admin turns them back on under Admin → Clone in"
+		out = withVars(out, map[string]any{st.ID + "_status": 0, st.ID + "_error": reason})
+		out.kind, out.detail["error"] = "failed", reason
+		if st.OnError != "" {
+			out.next = st.OnError
+			return out, nil
+		}
+		return out, failf("%s", reason)
 	}
 
 	x, err := value(ctx, st.URL, in)

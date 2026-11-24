@@ -20,6 +20,7 @@ import (
 	"github.com/servicelater/servicelater/backend/internal/instance"
 	"github.com/servicelater/servicelater/backend/internal/secrets"
 	"github.com/servicelater/servicelater/backend/internal/snapshot"
+	"github.com/servicelater/servicelater/backend/internal/storage"
 )
 
 func setupBackups(t *testing.T) (http.Handler, *pgxpool.Pool, *backup.Service, *instance.Watcher) {
@@ -39,9 +40,10 @@ func setupBackups(t *testing.T) (http.Handler, *pgxpool.Pool, *backup.Service, *
 	if _, err := svc.Bootstrap(context.Background(), "admin@example.com", "Admin", "hunter2hunter2"); err != nil {
 		t.Fatal(err)
 	}
-	backups := &backup.Service{Pool: pool, Keys: keys, Dir: t.TempDir(), Binary: "test", Registry: reg}
+	files := &storage.Manager{Pool: pool, Keys: keys, LocalDir: t.TempDir()}
+	backups := &backup.Service{Pool: pool, Keys: keys, Files: files, Dir: t.TempDir(), Binary: "test", Registry: reg}
 	watcher := instance.NewWatcher(pool)
-	h := api.NewRouter(api.Deps{Pool: pool, Auth: svc, Tokens: tk, Apps: reg, Keys: keys, Backups: backups, Instance: watcher})
+	h := api.NewRouter(api.Deps{Pool: pool, Auth: svc, Tokens: tk, Apps: reg, Keys: keys, Files: files, Backups: backups, Instance: watcher})
 	return h, pool, backups, watcher
 }
 

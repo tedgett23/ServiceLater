@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -190,4 +191,193 @@ func (s *Service) DeletePackage(ctx context.Context, pkg dbgen.GetClonePackageRo
 		}
 	}
 	return db.WithSystem(ctx, s.Pool, func(tx pgx.Tx) error { return dbgen.New(tx).DeleteClonePackage(ctx, pkg.ID) })
+}
+
+// ---- loading a package here ----
+
+func loadPassphraseName(id uuid.UUID) string { return "clone-load/" + id.String() }
+
+// UploadLoad keeps a clone package uploaded to load into this instance. Only its plaintext header is read here; the
+// passphrase is asked for when it is previewed or applied.
+func (s *Service) UploadLoad(ctx context.Context, r io.Reader, by uuid.UUID, byName string) (dbgen.GetCloneLoadRow, error) {
+	b, _, err := s.Settings(ctx)
+	if err != nil {
+		return dbgen.GetCloneLoadRow{}, err
+	}
+	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
+		return dbgen.GetCloneLoadRow{}, fmt.Errorf("the snapshots folder %s: %w", s.Dir, err)
+	}
+	id := uuid.New()
+	tmp := filepath.Join(s.Dir, id.String()+".partial")
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o600) //nolint:gosec // our own folder and an id
+	if err != nil {
+		return dbgen.GetCloneLoadRow{}, err
+	}
+	defer func() { _ = os.Remove(tmp) }()
+	if _, err := io.Copy(f, r); err != nil {
+		_ = f.Close()
+		return dbgen.GetCloneLoadRow{}, err
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		_ = f.Close()
+		return dbgen.GetCloneLoadRow{}, err
+	}
+	head, err := clone.ReadHeader(bufio.NewReader(f))
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return dbgen.GetCloneLoadRow{}, &Invalid{err}
+	}
+	name := "servicelater-clone-in-" + s.now().UTC().Format("20060102-150405") + "-" + id.String()[:8] + ".slclone"
+	key, size, err := s.storeAs(ctx, b.Destination, tmp, name, "clones/")
+	if err != nil {
+		return dbgen.GetCloneLoadRow{}, err
+	}
+	source, _ := json.Marshal(head)
+	var out dbgen.GetCloneLoadRow
+	err = db.WithSystem(ctx, s.Pool, func(tx pgx.Tx) error {
+		row, err := dbgen.New(tx).InsertCloneLoad(ctx, dbgen.InsertCloneLoadParams{Destination: b.Destination, Key: key, Size: size,
+			Source: source, RequestedBy: uuid.NullUUID{UUID: by, Valid: by != uuid.Nil}, RequestedByName: byName})
+		out = dbgen.GetCloneLoadRow(row)
+		return err
+	})
+	return out, err
+}
+
+// PreviewLoad works out what applying an uploaded package would do now.
+func (s *Service) PreviewLoad(ctx context.Context, l dbgen.GetCloneLoadRow, o clone.LoadOptions) (*clone.LoadPreview, error) {
+	f, err := s.openFile(ctx, l.Destination, l.Key)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return clone.Inspect(ctx, s.Pool, f, o)
+}
+
+// RequestLoad asks the worker to apply an uploaded package. Until it ends the instance is in maintenance.
+func (s *Service) RequestLoad(ctx context.Context, id uuid.UUID, passphrase string, keepStudio, keepPeople bool, by uuid.UUID, byName string) error {
+	if !s.Keys.Configured() {
+		return secrets.ErrNoKey
+	}
+	sealed, err := s.Keys.Seal(loadPassphraseName(id), passphrase)
+	if err != nil {
+		return err
+	}
+	return db.WithSystem(ctx, s.Pool, func(tx pgx.Tx) error {
+		_, err := dbgen.New(tx).RequestCloneLoad(ctx, dbgen.RequestCloneLoadParams{ID: id, KeepStudio: keepStudio, KeepPeople: keepPeople,
+			PassphraseKeyID: sealed.KeyID, PassphraseNonce: sealed.Nonce, Passphrase: sealed.Ciphertext,
+			RequestedBy: uuid.NullUUID{UUID: by, Valid: by != uuid.Nil}, RequestedByName: byName})
+		return err
+	})
+}
+
+func (s *Service) runLoad(ctx context.Context) (bool, error) {
+	var l dbgen.CloneLoad
+	err := db.WithSystem(ctx, s.Pool, func(tx pgx.Tx) error {
+		var err error
+		l, err = dbgen.New(tx).ClaimCloneLoad(ctx)
+		return err
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	stop := s.beat(ctx, func(q *dbgen.Queries) error { return q.HeartbeatCloneLoad(ctx, l.ID) })
+	rep, err := s.applyLoad(ctx, l)
+	stop()
+	status, msg := "done", ""
+	if err != nil {
+		status, msg = "failed", err.Error()
+		slog.Error("a clone failed to load", "id", l.ID, "err", err)
+	} else {
+		slog.Info("loaded a clone", "id", l.ID, "by", l.RequestedByName)
+	}
+	var raw []byte
+	if rep != nil {
+		raw, _ = json.Marshal(rep)
+	}
+	return true, db.WithSystem(context.WithoutCancel(ctx), s.Pool, func(tx pgx.Tx) error {
+		return dbgen.New(tx).FinishCloneLoad(ctx, dbgen.FinishCloneLoadParams{ID: l.ID, Status: status, Error: msg, Report: raw})
+	})
+}
+
+func (s *Service) applyLoad(ctx context.Context, l dbgen.CloneLoad) (*clone.LoadReport, error) {
+	passphrase, err := s.Keys.Open(loadPassphraseName(l.ID), secrets.Sealed{KeyID: l.PassphraseKeyID, Nonce: l.PassphraseNonce, Ciphertext: l.Passphrase})
+	if err != nil {
+		return nil, err
+	}
+	f, err := s.openFile(ctx, l.Destination, l.Key)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	o := clone.LoadOptions{Passphrase: passphrase, KeepPeople: l.KeepPeople, KeepStudio: l.KeepStudio}
+	if l.RequestedBy.Valid {
+		o.Applier = l.RequestedBy.UUID
+	}
+	if s.Files != nil {
+		// Chosen before the load starts: the storage settings are read from a table the load's transaction locks, so
+		// asking for them during the load would wait on itself for ever.
+		store, st, err := s.Files.Current(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("this instance's attachment storage: %w", err)
+		}
+		o.PutFile = func(ctx context.Context, key string, size int64, r io.Reader) (string, error) {
+			id, err := store.Begin(ctx, key, "application/octet-stream")
+			if err != nil {
+				return "", err
+			}
+			partSize, n := storage.Plan(size)
+			var parts []storage.Part
+			for i := 1; i <= n; i++ {
+				offset := int64(i-1) * partSize
+				length := min(partSize, size-offset)
+				etag, err := store.PutPart(ctx, key, id, i, offset, length, io.LimitReader(r, length))
+				if err != nil {
+					_ = store.Abort(context.WithoutCancel(ctx), key, id)
+					return "", err
+				}
+				parts = append(parts, storage.Part{Number: i, ETag: etag})
+			}
+			return st.Backend, store.Complete(ctx, key, id, parts, size)
+		}
+	}
+	rep, err := clone.Load(ctx, s.Pool, f, o)
+	if err != nil {
+		return nil, err
+	}
+	// Committed: install the apps again over the kept studio layer, then bring the bundled apps to this binary's.
+	if err := clone.ReinstallStudio(ctx, s.Pool, rep); err != nil {
+		slog.Error("after a clone: reinstalling apps over the studio layer", "err", err)
+	}
+	if s.SyncApps != nil {
+		s.SyncApps(ctx)
+	}
+	return rep, nil
+}
+
+// DeleteLoad removes an uploaded package's file and its record. One being applied cannot be deleted.
+func (s *Service) DeleteLoad(ctx context.Context, l dbgen.GetCloneLoadRow) error {
+	if l.Status == "running" || l.Status == "pending" {
+		return errors.New("the package is being loaded")
+	}
+	if l.Key != "" {
+		if err := s.remove(ctx, l.Destination, l.Key); err != nil {
+			return err
+		}
+	}
+	return db.WithSystem(ctx, s.Pool, func(tx pgx.Tx) error { return dbgen.New(tx).DeleteCloneLoad(ctx, l.ID) })
+}
+
+// CheckLoadPassphrase says whether the passphrase opens an uploaded package, reading only its header.
+func (s *Service) CheckLoadPassphrase(ctx context.Context, l dbgen.GetCloneLoadRow, passphrase string) (clone.Header, error) {
+	f, err := s.openFile(ctx, l.Destination, l.Key)
+	if err != nil {
+		return clone.Header{}, err
+	}
+	defer func() { _ = f.Close() }()
+	return clone.CheckPassphrase(f, passphrase)
 }

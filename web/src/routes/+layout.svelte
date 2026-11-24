@@ -19,12 +19,22 @@
 {#if instance.maintenance}
 	<div class="maintenance" role="alertdialog" aria-modal="true" aria-labelledby="maint-h" aria-describedby="maint-p">
 		<div class="maint-box">
-			<h2 id="maint-h">Restoring a snapshot</h2>
-			<p id="maint-p">
-				{instance.maintenance.by || 'An admin'} is restoring {instance.name || 'this instance'} from a snapshot. Everything is
-				unavailable until it finishes, usually in a few minutes. You will be asked to sign in again.
+			{#if instance.maintenance.operation === 'clone'}
+				<h2 id="maint-h">Loading a clone</h2>
+				<p id="maint-p">
+					{instance.maintenance.by || 'An admin'} is replacing the records of {instance.name || 'this instance'} with a copy of
+					production. Everything is unavailable until it finishes, usually in a few minutes. You will be asked to sign in again.
+				</p>
+			{:else}
+				<h2 id="maint-h">Restoring a snapshot</h2>
+				<p id="maint-p">
+					{instance.maintenance.by || 'An admin'} is restoring {instance.name || 'this instance'} from a snapshot. Everything is
+					unavailable until it finishes, usually in a few minutes. You will be asked to sign in again.
+				</p>
+			{/if}
+			<p class="maint-wait" aria-live="polite">
+				{instance.maintenance.status === 'pending' ? 'Waiting for the worker…' : instance.maintenance.operation === 'clone' ? 'Loading…' : 'Restoring…'}
 			</p>
-			<p class="maint-wait" aria-live="polite">{instance.maintenance.status === 'pending' ? 'Waiting for the worker…' : 'Restoring…'}</p>
 		</div>
 	</div>
 {/if}

@@ -257,6 +257,20 @@ func TestAnHTTPRequestStep(t *testing.T) {
 		t.Errorf("the request: %v %v", got, bodies)
 	}
 
+	// After a clone the safety switch holds outbound calls: the step fails (on_error) without calling.
+	if _, err := w.pool.Exec(context.Background(), `INSERT INTO settings (name, value) VALUES ('clone.hold_http', 'true')`); err != nil {
+		t.Fatal(err)
+	}
+	got = nil
+	id = w.start(t, "house", "parent", w.agent)
+	w.settle(t)
+	if c := w.comments(t); len(got) != 0 || !strings.Contains(c[len(c)-1], "outbound calls are off after a clone") {
+		t.Errorf("held: %d calls, comments %v (%s)", len(got), c, w.execution(t, id).Error)
+	}
+	if _, err := w.pool.Exec(context.Background(), `DELETE FROM settings WHERE name = 'clone.hold_http'`); err != nil {
+		t.Fatal(err)
+	}
+
 	// A 503 is tried again, then on_error.
 	w.installManifest(t, "house", manifest, map[string]string{"workflows/parent.yaml": call("/broken", "    retries: 2\n    on_error: oops\n")})
 	got = nil
@@ -298,6 +312,16 @@ func TestScheduledWorkflowsStartOnTime(t *testing.T) {
 	}
 	if n, _ := w.engine.ScheduleTick(context.Background(), base.Add(10*time.Minute)); n != 0 {
 		t.Errorf("before the next hour: %d", n)
+	}
+	// Held after a clone: nothing starts.
+	if _, err := w.pool.Exec(context.Background(), `INSERT INTO settings (name, value) VALUES ('clone.hold_schedules', 'true')`); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := w.engine.ScheduleTick(context.Background(), base.Add(31*time.Minute)); err != nil || n != 0 {
+		t.Errorf("held: %d %v", n, err)
+	}
+	if _, err := w.pool.Exec(context.Background(), `DELETE FROM settings WHERE name = 'clone.hold_schedules'`); err != nil {
+		t.Fatal(err)
 	}
 	n, err := w.engine.ScheduleTick(context.Background(), base.Add(31*time.Minute))
 	if err != nil || n != 1 {
