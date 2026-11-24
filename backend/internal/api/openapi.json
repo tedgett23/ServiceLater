@@ -4090,7 +4090,7 @@
                 "type": "null"
               }
             ],
-            "description": "How the workbench draws it (line, bars, stacked or figure, over its columns); null or absent: a table."
+            "description": "How the workbench draws the view's columns; null or absent: a table."
           },
           "description": {
             "type": "string"

@@ -4,7 +4,25 @@
  */
 import type { QueryColumn } from '$lib/queries';
 
-export type ChartType = 'line' | 'bars' | 'stacked' | 'figure';
+export type ChartType = 'line' | 'area' | 'scatter' | 'bars' | 'stacked' | 'pie' | 'doughnut' | 'figure';
+
+export const radial = (type: ChartType) => type === 'pie' || type === 'doughnut';
+export const singleMeasure = (type: ChartType) => type !== 'line' && type !== 'bars' && type !== 'stacked';
+
+/** Axes that leave a usable measure. Scatter compares two different numeric columns. */
+export function axes(type: ChartType, columns: QueryColumn[]) {
+	if (type === 'scatter') return columns.filter(isNumeric).length >= 2 ? columns.filter(isNumeric) : [];
+	if (radial(type)) return columns.filter(c => columns.some(y => y.name !== c.name && isNumeric(y)));
+	return columns;
+}
+
+export function selectChart(type: ChartType, columns: QueryColumn[], previous: ChartSpec, axis = previous.x): ChartSpec {
+	const options = axes(type, columns);
+	const x = type === 'figure' ? undefined : options.find(c => c.name === axis)?.name ?? (options.find(c => !isNumeric(c)) ?? options[0])?.name;
+	const measures = columns.filter(c => isNumeric(c) && (!(radial(type) || type === 'scatter') || c.name !== x));
+	const keep = previous.y.filter(name => measures.some(c => c.name === name));
+	return { type, x, y: (keep.length ? keep : measures.slice(0, 1).map(c => c.name)).slice(0, singleMeasure(type) ? 1 : MAX_SERIES) };
+}
 
 export interface ChartSpec {
 	type: ChartType;
@@ -39,7 +57,9 @@ export function guessChart(columns: QueryColumn[], rowCount: number): ChartSpec 
 /** Whether a spec still fits a result's columns (after the query changed). */
 export function fits(spec: ChartSpec, columns: QueryColumn[]): boolean {
 	const byName = new Map(columns.map((c) => [c.name, c]));
-	if (spec.type !== 'figure' && (!spec.x || !byName.has(spec.x))) return false;
+	if (spec.type !== 'figure' && !axes(spec.type, columns).some(c => c.name === spec.x)) return false;
+	if (singleMeasure(spec.type) && spec.y.length !== 1) return false;
+	if ((radial(spec.type) || spec.type === 'scatter') && spec.y.includes(spec.x!)) return false;
 	return spec.y.length > 0 && spec.y.every((y) => byName.get(y) && isNumeric(byName.get(y)!));
 }
 
@@ -57,6 +77,26 @@ export interface Series {
 
 /** Fixed order: the first column drawn is always series-1. Never cycled: at most four are drawn. */
 export const COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)'];
+
+export interface Slice { label: string; value: number }
+
+/** Never imply that a partial result is a whole, or silently add measures across duplicate categories. */
+export function parts(columns: QueryColumn[], rows: unknown[][], spec: ChartSpec, truncated: boolean): { problem: string } | { slices: Slice[]; total: number } {
+	if (truncated) return { problem: 'The result was truncated. Group or narrow the query to chart the whole result.' };
+	if (rows.length > 8) return { problem: 'Use bars for more than eight categories, or group the query into fewer slices.' };
+	const xi = columns.findIndex(c => c.name === spec.x), yi = columns.findIndex(c => c.name === spec.y[0]);
+	const slices: Slice[] = [];
+	let total = 0;
+	for (const row of rows) {
+		const value = num(row[yi]);
+		if (value === null || value < 0) return { problem: 'Each slice needs a non-negative number. Check missing or negative values in Results.' };
+		const label = row[xi] == null ? '(none)' : typeof row[xi] === 'object' ? JSON.stringify(row[xi]) : String(row[xi]);
+		if (slices.some(s => s.label === label)) return { problem: 'Group the query by category so each slice has one row.' };
+		slices.push({ label, value });
+		total += value;
+	}
+	return total > 0 && Number.isFinite(total) ? { slices, total } : { problem: 'A share of the total needs a finite, positive total.' };
+}
 
 export interface Category {
 	label: string;

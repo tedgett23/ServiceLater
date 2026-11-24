@@ -14,6 +14,10 @@ func TestAChartDrawsColumnsTheViewHas(t *testing.T) {
 		{Type: "bars", X: "team", Y: []string{"open", "breached"}},
 		{Type: "stacked", X: "team", Y: []string{"open"}},
 		{Type: "line", X: "week", Y: []string{"avg_hours"}},
+		{Type: "area", X: "week", Y: []string{"avg_hours"}},
+		{Type: "scatter", X: "open", Y: []string{"avg_hours"}},
+		{Type: "pie", X: "team", Y: []string{"open"}},
+		{Type: "doughnut", X: "team", Y: []string{"open"}},
 		{Type: "figure", Y: []string{"open"}},
 	} {
 		if err := c.Check(cols); err != nil {
@@ -21,7 +25,10 @@ func TestAChartDrawsColumnsTheViewHas(t *testing.T) {
 		}
 	}
 	for want, c := range map[string]query.Chart{
-		"not \"pie\"":                 {Type: "pie", X: "team", Y: []string{"open"}},
+		"not \"map\"":                 {Type: "map", X: "team", Y: []string{"open"}},
+		"numeric X axis":              {Type: "scatter", X: "team", Y: []string{"open"}},
+		"different columns":           {Type: "pie", X: "open", Y: []string{"open"}},
+		"one measure":                 {Type: "doughnut", X: "team", Y: []string{"open", "breached"}},
 		"needs a column along":        {Type: "line", Y: []string{"open"}},
 		"nosuch, is not a column":     {Type: "bars", X: "nosuch", Y: []string{"open"}},
 		"which is text":               {Type: "bars", X: "week", Y: []string{"team"}},

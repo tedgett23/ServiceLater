@@ -22,7 +22,7 @@
 	import { paramCount } from '$lib/sqlParams';
 	import { session } from '$lib/session.svelte';
 	import ResultChart from '$lib/charts/ResultChart.svelte';
-	import { fits, guessChart, isNumeric, MAX_SERIES, type ChartSpec, type ChartType } from '$lib/charts/resultChart';
+	import { axes, fits, guessChart, isNumeric, MAX_SERIES, radial, selectChart, singleMeasure, type ChartSpec, type ChartType } from '$lib/charts/resultChart';
 
 	/**
 	 * The SQL workbench (docs/query.md): the tables at the left (built-in views and saved views, with their columns and
@@ -265,16 +265,18 @@
 	}
 	const chartTypes: { id: ChartType; label: string }[] = [
 		{ id: 'line', label: 'Line' },
+		{ id: 'area', label: 'Area' },
+		{ id: 'scatter', label: 'Scatter' },
 		{ id: 'bars', label: 'Bars' },
 		{ id: 'stacked', label: 'Stacked' },
+		{ id: 'pie', label: 'Pie' },
+		{ id: 'doughnut', label: 'Doughnut' },
 		{ id: 'figure', label: 'Figure' }
 	];
 	const numericColumns = $derived(result ? result.columns.filter(isNumeric) : []);
-	function setType(t: ChartType) {
+	function setType(t: ChartType, axis?: string) {
 		if (!result || !chart) return;
-		const y = t === 'figure' ? chart.y.slice(0, 1) : chart.y;
-		const x = t === 'figure' ? undefined : chart.x && result.columns.some((c) => c.name === chart!.x) ? chart.x : result.columns.find((c) => !isNumeric(c))?.name ?? result.columns[0]?.name;
-		chart = { type: t, x, y: y.length ? y : numericColumns.slice(0, 1).map((c) => c.name) };
+		chart = selectChart(t, result.columns, chart, axis);
 	}
 	function toggleY(name: string, on: boolean) {
 		if (!chart) return;
@@ -454,16 +456,18 @@
 				<div class="chartctl" role="group" aria-label="Chart">
 					<div class="segmented" role="group" aria-label="Chart type">
 						{#each chartTypes as t (t.id)}
-							<button type="button" aria-pressed={chart.type === t.id} onclick={() => setType(t.id)}>{t.label}</button>
+							<button type="button" aria-pressed={chart.type === t.id} disabled={!axes(t.id, result.columns).length} title={t.id === 'scatter' ? 'Compare two numeric columns' : radial(t.id) ? 'Show one measure by category' : undefined} onclick={() => setType(t.id)}>{t.label}</button>
 						{/each}
 					</div>
 					{#if chart.type !== 'figure'}
 						<label class="pick">
-							<span>{chart.type === 'line' ? 'Along the bottom' : 'One bar per'}</span>
-							<select class="select" value={chart.x} onchange={(e) => (chart = { ...chart!, x: e.currentTarget.value })}>
-								{#each result.columns as c (c.name)}<option value={c.name}>{c.name}</option>{/each}
+							<span>{radial(chart.type) ? 'Slice by' : chart.type === 'bars' || chart.type === 'stacked' ? 'One bar per' : 'Along the bottom'}</span>
+							<select class="select" value={chart.x} onchange={(e) => setType(chart!.type, e.currentTarget.value)}>
+								{#each axes(chart.type, result.columns) as c (c.name)}<option value={c.name}>{c.name}</option>{/each}
 							</select>
 						</label>
+					{/if}
+					{#if !singleMeasure(chart.type)}
 						<fieldset class="ys">
 							<legend>Measure</legend>
 							{#each numericColumns as c (c.name)}
@@ -480,16 +484,16 @@
 						</fieldset>
 					{:else}
 						<label class="pick">
-							<span>Show</span>
+							<span>{chart.type === 'figure' ? 'Show' : 'Measure'}</span>
 							<select class="select" value={chart.y[0]} onchange={(e) => (chart = { ...chart!, y: [e.currentTarget.value] })}>
-								{#each numericColumns as c (c.name)}<option value={c.name}>{c.name}</option>{/each}
+								{#each numericColumns.filter(c => !(radial(chart!.type) || chart!.type === 'scatter') || c.name !== chart!.x) as c (c.name)}<option value={c.name}>{c.name}</option>{/each}
 							</select>
 						</label>
 					{/if}
 				</div>
 				{#if chart.y.length}
 					<div class="chartbox">
-						<ResultChart columns={result.columns} rows={result.rows} spec={chart} label={chartLabel} />
+						<ResultChart columns={result.columns} rows={result.rows} spec={chart} label={chartLabel} truncated={result.truncated} />
 					</div>
 				{:else}
 					<p class="hint">Pick at least one column to measure.</p>
@@ -497,7 +501,7 @@
 			{:else if result}
 				<p class="hint">Nothing here to chart: a chart measures a number, and this result has no number column.</p>
 			{:else if !problem}
-				<p class="hint">Run the query to draw it{chart ? `: it is kept as ${chart.type === 'figure' ? 'a figure' : `a ${chart.type === 'line' ? 'line' : chart.type === 'bars' ? 'bar' : 'stacked bar'} chart`}` : ''}.</p>
+				<p class="hint">{chart ? `Saved chart: ${chartTypes.find(t => t.id === chart?.type)?.label}. ` : ''}Run the query to draw it.</p>
 			{/if}
 		{:else}
 			<ul class="runs" aria-label="Your recent queries">
@@ -880,6 +884,7 @@
 		align-items: flex-end;
 		gap: 0.75rem 1.25rem;
 	}
+	.chartctl .segmented { flex-wrap: wrap; max-width: 100%; }
 	.pick {
 		display: grid;
 		gap: 0.3rem;

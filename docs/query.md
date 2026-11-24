@@ -101,10 +101,11 @@ and History (your last 50, click to bring one back). **Save as view** (or **Save
 `?view=name`) names it, describes it and shares it. The draft is kept in the browser. Types are Postgres's short
 names everywhere (`int2`, `timestamptz`, `text[]`). Tests: `web/e2e/queries.spec.ts`.
 
-**Chart** (`lib/charts/ResultChart.svelte`, `lib/charts/resultChart.ts`): line, bars, stacked bars or a single figure,
+**Chart** (`lib/charts/ResultChart.svelte`, `lib/charts/resultChart.ts`): line, area, scatter, bars, stacked bars, pie, doughnut or a single figure,
 picked to fit the result (a time column and numbers: a line; text and numbers: bars; one number: a figure) and picked
 again when the columns change; up to four numeric columns, coloured series-1..4 in their result order, never cycled.
 Bar charts show the first 50 rows in query order and say how many more are in Results. Zero draws nothing; hover or the arrow keys read exact values; dates are drawn in UTC.
+Choose **Pie** or **Doughnut** for shares of an additive measure, such as ticket counts by priority. Each category needs a single row, with a non-negative value and a positive total. These charts show values and percentages for up to eight categories and decline truncated results; they never silently combine or drop slices. **Area** fills one trend to zero. **Scatter** draws points without connecting them: choose two different numeric columns, for example open tickets and average resolution time by team. Rows missing either coordinate have no point.
 A saved view keeps its chart (`saved_views.chart`, `00020_saved_view_charts`; `query.Chart` checks it against the
 view's columns on every save).
 
