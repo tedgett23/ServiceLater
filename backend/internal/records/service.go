@@ -1071,6 +1071,11 @@ func (s *Service) runAfterRules(ctx context.Context, q *dbgen.Queries, a Actor, 
 	if err != nil {
 		return s.ruleError(ctx, err, apps.TimingAfter, event, &saved.ID, saved.Reference)
 	}
+	return s.applyAfter(ctx, q, a, cause, saved, fx)
+}
+
+// applyAfter carries out what after rules asked for, in the save's transaction.
+func (s *Service) applyAfter(ctx context.Context, q *dbgen.Queries, a Actor, cause ruleruns.Cause, saved Ticket, fx rules.Effects) error {
 	// Each effect is carried out as its rule says: as the person saving, or (run_as: app) as the rule's app.
 	who := func(app, rule string, fn func(Actor) error) error {
 		if r := s.Apps.Rule(app, rule); r != nil && r.RunAs == apps.RunAsApp {

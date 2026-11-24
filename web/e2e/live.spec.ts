@@ -15,7 +15,8 @@ test.describe('live updates', () => {
 
 		await composer(agent.page).fill('Rolling out a fix now.');
 		await agent.page.getByRole('button', { name: 'Add comment' }).click();
-		await expect(lena.page.locator('li', { hasText: 'Rolling out a fix now.' })).toHaveCount(1);
+		// Scoped to the ticket: the bell lists the comment too (core-itsm tells the requester of a public comment).
+		await expect(lena.page.getByRole('region', { name: 'Ticket', exact: true }).locator('li', { hasText: 'Rolling out a fix now.' })).toHaveCount(1);
 		// The author never sees their own comment twice, even though the live event echoes back.
 		await expect(agent.page.locator('li', { hasText: 'Rolling out a fix now.' })).toHaveCount(1);
 	});
@@ -34,7 +35,7 @@ test.describe('live updates', () => {
 
 		// A public reply afterwards proves the socket is alive, so the absence below is meaningful.
 		await api(agent.context, 'post', `/api/v1/tickets/${t.id}/comments`, { body: 'Update for you.' });
-		await expect(lena.page.getByText('Update for you.')).toBeVisible();
+		await expect(lena.page.getByRole('region', { name: 'Ticket', exact: true }).getByText('Update for you.')).toBeVisible();
 		await expect(lena.page.getByText('Vendor confirmed the bug.')).toHaveCount(0);
 	});
 

@@ -153,6 +153,7 @@ func TestRealtimeRoutingAndPrivacy(t *testing.T) {
 			t.Errorf("comment event %v", e)
 		}
 	}
+	ca.next(t, "notification.changed") // core-itsm tells the requester about a public comment
 	cb.none(t, "bob after public comment")
 
 	// An internal note is staff-only: the requester must not even learn it exists.

@@ -1,0 +1,13 @@
+# Tell the assignee about a comment on their ticket, unless it mentions them (they hear about that instead). Nobody
+# is told about their own comment, and an internal note reaches only those who may read internal notes.
+kind: rule
+name: comment-to-assignee
+record_type: task
+timing: after
+on: [comment]
+when: has(record.assignee_id) && !(record.assignee_id in comment.mentions)
+on_error: skip
+run:
+  - action: notify
+    template: comment-added
+    to: [assignee]

@@ -26,6 +26,8 @@
 	import { long, what, who } from '$lib/history';
 	import { can, canRecord, P } from '$lib/types';
 	import Avatar from './Avatar.svelte';
+	import MentionInput from './MentionInput.svelte';
+	import { keptMentions, mentionParts } from '$lib/mentions';
 	import { ui } from '$lib/ui.svelte';
 
 	let props: { ticket: Ticket; comments: Comment[]; loadedAt?: number } = $props();
@@ -246,7 +248,10 @@
 
 	// Comments
 	let draft = $state('');
+	let mentioned = $state<{ id: string; name: string }[]>([]);
 	let internal = $state(false);
+	// Mentions are offered to those who may read the directory (staff); anyone may still type an @.
+	const canMention = $derived(can(session.user, P.usersRead));
 	let posting = $state(false);
 
 	async function post(e?: Event) {
@@ -263,18 +268,24 @@
 			body,
 			internal,
 			created_at: new Date().toISOString(),
+			mentions: mentioned.filter((m) => body.includes('@' + m.name)),
 			pending: true
 		};
 		comments = [...comments, temp];
-		const saved = { draft, internal };
+		const saved = { draft, internal, mentioned };
 		draft = '';
+		mentioned = [];
 		try {
-			const c = await api<Comment>(`${path}/comments`, { method: 'POST', body: { body, internal: saved.internal } });
+			const c = await api<Comment>(`${path}/comments`, {
+				method: 'POST',
+				body: { body, internal: saved.internal, mentions: keptMentions(body, saved.mentioned) }
+			});
 			// A live refetch may already have delivered this comment; never show it twice.
 			comments = [...comments.filter((x) => x.id !== temp.id && x.id !== c.id), c].sort((a, b) => a.created_at.localeCompare(b.created_at));
 		} catch (err) {
 			comments = comments.filter((x) => x.id !== temp.id);
 			draft = saved.draft; // give the text back
+			mentioned = saved.mentioned;
 			error = err instanceof Error ? err.message : 'Your comment didn’t send';
 		} finally {
 			posting = false;
@@ -371,7 +382,7 @@
 									{#if c.internal}<span class="tag">Internal note</span>{/if}
 									<time datetime={c.created_at}>{c.pending ? 'Sending…' : when(c.created_at)}</time>
 								</div>
-								<p>{c.body}</p>
+								<p>{#each mentionParts(c.body, c.mentions) as part, i (i)}{#if part.mention}<span class="mention" class:me={part.mention.id === session.user?.id}>{part.text}</span>{:else}{part.text}{/if}{/each}</p>
 							</li>
 						{:else if item.file}
 							{@const f = item.file}
@@ -407,16 +418,16 @@
 				</ol>
 
 				<form class="composer" onsubmit={post}>
-					<label class="field">
-						<span class="sr-only">{internal ? 'Internal note' : 'Comment'}</span>
-						<textarea
-							bind:value={draft}
-							onkeydown={onComposerKey}
-							placeholder={internal ? 'Write a note only agents can see' : 'Write a comment'}
-							class:internal
-							maxlength="10000"
-						></textarea>
-					</label>
+					<MentionInput
+						bind:value={draft}
+						bind:mentions={mentioned}
+						enabled={canMention}
+						lookup="{path}/mentionable"
+						label={internal ? 'Internal note' : 'Comment'}
+						placeholder={internal ? 'Write a note only agents can see (@ to mention someone)' : canMention ? 'Write a comment (@ to mention someone)' : 'Write a comment'}
+						{internal}
+						onkeydown={onComposerKey}
+					/>
 					<div class="composer-row">
 						{#if canInternal}
 							<label class="check"><input type="checkbox" bind:checked={internal} /> Internal note</label>
@@ -845,9 +856,15 @@
 		display: grid;
 		gap: 0.6rem;
 	}
-	.composer textarea.internal {
+	.mention {
+		font-weight: 600;
+		color: var(--blue);
+	}
+	.mention.me {
+		color: var(--marker-ink);
 		background: var(--marker-soft);
-		border-color: var(--marker);
+		border-radius: 4px;
+		padding: 0 0.15rem;
 	}
 	.composer-row {
 		display: flex;

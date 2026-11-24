@@ -2958,6 +2958,13 @@
           "internal": {
             "type": "boolean"
           },
+          "mentions": {
+            "description": "The people the comment @mentions; the body names each as @ and their name.",
+            "items": {
+              "$ref": "#/components/schemas/Mention"
+            },
+            "type": "array"
+          },
           "on_behalf_of_name": {
             "description": "Names the person an app acted for, when an app wrote the comment (author_name is then the app).",
             "type": "string"
@@ -2974,6 +2981,7 @@
           "created_at",
           "id",
           "internal",
+          "mentions",
           "ticket_id"
         ],
         "type": "object"
@@ -5019,6 +5027,44 @@
           "id",
           "name",
           "role"
+        ],
+        "type": "object"
+      },
+      "Mention": {
+        "description": "A person a comment mentions.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "MentionCandidate": {
+        "description": "Someone a comment may mention.",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "id",
+          "name"
         ],
         "type": "object"
       },
@@ -29494,7 +29540,7 @@
         ]
       },
       "post": {
-        "description": "With {\"body\": \"...\", \"internal\": false}. Only staff may post internal notes.",
+        "description": "With {\"body\": \"...\", \"internal\": false, \"mentions\": [user ids]}. Only staff may post internal notes. Each person mentioned must be able to read the comment (see the record; for an internal note, hold comments:internal), and the body names them as @ and their name. The rules on: [comment] then tell people about it (core-itsm tells the people mentioned, the assignee and, for a public comment, the requester).",
         "operationId": "createComment",
         "parameters": [
           {
@@ -29516,6 +29562,13 @@
                   },
                   "internal": {
                     "type": "boolean"
+                  },
+                  "mentions": {
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "type": "array"
                   }
                 },
                 "type": "object"
@@ -29851,6 +29904,144 @@
         ],
         "x-permissions": [
           "cmdb:read"
+        ]
+      }
+    },
+    "/api/v1/tickets/{id}/mentionable": {
+      "get": {
+        "description": "(users:read): up to six people whose name or email contains q and who may read a comment on this record (for an internal note, those with comments:internal): whom the comment box offers when someone types @.\n\nRequires the `users:read` permission.",
+        "operationId": "listMentionable",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "internal",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "$ref": "#/components/schemas/MentionCandidate"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "List mentionable",
+        "tags": [
+          "tickets"
+        ],
+        "x-permissions": [
+          "users:read"
         ]
       }
     },

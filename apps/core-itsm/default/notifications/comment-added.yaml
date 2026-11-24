@@ -1,0 +1,5 @@
+kind: notification
+name: comment-added
+title: "{{actor.name}} commented on {{record.reference}}"
+body: "{{comment.body}}"
+channels: [in_app, email]

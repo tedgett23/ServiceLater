@@ -25,6 +25,10 @@ const (
 
 	EventCreate = "create"
 	EventUpdate = "update"
+	// EventComment is a person adding a comment to the record (in the app, or by replying to an email). It is for
+	// after rules, which read the comment as `comment`. Comments written by apps (rules, workflows, scripts) are not
+	// events: an app says whom to tell about what it does itself.
+	EventComment = "comment"
 
 	RunAsApp = "app" // run_as: an after rule acting as its app's principal
 
@@ -324,15 +328,17 @@ func (r *Rule) validateStructure(file string, p *Problems) {
 		p.add(file, "timing must be before, after or async, got %q", r.Timing)
 	}
 	if len(r.On) == 0 {
-		p.add(file, "on is required: list the events this rule runs for (create, update)")
+		p.add(file, "on is required: list the events this rule runs for (create, update, comment)")
 	}
 	seen := map[string]bool{}
 	for _, e := range r.On {
 		switch {
 		case e == "delete":
 			p.add(file, "on: delete is not supported yet")
-		case e != EventCreate && e != EventUpdate:
-			p.add(file, "on: %q is not an event (create or update)", e)
+		case e != EventCreate && e != EventUpdate && e != EventComment:
+			p.add(file, "on: %q is not an event (create, update or comment)", e)
+		case e == EventComment && r.Timing != TimingAfter:
+			p.add(file, "on: comment is only for after rules: a comment has no fields to set before it is saved, and it is told about at once")
 		case seen[e]:
 			p.add(file, "on: %q is listed twice", e)
 		}
@@ -459,8 +465,12 @@ func (a *Action) structureProblems(r *Rule, _ int) (out []string) {
 			add("notify needs to: who to tell (%s, or an =expression giving user ids)", strings.Join(Recipients, ", "))
 		}
 		for j, to := range a.To {
-			if !strings.HasPrefix(to, "=") && !slices.Contains(Recipients, to) {
-				add("to[%d]: %q is not a recipient (%s, or an =expression giving user ids)", j, to, strings.Join(Recipients, ", "))
+			switch {
+			case to == RecipientMentioned && !slices.Contains(r.On, EventComment):
+				add("to[%d]: mentioned are the people a comment mentions, so the rule must be on: [comment]", j)
+			case to == RecipientMentioned:
+			case !strings.HasPrefix(to, "=") && !slices.Contains(Recipients, to):
+				add("to[%d]: %q is not a recipient (%s, %s for a comment rule, or an =expression giving user ids)", j, to, strings.Join(Recipients, ", "), RecipientMentioned)
 			}
 		}
 		extra("field", a.Field != "")
@@ -695,6 +705,9 @@ func (d Definition) actionRules() []locatedRule {
 
 // Recipients are the people a notify action can name without an expression.
 var Recipients = []string{"assignee", "requester", "assignment_group"}
+
+// RecipientMentioned is, in a rule on: [comment], the people the comment @mentions.
+const RecipientMentioned = "mentioned"
 
 // Recipient returns the To entry's compiled expression (nil for a named recipient) and any reason it cannot be
 // evaluated.

@@ -128,6 +128,8 @@ func TestRulesAreRejectedWhenTheyAreWrong(t *testing.T) {
 		{"delete is not here yet", with("on: [update]", "on: [delete]"), "on: delete is not supported yet"},
 		{"a made-up event", with("on: [update]", "on: [nightly]"), "\"nightly\" is not an event"},
 		{"an event twice", with("on: [update]", "on: [update, update]"), "listed twice"},
+		{"a comment event before the save", with("on: [update]", "on: [comment]"), "on: comment is only for after rules"},
+		{"mentioned outside a comment rule", after("  - action: notify\n    template: t\n    to: [mentioned]\n"), "the rule must be on: [comment]"},
 		{"order out of range", with("on: [update]", "on: [update]\norder: 5000"), "order must be from 0 to 1000"},
 		{"a bad on_error", with("on: [update]", "on: [update]\non_error: shrug"), "on_error must be block or skip"},
 		{"an unknown field", with("timing: before", "timing: before\ntimimg: after"), "field timimg not found"},
@@ -199,6 +201,22 @@ func TestAnAfterRuleMayAddCommentsAndAbort(t *testing.T) {
 	}
 	if r := c.Definitions[0].Rule; !r.Applies(TimingAfter, EventCreate) || !r.Run[0].Internal || r.Run[1].Action != "abort" {
 		t.Errorf("rule: %+v", r)
+	}
+}
+
+// A comment rule reads the comment, and may tell the people it mentions.
+func TestARuleMayRunWhenSomeoneComments(t *testing.T) {
+	files := ruleApp(map[string]string{"c.yaml": "kind: rule\nname: on-comment\nrecord_type: task\ntiming: after\non: [comment]\n" +
+		"when: '!comment.internal && size(comment.mentions) > 0 && comment.body.contains(\"urgent\")'\nrun:\n  - action: notify\n    template: heads-up\n    to: [mentioned, requester]\n"})
+	files["default/notifications/heads-up.yaml"] = "kind: notification\nname: heads-up\ntitle: \"{{actor.name}} on {{record.reference}}\"\nbody: \"{{comment.body}}\"\n"
+	c, p := compile(t, files)
+	if p != nil {
+		t.Fatal(p)
+	}
+	for _, d := range c.Definitions {
+		if r := d.Rule; r != nil && (!r.Applies(TimingAfter, EventComment) || r.Applies(TimingAfter, EventUpdate)) {
+			t.Errorf("rule: %+v", r)
+		}
 	}
 }
 

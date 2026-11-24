@@ -1,0 +1,5 @@
+kind: notification
+name: incident-resolved
+title: "{{record.reference}} was resolved"
+body: "{{record.resolution}}"
+channels: [in_app, email]

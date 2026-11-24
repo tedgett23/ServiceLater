@@ -383,6 +383,7 @@ type Notification struct {
 	ActorID    uuid.NullUUID      `json:"actor_id"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
 	ReadAt     pgtype.Timestamptz `json:"read_at"`
+	CommentID  uuid.NullUUID      `json:"comment_id"`
 }
 
 // Knowledge articles you can read: published ones for their audience, drafts and retired ones if you write or publish articles.
@@ -921,6 +922,11 @@ type TaskComment struct {
 	Body       string             `json:"body"`
 	Internal   bool               `json:"internal"`
 	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+}
+
+type TaskCommentMention struct {
+	CommentID uuid.UUID `json:"comment_id"`
+	UserID    uuid.UUID `json:"user_id"`
 }
 
 type TaskSla struct {

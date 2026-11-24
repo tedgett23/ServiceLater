@@ -1,0 +1,13 @@
+# Tell the requester about a public comment on their ticket, unless it mentions them. Internal notes never reach
+# them. A reply to the email becomes their comment, when incoming email is on.
+kind: rule
+name: comment-to-requester
+record_type: task
+timing: after
+on: [comment]
+when: "!comment.internal && !(record.requester_id in comment.mentions)"
+on_error: skip
+run:
+  - action: notify
+    template: comment-added
+    to: [requester]

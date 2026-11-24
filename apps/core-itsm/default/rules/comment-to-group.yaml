@@ -1,0 +1,13 @@
+# When the requester comments on a ticket nobody has taken yet, tell the team it is routed to.
+kind: rule
+name: comment-to-group
+record_type: task
+timing: after
+on: [comment]
+when: >-
+  !has(record.assignee_id) && has(record.assignment_group_id) && user.id == record.requester_id
+on_error: skip
+run:
+  - action: notify
+    template: comment-added
+    to: [assignment_group]

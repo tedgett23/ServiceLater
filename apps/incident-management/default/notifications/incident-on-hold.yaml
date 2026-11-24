@@ -1,0 +1,5 @@
+kind: notification
+name: incident-on-hold
+title: "{{record.reference}} is on hold"
+body: "{{record.title}}"
+channels: [in_app, email]

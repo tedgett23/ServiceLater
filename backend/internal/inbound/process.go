@@ -168,7 +168,13 @@ func (p *Processor) reply(ctx context.Context, o Outcome, m *Mail, auth Auth, no
 		if text == "" {
 			return nil
 		}
-		_, err = q.CreateComment(ctx, dbgen.CreateCommentParams{TaskID: t.ID, AuthorID: n.UserID, Body: text + filesNote(m.Dropped)})
+		// As the person would comment in the app: the rules on: [comment] tell the assignee.
+		a, err := records.ActorIn(ctx, q, n.UserID)
+		if err != nil {
+			return err
+		}
+		svc := &records.Service{Apps: p.Apps, Pool: p.Pool}
+		_, err = svc.Comment(ctx, q, a, ruleruns.Cause{}, t.ID, records.CommentInput{Body: clipRunes(text+filesNote(m.Dropped), records.MaxComment)})
 		return err
 	})
 	if err != nil {
